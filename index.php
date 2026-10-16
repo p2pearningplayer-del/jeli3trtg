@@ -20,13 +20,63 @@ StateMachine::checkAndExpireOrders();
 $currentUser = Auth::getCurrentUser();
 $isImpersonating = !empty($_SESSION['is_impersonating']);
 $refFromQuery = htmlspecialchars($_GET['ref'] ?? '');
+
+// Dynamic Platform Settings (Requirement 6)
+$pdo = Database::getConnection();
+$settingsStmt = $pdo->query("SELECT setting_key, setting_value FROM platform_settings");
+$platformSettings = [];
+if ($settingsStmt) {
+    while ($row = $settingsStmt->fetch()) {
+        $platformSettings[$row['setting_key']] = $row['setting_value'];
+    }
+}
+
+$siteName = htmlspecialchars($platformSettings['site_name'] ?? 'JeliPay');
+$siteTagline = htmlspecialchars($platformSettings['site_tagline'] ?? 'Unified Marketplace');
+$tokenRate = htmlspecialchars($platformSettings['token_rate_inr'] ?? '1');
+$purchaseRewardPct = htmlspecialchars($platformSettings['purchase_reward_percent'] ?? '9.0');
+$isMaintenance = ($platformSettings['maintenance_mode'] ?? '0') === '1';
+$maintenanceMsg = htmlspecialchars($platformSettings['maintenance_message'] ?? 'Platform is temporarily offline for scheduled system optimization.');
+$announcementActive = ($platformSettings['announcement_banner_active'] ?? '0') === '1';
+$announcementText = htmlspecialchars($platformSettings['announcement_banner_text'] ?? '');
+$isAdminUser = $currentUser && ($currentUser['role'] === 'admin' || !empty($currentUser['real_admin_id']));
+
+// Maintenance Mode Enforcement for non-admins
+if ($isMaintenance && !$isAdminUser):
+?>
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-950">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><?= $siteName ?> &bull; Scheduled Maintenance</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>body { font-family: 'Plus Jakarta Sans', sans-serif; }</style>
+</head>
+<body class="h-full flex items-center justify-center p-4 bg-slate-950 text-slate-100">
+    <div class="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center space-y-4 shadow-2xl">
+        <div class="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mx-auto">
+            <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+        </div>
+        <h1 class="text-2xl font-black text-white"><?= $siteName ?> is in Maintenance</h1>
+        <p class="text-sm text-slate-400"><?= $maintenanceMsg ?></p>
+        <div class="pt-4 border-t border-slate-800">
+            <a href="/admin_login.php" class="text-xs text-amber-400 hover:underline font-semibold">Administrator Access Portal &rarr;</a>
+        </div>
+    </div>
+</body>
+</html>
+<?php
+exit;
+endif;
 ?>
 <!DOCTYPE html>
 <html lang="en" class="h-full bg-slate-950">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>JeliPay | Peer-to-Peer Token Trading Platform</title>
+    <title><?= $siteName ?> | Peer-to-Peer Token Trading Platform</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -76,6 +126,14 @@ $refFromQuery = htmlspecialchars($_GET['ref'] ?? '');
     </div>
     <?php endif; ?>
 
+    <!-- Active Platform Announcement Notice Banner (Requirement 6) -->
+    <?php if ($announcementActive && !empty($announcementText)): ?>
+    <div class="bg-gradient-to-r from-indigo-900/90 via-purple-900/80 to-indigo-950 border-b border-indigo-500/30 px-4 py-2 text-center text-xs text-indigo-200 font-semibold shadow-inner flex items-center justify-center gap-2">
+        <span class="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+        <span><?= $announcementText ?></span>
+    </div>
+    <?php endif; ?>
+
     <!-- Platform Header & Navigation -->
     <header class="bg-slate-900/90 backdrop-blur border-b border-slate-800 sticky <?= $isImpersonating ? 'top-8' : 'top-0' ?> z-40">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -90,22 +148,22 @@ $refFromQuery = htmlspecialchars($_GET['ref'] ?? '');
                         </div>
                         <div>
                             <span class="text-lg font-black tracking-tight text-white flex items-center gap-1.5">
-                                JeliPay <span class="text-[10px] uppercase font-bold tracking-widest px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">P2P</span>
+                                <?= $siteName ?> <span class="text-[10px] uppercase font-bold tracking-widest px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">P2P</span>
                             </span>
-                            <span class="text-[10px] text-slate-400 block -mt-1">Unified Marketplace</span>
+                            <span class="text-[10px] text-slate-400 block -mt-1"><?= $siteTagline ?></span>
                         </div>
                     </div>
 
                     <!-- Token Valuation Baseline Badge -->
                     <div class="hidden sm:flex items-center gap-2 bg-slate-950/60 border border-slate-800/80 rounded-lg px-2.5 py-1 text-xs">
                         <span class="text-slate-400">Baseline Rate:</span>
-                        <span class="font-bold text-white font-mono">1 Token = ₹1.00</span>
+                        <span class="font-bold text-white font-mono">1 Token = ₹<?= $tokenRate ?>.00</span>
                     </div>
 
-                    <!-- 9% Promotional Reward Badge -->
+                    <!-- Promotional Reward Badge -->
                     <div class="hidden md:flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-2.5 py-1 text-xs text-emerald-400 font-semibold">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                        <span>+9% Purchase Reward</span>
+                        <span>+<?= $purchaseRewardPct ?>% Purchase Reward</span>
                     </div>
                 </div>
 
@@ -126,11 +184,22 @@ $refFromQuery = htmlspecialchars($_GET['ref'] ?? '');
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
                         </button>
 
+                        <?php if ($isAdminUser): ?>
+                        <!-- Dedicated Admin Console Link -->
+                        <a href="/admin.php" class="px-2.5 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-xl text-xs font-bold transition flex items-center gap-1.5" title="Dedicated Admin Console">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+                            <span class="hidden md:inline">Admin Console</span>
+                        </a>
+                        <?php endif; ?>
+
                         <!-- Logout -->
                         <button onclick="logout()" class="p-2 bg-slate-800 hover:bg-red-500/20 text-slate-400 hover:text-red-400 rounded-xl border border-slate-700 transition" title="Logout">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
                         </button>
                     <?php else: ?>
+                        <a href="/admin_login.php" class="text-xs text-amber-400 hover:underline px-2 py-1 font-semibold">
+                            Admin Portal
+                        </a>
                         <button onclick="openAuthModal('login')" class="text-xs sm:text-sm font-semibold text-slate-300 hover:text-white px-3 py-2 transition">
                             Sign In
                         </button>
@@ -762,8 +831,8 @@ $refFromQuery = htmlspecialchars($_GET['ref'] ?? '');
                 <input type="hidden" id="authMode" value="login">
 
                 <div>
-                    <label class="text-xs font-semibold text-slate-300 block mb-1">Mobile Number (10 Digits)</label>
-                    <input type="tel" id="authPhone" required placeholder="9876543210" maxlength="10" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white font-mono focus:border-indigo-500 focus:outline-none">
+                    <label class="text-xs font-semibold text-slate-300 block mb-1">Phone Number or User ID</label>
+                    <input type="text" id="authPhone" required placeholder="9876543210 or DEMOUSER001" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white font-mono focus:border-indigo-500 focus:outline-none">
                 </div>
 
                 <div>
@@ -799,6 +868,21 @@ $refFromQuery = htmlspecialchars($_GET['ref'] ?? '');
                 <button type="button" onclick="toggleAuthMode()" class="text-indigo-400 font-bold hover:underline ml-1" id="authToggleBtn">
                     Create Account
                 </button>
+            </div>
+
+            <!-- Demo Accounts Helper (Requirement 9) -->
+            <div class="mt-4 pt-4 border-t border-slate-800 space-y-2">
+                <span class="text-[11px] font-bold uppercase tracking-wider text-slate-500 block text-center">Demo Accounts (For Evaluation & Testing)</span>
+                <div class="grid grid-cols-2 gap-2 text-left">
+                    <button type="button" onclick="fillDemoUserCredentials()" class="p-2.5 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 transition">
+                        <span class="text-xs font-bold text-emerald-400 block font-mono">DEMOUSER001</span>
+                        <span class="text-[10px] text-slate-400 block">User &bull; ₹10k Test Bal</span>
+                    </button>
+                    <a href="/admin_login.php" class="p-2.5 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 transition block">
+                        <span class="text-xs font-bold text-amber-400 block font-mono">DEMOADMIN001</span>
+                        <span class="text-[10px] text-slate-400 block">Admin Portal &rarr;</span>
+                    </a>
+                </div>
             </div>
         </div>
     </div>

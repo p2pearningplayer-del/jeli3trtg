@@ -34,12 +34,24 @@ switch ($action) {
         break;
 
     case 'login':
-        $phone = $input['phone'] ?? '';
+        $identifier = $input['identifier'] ?? $input['phone'] ?? '';
         $password = $input['password'] ?? '';
 
-        $res = Auth::login($phone, $password);
+        $res = Auth::login($identifier, $password);
         if ($res['success']) {
             jsonResponse(true, ['message' => 'Login successful.', 'user' => $res['user']]);
+        } else {
+            jsonError($res['error'], 401);
+        }
+        break;
+
+    case 'admin_login':
+        $identifier = $input['identifier'] ?? $input['email'] ?? $input['phone'] ?? '';
+        $password = $input['password'] ?? '';
+
+        $res = Auth::adminLogin($identifier, $password);
+        if ($res['success']) {
+            jsonResponse(true, ['message' => 'Admin authentication successful.', 'admin' => $res['admin']]);
         } else {
             jsonError($res['error'], 401);
         }

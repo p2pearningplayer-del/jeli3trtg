@@ -1269,6 +1269,14 @@ function toggleAuthMode() {
     openAuthModal(cur === 'login' ? 'register' : 'login');
 }
 
+function fillDemoUserCredentials() {
+    openAuthModal('login');
+    const phoneEl = document.getElementById('authPhone');
+    const passEl = document.getElementById('authPassword');
+    if (phoneEl) phoneEl.value = 'DEMOUSER001';
+    if (passEl) passEl.value = 'DemoUser@123';
+}
+
 async function handleAuthSubmit(e) {
     e.preventDefault();
     const mode = document.getElementById('authMode').value;
@@ -1276,7 +1284,7 @@ async function handleAuthSubmit(e) {
     const password = document.getElementById('authPassword').value;
     const errEl = document.getElementById('authError');
 
-    const payload = { phone, password };
+    const payload = { identifier: phone, phone, password };
 
     if (mode === 'register') {
         payload.name = document.getElementById('authName').value.trim();

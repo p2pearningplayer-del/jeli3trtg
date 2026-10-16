@@ -1,6 +1,6 @@
 <?php
 /**
- * CLI Test Runner for Acceptance Scenarios (QA-001 to QA-008)
+ * CLI Test Runner for Acceptance Scenarios (QA-001 to QA-013)
  */
 
 putenv('ALLOW_SQLITE_CLI_FALLBACK=1');
@@ -36,7 +36,7 @@ echo sprintf("Summary: %d / %d Acceptance Scenarios Passed (%.1f%%)\n", $passedC
 echo "--------------------------------------------------------------------\n";
 
 if ($allPassed) {
-    echo "\033[32mSUCCESS: All PRD acceptance scenarios & unified lifecycle directives (QA-001 through QA-011) passed strictly on backend logic.\033[0m\n\n";
+    echo "\033[32mSUCCESS: All PRD acceptance scenarios & unified lifecycle directives (QA-001 through QA-013) passed strictly on backend logic.\033[0m\n\n";
     exit(0);
 } else {
     echo "\033[31mFAILURE: One or more acceptance tests failed.\033[0m\n\n";

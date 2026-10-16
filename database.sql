@@ -22,10 +22,15 @@ SET FOREIGN_KEY_CHECKS = 1;
 CREATE TABLE `users` (
   `id` INT AUTO_INCREMENT PRIMARY KEY,
   `phone` VARCHAR(20) NOT NULL UNIQUE,
+  `email` VARCHAR(100) DEFAULT NULL,
   `password_hash` VARCHAR(255) NOT NULL,
   `tpin_hash` VARCHAR(255) DEFAULT NULL,
   `account_status` ENUM('active', 'suspended') NOT NULL DEFAULT 'active',
   `role` ENUM('user', 'admin') NOT NULL DEFAULT 'user',
+  `admin_role` ENUM('super_admin', 'order_manager', 'dispute_manager') DEFAULT NULL,
+  `is_demo` TINYINT(1) NOT NULL DEFAULT 0,
+  `is_flagged` TINYINT(1) NOT NULL DEFAULT 0,
+  `flag_reason` VARCHAR(255) DEFAULT NULL,
   `referral_code` VARCHAR(32) NOT NULL UNIQUE,
   `referred_by_id` INT DEFAULT NULL,
   `upi_id` VARCHAR(100) DEFAULT NULL,
@@ -33,6 +38,7 @@ CREATE TABLE `users` (
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX `idx_users_phone` (`phone`),
+  INDEX `idx_users_email` (`email`),
   INDEX `idx_users_ref` (`referral_code`),
   INDEX `idx_users_referred_by` (`referred_by_id`),
   CONSTRAINT `fk_users_referred_by` FOREIGN KEY (`referred_by_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
@@ -134,6 +140,9 @@ CREATE TABLE `disputes` (
   `reason` TEXT NOT NULL,
   `evidence_screenshot_path` VARCHAR(255) DEFAULT NULL,
   `status` ENUM('pending', 'under_review', 'resolved_buyer', 'resolved_seller') NOT NULL DEFAULT 'pending',
+  `additional_evidence_requested` TINYINT(1) NOT NULL DEFAULT 0,
+  `refund_status` ENUM('none', 'pending', 'issued', 'not_applicable') NOT NULL DEFAULT 'none',
+  `refund_reference` VARCHAR(100) DEFAULT NULL,
   `resolution_notes` TEXT DEFAULT NULL,
   `resolved_by_admin_id` INT DEFAULT NULL,
   `resolved_at` DATETIME DEFAULT NULL,
@@ -199,7 +208,7 @@ CREATE TABLE `admin_audit_logs` (
 -- 9. PLATFORM CONFIGURATION SETTINGS
 CREATE TABLE `platform_settings` (
   `setting_key` VARCHAR(100) PRIMARY KEY,
-  `setting_value` VARCHAR(255) NOT NULL,
+  `setting_value` TEXT NOT NULL,
   `description` VARCHAR(255) DEFAULT NULL,
   `updated_by` INT DEFAULT NULL,
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -234,22 +243,38 @@ CREATE TABLE `notifications` (
 -- DEFAULT CONFIGURATION SEEDS
 -- ====================================================================
 INSERT INTO `platform_settings` (`setting_key`, `setting_value`, `description`) VALUES
+('site_name', 'JeliPay', 'Website and platform public brand name'),
+('site_tagline', 'Unified Peer-to-Peer Token Trading Platform', 'Platform sub-header description'),
 ('token_rate_inr', '1', 'Base value of 1 token in INR'),
 ('purchase_reward_percent', '9.0', 'Buyer purchase reward percentage (default 9%)'),
 ('referral_l1_percent', '1.0', 'Level 1 direct referral reward percentage'),
 ('referral_l2_percent', '0.5', 'Level 2 indirect referral reward percentage'),
 ('min_sell_amount', '100', 'Minimum allowed token amount for sell listing'),
+('max_sell_amount', '100000', 'Maximum allowed token amount for sell listing'),
+('min_buy_amount', '100', 'Minimum allowed token amount for custom buy allocation'),
+('max_buy_amount', '100000', 'Maximum allowed token amount for custom buy allocation'),
 ('sell_denomination_step', '100', 'Mandatory step modulo for sell amount (Amount MOD 100 == 0)'),
 ('weekly_selling_target', '400000', 'Weekly selling target in INR for progress calculation'),
 ('buyer_payment_window_seconds', '600', '10-minute payment countdown window for buyer'),
 ('seller_verify_window_seconds', '900', '15-minute seller verification window before response timeout'),
-('max_child_splits', '8', 'Maximum micro-order portions a parent order can split into');
+('max_child_splits', '8', 'Maximum micro-order portions a parent order can split into'),
+('announcement_banner_active', '1', 'Display announcement notice banner on homepage (1=Active, 0=Inactive)'),
+('announcement_banner_text', '✨ Active Promotion: Earn 9% instant credit rewards on all peer token purchases!', 'Text banner displayed to traders'),
+('announcement_banner_image', '', 'Optional banner graphical asset URL'),
+('maintenance_mode', '0', 'Put marketplace into maintenance mode (1=Active, 0=Disabled)'),
+('maintenance_message', 'JeliPay is temporarily offline for scheduled system optimization. We will resume trading shortly.', 'Maintenance notice displayed to non-admins'),
+('terms_of_service', 'All token trades are peer-to-peer and settled directly via UPI banking. Users must verify payment proofs accurately.', 'Platform terms of service statement'),
+('privacy_policy', 'Your privacy is paramount. Personal contact details and phone numbers are masked across public trade order pools.', 'Platform privacy policy statement'),
+('support_contact_info', 'support@jelipay.in', 'Official administrative support contact details'),
+('approved_upi_config', 'jelipay@upi', 'Approved default UPI gateway reference'),
+('reward_eligible_types', 'ALL', 'Eligible transaction types for reward calculation');
 
 -- ====================================================================
 -- INITIAL USERS & WALLET SEEDS
 -- ====================================================================
-INSERT INTO `users` (`id`, `phone`, `password_hash`, `tpin_hash`, `account_status`, `role`, `referral_code`, `referred_by_id`, `upi_id`, `account_holder_name`)
-VALUES (1, '9999999999', '$2y$10$nsaDWNCaNU9TRJp/FJ3NpuncVzjhS7zyQADri9qt0iWnUN1JTAW8e', '$2y$10$xR4yCngo7fNgdPrDkxFJ1OQPrhriUSm2RpwEvFkdBNRT3nEUVWGMm', 'active', 'admin', 'ADMIN001', NULL, 'jelipayadmin@upi', 'JeliPay Admin');
+-- 1. Super Admin Account: Phone 9999999999 / Password 'Admin@123456' / TPIN '1234'
+INSERT INTO `users` (`id`, `phone`, `email`, `password_hash`, `tpin_hash`, `account_status`, `role`, `admin_role`, `referral_code`, `referred_by_id`, `upi_id`, `account_holder_name`)
+VALUES (1, '9999999999', 'admin@jelipay.in', '$2y$10$nsaDWNCaNU9TRJp/FJ3NpuncVzjhS7zyQADri9qt0iWnUN1JTAW8e', '$2y$10$xR4yCngo7fNgdPrDkxFJ1OQPrhriUSm2RpwEvFkdBNRT3nEUVWGMm', 'active', 'admin', 'super_admin', 'ADMIN001', NULL, 'jelipayadmin@upi', 'JeliPay Admin');
 
 INSERT INTO `wallets` (`id`, `user_id`, `available_balance`, `reserved_balance`, `pending_credit_balance`, `total_rewards_earned`, `total_commissions_earned`, `version`)
 VALUES (1, 1, 1000000.00, 0.00, 0.00, 0.00, 0.00, 1);
@@ -257,20 +282,42 @@ VALUES (1, 1, 1000000.00, 0.00, 0.00, 0.00, 0.00, 1);
 INSERT INTO `wallet_ledger` (`user_id`, `transaction_type`, `amount`, `previous_balance`, `new_balance`, `balance_type`, `reference_id`, `actor_id`, `actor_role`, `notes`)
 VALUES (1, 'INITIAL_DEPOSIT', 1000000.00, 0.00, 1000000.00, 'available', 'SYS_INIT_1', 1, 'system', 'Platform liquidity initial reserve');
 
-INSERT INTO `users` (`id`, `phone`, `password_hash`, `tpin_hash`, `account_status`, `role`, `referral_code`, `referred_by_id`, `upi_id`, `account_holder_name`)
-VALUES (2, '9876543210', '$2y$10$VptZJT57ky0utSer8oOiMerRqnDko3zNNqzM50MHgiWoPJoQNRyjW', '$2y$10$xR4yCngo7fNgdPrDkxFJ1OQPrhriUSm2RpwEvFkdBNRT3nEUVWGMm', 'active', 'user', 'USER001', 1, 'user1@okhdfcbank', 'Rohan Sharma');
+-- 2. Demo Admin Account: Admin ID 'DEMOADMIN001' / Phone 9888800000 / Email 'demoadmin@jelipay.in' / Password 'DemoAdmin@123'
+INSERT INTO `users` (`id`, `phone`, `email`, `password_hash`, `tpin_hash`, `account_status`, `role`, `admin_role`, `referral_code`, `referred_by_id`, `upi_id`, `account_holder_name`)
+VALUES (2, '9888800000', 'demoadmin@jelipay.in', '$2y$10$HU771qOFL016eO.hpPE5x.IVliUJ1Qca2K8TyzAzFbN7XPo/BRuhO', '$2y$10$aq.G53.wTfw/6bxgafs2O.TcU2ZPsuBlmRUqf9rXCI.TDhQO446ou', 'active', 'admin', 'super_admin', 'DEMOADMIN001', NULL, 'demoadmin@upi', 'Demo Administrator');
 
 INSERT INTO `wallets` (`id`, `user_id`, `available_balance`, `reserved_balance`, `pending_credit_balance`, `total_rewards_earned`, `total_commissions_earned`, `version`)
-VALUES (2, 2, 50000.00, 0.00, 0.00, 0.00, 0.00, 1);
+VALUES (2, 2, 500000.00, 0.00, 0.00, 0.00, 0.00, 1);
 
 INSERT INTO `wallet_ledger` (`user_id`, `transaction_type`, `amount`, `previous_balance`, `new_balance`, `balance_type`, `reference_id`, `actor_id`, `actor_role`, `notes`)
-VALUES (2, 'INITIAL_DEPOSIT', 50000.00, 0.00, 50000.00, 'available', 'SYS_INIT_2', 1, 'system', 'Demo user initial balance');
+VALUES (2, 'INITIAL_DEPOSIT', 500000.00, 0.00, 500000.00, 'available', 'SYS_INIT_2', 2, 'system', 'Demo administrator staging reserve');
 
-INSERT INTO `users` (`id`, `phone`, `password_hash`, `tpin_hash`, `account_status`, `role`, `referral_code`, `referred_by_id`, `upi_id`, `account_holder_name`)
-VALUES (3, '9811122233', '$2y$10$VptZJT57ky0utSer8oOiMerRqnDko3zNNqzM50MHgiWoPJoQNRyjW', '$2y$10$xR4yCngo7fNgdPrDkxFJ1OQPrhriUSm2RpwEvFkdBNRT3nEUVWGMm', 'active', 'user', 'USER002', 2, 'user2@paytm', 'Priya Patel');
+-- 3. Demo User Account: User ID 'DEMOUSER001' / Phone 9888800001 / Password 'DemoUser@123' / TPIN '1234'
+INSERT INTO `users` (`id`, `phone`, `email`, `password_hash`, `tpin_hash`, `account_status`, `role`, `is_demo`, `referral_code`, `referred_by_id`, `upi_id`, `account_holder_name`)
+VALUES (3, '9888800001', 'demouser@jelipay.in', '$2y$10$1djyY.sn4UJ32HNnRE/3cOqYgCRho99T.Zk1IPzjTbexhKkk0NY2.', '$2y$10$aq.G53.wTfw/6bxgafs2O.TcU2ZPsuBlmRUqf9rXCI.TDhQO446ou', 'active', 'user', 1, 'DEMOUSER001', 1, 'demouser@okhdfcbank', 'Demo Trader');
 
 INSERT INTO `wallets` (`id`, `user_id`, `available_balance`, `reserved_balance`, `pending_credit_balance`, `total_rewards_earned`, `total_commissions_earned`, `version`)
-VALUES (3, 3, 20000.00, 0.00, 0.00, 0.00, 0.00, 1);
+VALUES (3, 3, 10000.00, 0.00, 0.00, 0.00, 0.00, 1);
 
 INSERT INTO `wallet_ledger` (`user_id`, `transaction_type`, `amount`, `previous_balance`, `new_balance`, `balance_type`, `reference_id`, `actor_id`, `actor_role`, `notes`)
-VALUES (3, 'INITIAL_DEPOSIT', 20000.00, 0.00, 20000.00, 'available', 'SYS_INIT_3', 1, 'system', 'Demo user 2 initial balance');
+VALUES (3, 'INITIAL_DEPOSIT', 10000.00, 0.00, 10000.00, 'available', 'SYS_INIT_3', 3, 'system', 'Demo user initial testing balance');
+
+-- 4. Standard User: Phone 9876543210 / Password 'User@123456' / TPIN '1234'
+INSERT INTO `users` (`id`, `phone`, `email`, `password_hash`, `tpin_hash`, `account_status`, `role`, `referral_code`, `referred_by_id`, `upi_id`, `account_holder_name`)
+VALUES (4, '9876543210', 'rohan@jelipay.in', '$2y$10$VptZJT57ky0utSer8oOiMerRqnDko3zNNqzM50MHgiWoPJoQNRyjW', '$2y$10$xR4yCngo7fNgdPrDkxFJ1OQPrhriUSm2RpwEvFkdBNRT3nEUVWGMm', 'active', 'user', 'USER001', 1, 'user1@okhdfcbank', 'Rohan Sharma');
+
+INSERT INTO `wallets` (`id`, `user_id`, `available_balance`, `reserved_balance`, `pending_credit_balance`, `total_rewards_earned`, `total_commissions_earned`, `version`)
+VALUES (4, 4, 50000.00, 0.00, 0.00, 0.00, 0.00, 1);
+
+INSERT INTO `wallet_ledger` (`user_id`, `transaction_type`, `amount`, `previous_balance`, `new_balance`, `balance_type`, `reference_id`, `actor_id`, `actor_role`, `notes`)
+VALUES (4, 'INITIAL_DEPOSIT', 50000.00, 0.00, 50000.00, 'available', 'SYS_INIT_4', 4, 'system', 'Standard peer trader initial balance');
+
+-- 5. Standard User 2: Phone 9811122233 / Password 'User@123456' / TPIN '1234' (Referred by User 1 for multi-tier referral testing)
+INSERT INTO `users` (`id`, `phone`, `email`, `password_hash`, `tpin_hash`, `account_status`, `role`, `referral_code`, `referred_by_id`, `upi_id`, `account_holder_name`)
+VALUES (5, '9811122233', 'priya@jelipay.in', '$2y$10$VptZJT57ky0utSer8oOiMerRqnDko3zNNqzM50MHgiWoPJoQNRyjW', '$2y$10$xR4yCngo7fNgdPrDkxFJ1OQPrhriUSm2RpwEvFkdBNRT3nEUVWGMm', 'active', 'user', 'USER002', 4, 'user2@paytm', 'Priya Patel');
+
+INSERT INTO `wallets` (`id`, `user_id`, `available_balance`, `reserved_balance`, `pending_credit_balance`, `total_rewards_earned`, `total_commissions_earned`, `version`)
+VALUES (5, 5, 20000.00, 0.00, 0.00, 0.00, 0.00, 1);
+
+INSERT INTO `wallet_ledger` (`user_id`, `transaction_type`, `amount`, `previous_balance`, `new_balance`, `balance_type`, `reference_id`, `actor_id`, `actor_role`, `notes`)
+VALUES (5, 'INITIAL_DEPOSIT', 20000.00, 0.00, 20000.00, 'available', 'SYS_INIT_5', 5, 'system', 'Standard peer trader 2 initial balance');

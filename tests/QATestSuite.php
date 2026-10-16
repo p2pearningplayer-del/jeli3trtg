@@ -35,7 +35,10 @@ class QATestSuite {
 
         // Install schema
         SchemaInstaller::initSqlite($this->pdo);
+        SchemaInstaller::migrateColumns($this->pdo, 'sqlite');
+        SchemaInstaller::seedPlatformSettings($this->pdo);
         $this->seedTestData();
+        SchemaInstaller::seedDemoAccounts($this->pdo);
     }
 
     private function seedTestData(): void {
@@ -44,13 +47,13 @@ class QATestSuite {
         $pwHash = password_hash('Pass@123', PASSWORD_BCRYPT);
 
         $insUser = $this->pdo->prepare("
-            INSERT INTO users (id, phone, password_hash, tpin_hash, account_status, role, referral_code, referred_by_id, upi_id, account_holder_name)
-            VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)
+            INSERT INTO users (id, phone, password_hash, tpin_hash, account_status, role, admin_role, referral_code, referred_by_id, upi_id, account_holder_name)
+            VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)
         ");
-        $insUser->execute([1, '9999999999', $pwHash, $tpinHash, 'admin', 'ADMIN01', null, 'admin@upi', 'Admin User']);
-        $insUser->execute([2, '9800000001', $pwHash, $tpinHash, 'user', 'SELLER01', 1, 'seller@upi', 'Seller User']);
-        $insUser->execute([3, '9800000002', $pwHash, $tpinHash, 'user', 'BUYER01', 2, 'buyer@upi', 'Buyer One']);
-        $insUser->execute([4, '9800000003', $pwHash, $tpinHash, 'user', 'BUYER02', 3, 'buyer2@upi', 'Buyer Two']);
+        $insUser->execute([1, '9999999999', $pwHash, $tpinHash, 'admin', 'super_admin', 'ADMIN01', null, 'admin@upi', 'Admin User']);
+        $insUser->execute([2, '9800000001', $pwHash, $tpinHash, 'user', null, 'SELLER01', 1, 'seller@upi', 'Seller User']);
+        $insUser->execute([3, '9800000002', $pwHash, $tpinHash, 'user', null, 'BUYER01', 2, 'buyer@upi', 'Buyer One']);
+        $insUser->execute([4, '9800000003', $pwHash, $tpinHash, 'user', null, 'BUYER02', 3, 'buyer2@upi', 'Buyer Two']);
 
         $insWallet = $this->pdo->prepare("INSERT INTO wallets (user_id, available_balance, reserved_balance, version) VALUES (?, ?, 0.00, 1)");
         $insWallet->execute([1, 1000000.00]);
@@ -72,6 +75,8 @@ class QATestSuite {
         $this->testQA009UnifiedFlow();
         $this->testQA010AntiWashTrading();
         $this->testQA011FullUnifiedE2ELifecycle();
+        $this->testQA012AdminPortalAndRBAC();
+        $this->testQA013AdminSettingsAndLedgerAdjustment();
         return $this->results;
     }
 
@@ -534,6 +539,134 @@ class QATestSuite {
             'step_5_peer_sold_and_settled' => $step5Valid,
             'step_6_unified_history_verified' => $step6Valid,
             'ledger_transaction_types_found' => array_values(array_unique($types))
+        ]);
+    }
+
+    /**
+     * QA-012: Admin Authentication, Role-based Access Control & Support Impersonation
+     * Verifies:
+     * 1. Super Admin authentication using Demo Admin credentials (DEMOADMIN001 / DemoAdmin@123).
+     * 2. Permission checks for super_admin vs role-limited admin (order_manager).
+     * 3. Start read-only support impersonation session for a user.
+     * 4. Exit impersonation and restoration of administrative session.
+     * 5. Rejection of non-admin accounts attempting admin portal login.
+     */
+    public function testQA012AdminPortalAndRBAC(): void {
+        $testId = 'QA-012';
+        $title = 'Admin Portal & RBAC: Super Admin auth, role permissions, support impersonation & access guards';
+
+        // 1. Super Admin authentication with email & User ID
+        $loginRes = Auth::adminLogin('demoadmin@jelipay.in', 'DemoAdmin@123');
+        $superAdminValid = ($loginRes['success'] === true && $loginRes['admin']['admin_role'] === 'super_admin');
+
+        $loginById = Auth::adminLogin('DEMOADMIN001', 'DemoAdmin@123');
+        $idLoginValid = ($loginById['success'] === true);
+
+        // 2. Role-based permission checks
+        $superAdminUser = $loginRes['admin'] ?? ['role' => 'admin', 'admin_role' => 'super_admin'];
+        $superAdminHasSettings = AdminManager::checkPermission($superAdminUser, 'settings_manage');
+
+        $orderManagerUser = ['role' => 'admin', 'admin_role' => 'order_manager'];
+        $orderManagerCanOrders = AdminManager::checkPermission($orderManagerUser, 'orders_manage');
+        $orderManagerCannotArbitrate = !AdminManager::checkPermission($orderManagerUser, 'disputes_arbitrate');
+
+        $rbacValid = $superAdminHasSettings && $orderManagerCanOrders && $orderManagerCannotArbitrate;
+
+        // 3. Support Impersonation
+        $targetUserId = 2;
+        $adminId = (int)$loginRes['admin']['id'];
+        $impRes = AdminManager::startImpersonation($adminId, $targetUserId);
+        $impStarted = ($impRes['success'] === true &&
+                       isset($_SESSION['real_admin_id']) &&
+                       $_SESSION['real_admin_id'] === $adminId &&
+                       $_SESSION['user_id'] === $targetUserId &&
+                       $_SESSION['is_impersonating'] === true);
+
+        // 4. Exit Impersonation
+        AdminManager::exitImpersonation();
+        $impExited = (empty($_SESSION['real_admin_id']) &&
+                      $_SESSION['user_id'] === $adminId &&
+                      $_SESSION['role'] === 'admin' &&
+                      $_SESSION['is_impersonating'] === false);
+
+        // 5. Rejection of standard user at admin login portal
+        $userLoginAttempt = Auth::adminLogin('9800000001', 'Pass@123');
+        $userRejected = ($userLoginAttempt['success'] === false);
+
+        $passed = $superAdminValid && $idLoginValid && $rbacValid && $impStarted && $impExited && $userRejected;
+
+        $this->recordResult($testId, $title, $passed, [
+            'super_admin_login' => $superAdminValid,
+            'user_id_login' => $idLoginValid,
+            'rbac_permissions' => $rbacValid,
+            'impersonation_started' => $impStarted,
+            'impersonation_exited' => $impExited,
+            'unauthorized_user_blocked' => $userRejected
+        ]);
+    }
+
+    /**
+     * QA-013: Admin Global Configuration, Authorized Ledger Adjustment & CSV Reporting
+     * Verifies:
+     * 1. Dynamic platform setting modification with immutable audit trail.
+     * 2. Authorized manual wallet adjustment with strict reason recording and double-entry ledgering.
+     * 3. Downloadable CSV reporting generation across users, orders, and ledger.
+     */
+    public function testQA013AdminSettingsAndLedgerAdjustment(): void {
+        $testId = 'QA-013';
+        $title = 'Admin Governance: Dynamic settings modification, authorized balance adjustment & CSV report exports';
+
+        $adminId = 1;
+
+        // 1. Dynamic setting update
+        $updateRes = AdminManager::updateSetting('purchase_reward_percent', '9.50', $adminId, 'QA-013 test adjustment');
+        $settingValid = ($updateRes['success'] === true);
+
+        // Verify setting in database
+        $stmt = $this->pdo->prepare("SELECT setting_value FROM platform_settings WHERE setting_key = 'purchase_reward_percent'");
+        $stmt->execute();
+        $dbVal = $stmt->fetchColumn();
+        $settingPersisted = ($dbVal === '9.50');
+
+        // Verify audit log
+        $auditStmt = $this->pdo->prepare("SELECT * FROM admin_audit_logs WHERE action_type = 'UPDATE_SETTING' ORDER BY id DESC LIMIT 1");
+        $auditStmt->execute();
+        $auditLog = $auditStmt->fetch();
+        $auditLogged = ($auditLog && $auditLog['target_id'] === 'purchase_reward_percent');
+
+        // 2. Authorized balance adjustment
+        $targetUserId = 3;
+        $prevBal = (float)Wallet::getWallet($targetUserId)['available_balance'];
+        $adjRes = AdminManager::manualAdjustment($targetUserId, 'credit', 250.00, 'Regulatory goodwill credit', $adminId);
+        $newBal = (float)Wallet::getWallet($targetUserId)['available_balance'];
+        $adjValid = ($adjRes['success'] === true && round($newBal - $prevBal, 2) === 250.00);
+
+        // Verify ledger entry for manual adjustment
+        $lStmt = $this->pdo->prepare("SELECT * FROM wallet_ledger WHERE user_id = ? AND transaction_type = 'ADMIN_CREDIT' ORDER BY id DESC LIMIT 1");
+        $lStmt->execute([$targetUserId]);
+        $ledgerEntry = $lStmt->fetch();
+        $ledgerValid = ($ledgerEntry && (float)$ledgerEntry['amount'] === 250.00);
+
+        // 3. CSV report export tests
+        $usersCsv = AdminManager::exportReportCsv('users');
+        $ordersCsv = AdminManager::exportReportCsv('orders');
+        $ledgerCsv = AdminManager::exportReportCsv('ledger');
+
+        $usersCsvValid = (strpos($usersCsv, 'User ID') !== false && strpos($usersCsv, 'Phone') !== false && strpos($usersCsv, 'Email') !== false);
+        $ordersCsvValid = (strpos($ordersCsv, 'Child Order ID') !== false && strpos($ordersCsv, 'Parent Order ID') !== false);
+        $ledgerCsvValid = (strpos($ledgerCsv, 'Ledger ID') !== false && strpos($ledgerCsv, 'User ID') !== false);
+
+        $csvExportsValid = $usersCsvValid && $ordersCsvValid && $ledgerCsvValid;
+
+        $passed = $settingValid && $settingPersisted && $auditLogged && $adjValid && $ledgerValid && $csvExportsValid;
+
+        $this->recordResult($testId, $title, $passed, [
+            'setting_updated' => $settingValid,
+            'setting_persisted' => $settingPersisted,
+            'audit_logged' => $auditLogged,
+            'balance_adjusted' => $adjValid,
+            'ledger_recorded' => $ledgerValid,
+            'csv_reports_generated' => $csvExportsValid
         ]);
     }
 

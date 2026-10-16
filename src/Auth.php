@@ -86,24 +86,25 @@ class Auth {
     }
 
     /**
-     * Authenticate login with phone and password (FR-001)
+     * Authenticate login with phone, email, or User ID (FR-001)
      */
-    public static function login(string $phone, string $password): array {
-        $cleanPhone = Validator::cleanPhone($phone);
+    public static function login(string $identifier, string $password): array {
+        $trimmed = trim($identifier);
+        $cleanPhone = Validator::cleanPhone($trimmed);
         $clientIp = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
-        $rateKey = "login_{$cleanPhone}_{$clientIp}";
+        $rateKey = "login_{$trimmed}_{$clientIp}";
 
         if (!RateLimiter::check($rateKey, 'login', 5, 300)) {
             return ['success' => false, 'error' => 'Too many failed login attempts. Please wait 5 minutes before retrying.'];
         }
 
         $pdo = Database::getConnection();
-        $stmt = $pdo->prepare("SELECT * FROM users WHERE phone = ?");
-        $stmt->execute([$cleanPhone]);
+        $stmt = $pdo->prepare("SELECT * FROM users WHERE phone = ? OR email = ? OR referral_code = ?");
+        $stmt->execute([$cleanPhone, $trimmed, $trimmed]);
         $user = $stmt->fetch();
 
         if (!$user || !password_verify($password, $user['password_hash'])) {
-            return ['success' => false, 'error' => 'Invalid phone number or password.'];
+            return ['success' => false, 'error' => 'Invalid credentials. Please verify your phone/ID and password.'];
         }
 
         if ($user['account_status'] === 'suspended') {
@@ -115,6 +116,7 @@ class Auth {
         // Establish session
         $_SESSION['user_id'] = (int)$user['id'];
         $_SESSION['role'] = $user['role'];
+        $_SESSION['admin_role'] = $user['admin_role'] ?? ($user['role'] === 'admin' ? 'super_admin' : null);
         $_SESSION['phone'] = $user['phone'];
         $_SESSION['is_impersonating'] = false;
 
@@ -123,11 +125,79 @@ class Auth {
             'user' => [
                 'id' => (int)$user['id'],
                 'phone' => $user['phone'],
+                'email' => $user['email'] ?? null,
                 'role' => $user['role'],
+                'admin_role' => $user['admin_role'] ?? null,
+                'is_demo' => !empty($user['is_demo']),
                 'referral_code' => $user['referral_code'],
                 'has_tpin' => !empty($user['tpin_hash']),
                 'upi_id' => $user['upi_id'],
                 'account_holder_name' => $user['account_holder_name']
+            ]
+        ];
+    }
+
+    /**
+     * Dedicated Administrator Login Portal Authentication (Requirement 8)
+     */
+    public static function adminLogin(string $identifier, string $password): array {
+        $trimmed = trim($identifier);
+        $cleanPhone = Validator::cleanPhone($trimmed);
+        $clientIp = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+        $rateKey = "admin_login_{$trimmed}_{$clientIp}";
+
+        if (!RateLimiter::check($rateKey, 'admin_login', 5, 900)) {
+            return ['success' => false, 'error' => 'Too many failed admin login attempts. Security cooldown active for 15 minutes.'];
+        }
+
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare("
+            SELECT * FROM users
+            WHERE (phone = ? OR email = ? OR referral_code = ?) AND role = 'admin'
+        ");
+        $stmt->execute([$cleanPhone, $trimmed, $trimmed]);
+        $admin = $stmt->fetch();
+
+        if (!$admin || !password_verify($password, $admin['password_hash'])) {
+            return ['success' => false, 'error' => 'Invalid administrator credentials. Access unauthorized.'];
+        }
+
+        if ($admin['account_status'] === 'suspended') {
+            return ['success' => false, 'error' => 'This administrative account has been deactivated.'];
+        }
+
+        RateLimiter::reset($rateKey, 'admin_login');
+
+        // Establish administrative session
+        $_SESSION['user_id'] = (int)$admin['id'];
+        $_SESSION['role'] = 'admin';
+        $_SESSION['admin_role'] = $admin['admin_role'] ?? 'super_admin';
+        $_SESSION['phone'] = $admin['phone'];
+        $_SESSION['is_admin'] = true;
+        $_SESSION['is_impersonating'] = false;
+
+        // Audit admin sign-in
+        try {
+            $nowUtc = gmdate('Y-m-d H:i:s');
+            $logStmt = $pdo->prepare("
+                INSERT INTO admin_audit_logs (admin_id, action_type, target_entity, target_id, reason, ip_address, created_at)
+                VALUES (?, 'ADMIN_LOGIN', 'users', ?, 'Successful admin session login', ?, ?)
+            ");
+            $logStmt->execute([(int)$admin['id'], (string)$admin['id'], $clientIp, $nowUtc]);
+        } catch (Exception $e) {
+            // Ignore log failure
+        }
+
+        return [
+            'success' => true,
+            'admin' => [
+                'id' => (int)$admin['id'],
+                'phone' => $admin['phone'],
+                'email' => $admin['email'] ?? null,
+                'role' => $admin['role'],
+                'admin_role' => $admin['admin_role'] ?? 'super_admin',
+                'referral_code' => $admin['referral_code'],
+                'name' => $admin['account_holder_name'] ?? 'Admin'
             ]
         ];
     }
@@ -207,7 +277,13 @@ class Auth {
 
         $userId = (int)$_SESSION['user_id'];
         $pdo = Database::getConnection();
-        $stmt = $pdo->prepare("SELECT id, phone, role, account_status, referral_code, referred_by_id, upi_id, account_holder_name, (tpin_hash IS NOT NULL AND tpin_hash != '') AS has_tpin FROM users WHERE id = ?");
+        $stmt = $pdo->prepare("
+            SELECT id, phone, email, role, admin_role, is_demo, is_flagged, flag_reason,
+                   account_status, referral_code, referred_by_id, upi_id, account_holder_name,
+                   (tpin_hash IS NOT NULL AND tpin_hash != '') AS has_tpin
+            FROM users
+            WHERE id = ?
+        ");
         $stmt->execute([$userId]);
         $user = $stmt->fetch();
 

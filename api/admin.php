@@ -1,6 +1,7 @@
 <?php
 /**
- * Administrator Governance & Arbitration API Controller
+ * Administrator Governance & Operations API Controller
+ * Provides authenticated control for users, orders, disputes, settings, adjustments, and reports.
  */
 
 require_once __DIR__ . '/../config/config.php';
@@ -10,6 +11,29 @@ require_once __DIR__ . '/../src/Wallet.php';
 require_once __DIR__ . '/../src/Ledger.php';
 require_once __DIR__ . '/../src/StateMachine.php';
 require_once __DIR__ . '/response.php';
+
+$action = $_GET['action'] ?? $_POST['action'] ?? 'stats';
+
+// Handle CSV export direct download early
+if ($action === 'export_csv') {
+    $user = Auth::getCurrentUser();
+    $adminId = $user['real_admin_id'] ?? ($user && $user['role'] === 'admin' ? $user['id'] : null);
+    if (!$adminId) {
+        http_response_code(403);
+        die('Access denied. Administrator privileges required.');
+    }
+
+    $type = $_GET['type'] ?? 'users';
+    $csv = AdminManager::exportReportCsv($type);
+    $filename = "jelipay_report_{$type}_" . gmdate('Ymd_His') . ".csv";
+
+    header('Content-Type: text/csv; charset=utf-8');
+    header("Content-Disposition: attachment; filename=\"{$filename}\"");
+    header('Pragma: no-cache');
+    header('Expires: 0');
+    echo $csv;
+    exit;
+}
 
 $user = Auth::getCurrentUser();
 if (!$user) {
@@ -25,17 +49,148 @@ if (!$adminId) {
 // Opportunistically check and expire overdue reservations
 StateMachine::checkAndExpireOrders();
 
-$action = $_GET['action'] ?? $_POST['action'] ?? 'stats';
 $input = getJsonInput();
 
 switch ($action) {
     case 'stats':
-        // FR-020 Macro metrics for platform health
+        // Requirement 1: Comprehensive real-time platform statistics
         $stats = AdminManager::getPlatformStats();
         jsonResponse(true, ['stats' => $stats]);
         break;
 
+    case 'users':
+        // Requirement 2: Search, filter, and list users
+        $query = $_GET['query'] ?? '';
+        $status = $_GET['status'] ?? 'all';
+        $role = $_GET['role'] ?? 'all';
+        $limit = max(1, min(100, (int)($_GET['limit'] ?? 50)));
+        $offset = max(0, (int)($_GET['offset'] ?? 0));
+
+        $res = AdminManager::searchUsers($query, $status, $role, $limit, $offset);
+        jsonResponse(true, $res);
+        break;
+
+    case 'user_detail':
+        // Requirement 2: Complete user profile, dossier & financial history
+        $targetUserId = (int)($_GET['user_id'] ?? $input['user_id'] ?? 0);
+        if ($targetUserId <= 0) {
+            jsonError('Target User ID required.');
+        }
+
+        $details = AdminManager::getUserDetails($targetUserId);
+        if (!$details) {
+            jsonError('User not found.', 404);
+        }
+        jsonResponse(true, $details);
+        break;
+
+    case 'toggle_suspension':
+        // Requirement 2: Suspend or reactivate user accounts
+        $targetUserId = (int)($input['user_id'] ?? 0);
+        $reason = $input['reason'] ?? 'Admin action';
+        if ($targetUserId <= 0) jsonError('Target User ID required.');
+
+        $res = AdminManager::toggleUserSuspension($targetUserId, $adminId, $reason);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
+    case 'toggle_flag':
+        // Requirement 2: Flag or unflag suspicious user
+        $targetUserId = (int)($input['user_id'] ?? 0);
+        $reason = $input['reason'] ?? 'Flagged by compliance review';
+        if ($targetUserId <= 0) jsonError('Target User ID required.');
+
+        $res = AdminManager::toggleUserFlag($targetUserId, $adminId, $reason);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
+    case 'manual_adjustment':
+        // Requirement 2: Adjust user token balances with mandatory reason
+        $targetUserId = (int)($input['user_id'] ?? 0);
+        $type = $input['type'] ?? 'credit'; // 'credit' or 'debit'
+        $amount = (float)($input['amount'] ?? 0);
+        $reason = $input['reason'] ?? '';
+
+        if ($targetUserId <= 0 || $amount <= 0) {
+            jsonError('Valid Target User ID and positive amount are required.');
+        }
+
+        if (empty(trim($reason))) {
+            jsonError('A mandatory reason is required for balance adjustment.');
+        }
+
+        $res = AdminManager::manualAdjustment($targetUserId, $type, $amount, $reason, $adminId);
+        if ($res['success']) {
+            jsonResponse(true, [
+                'message' => 'Manual adjustment executed successfully.',
+                'new_available' => $res['new_available']
+            ]);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
+    case 'impersonate':
+        // Requirement 2: Start read-only user dashboard support inspection
+        $targetUserId = (int)($input['user_id'] ?? 0);
+        if ($targetUserId <= 0) {
+            jsonError('Target User ID required.');
+        }
+
+        $res = AdminManager::startImpersonation($adminId, $targetUserId);
+        if ($res['success']) {
+            jsonResponse(true, [
+                'message' => 'Admin support mode started.',
+                'target_user' => $res['target_user']
+            ]);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
+    case 'exit_impersonate':
+        AdminManager::exitImpersonation();
+        jsonResponse(true, ['message' => 'Support mode exited.']);
+        break;
+
+    case 'orders':
+        // Requirement 3: Control all buy and sell orders
+        $status = $_GET['status'] ?? 'all';
+        $type = $_GET['type'] ?? 'child';
+        $query = $_GET['query'] ?? '';
+        $limit = max(1, min(100, (int)($_GET['limit'] ?? 50)));
+        $offset = max(0, (int)($_GET['offset'] ?? 0));
+
+        $res = AdminManager::getOrders($status, $type, $query, $limit, $offset);
+        jsonResponse(true, $res);
+        break;
+
+    case 'cancel_order':
+        // Requirement 3: Admin order cancellation & token reserve release
+        $childId = (int)($input['order_id'] ?? 0);
+        $reason = $input['reason'] ?? '';
+
+        if ($childId <= 0) jsonError('Valid Order ID required.');
+        if (empty(trim($reason))) jsonError('A mandatory reason must be provided for order cancellation.');
+
+        $res = AdminManager::cancelChildOrder($childId, $adminId, $reason);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
     case 'disputes':
+        // Requirement 4: List disputes and evidence
         $pdo = Database::getConnection();
         $statusFilter = $_GET['status'] ?? 'all';
 
@@ -66,9 +221,9 @@ switch ($action) {
         break;
 
     case 'arbitrate':
-        // FR-018 Dispute Resolution
+        // Requirement 4: Dispute Resolution (Force Settle / Cancel & Reverse)
         $disputeId = (int)($input['dispute_id'] ?? 0);
-        $decision = $input['decision'] ?? ''; // 'force_settle' or 'cancel_reverse'
+        $decision = $input['decision'] ?? '';
         $resolutionNotes = $input['resolution_notes'] ?? '';
 
         if ($disputeId <= 0 || empty($decision)) {
@@ -83,64 +238,32 @@ switch ($action) {
         }
         break;
 
-    case 'manual_adjustment':
-        // FR-021 Manual Adjustments
-        $targetUserId = (int)($input['user_id'] ?? 0);
-        $type = $input['type'] ?? 'credit'; // 'credit' or 'debit'
-        $amount = (float)($input['amount'] ?? 0);
-        $reason = $input['reason'] ?? '';
+    case 'request_evidence':
+        // Requirement 4: Request additional evidence from buyer/seller
+        $disputeId = (int)($input['dispute_id'] ?? 0);
+        $instructions = $input['instructions'] ?? '';
 
-        if ($targetUserId <= 0 || $amount <= 0) {
-            jsonError('Valid Target User ID and positive amount are required.');
-        }
+        if ($disputeId <= 0) jsonError('Dispute ID required.');
+        if (empty(trim($instructions))) jsonError('Instructions for evidence request are required.');
 
-        $res = AdminManager::manualAdjustment($targetUserId, $type, $amount, $reason, $adminId);
+        $res = AdminManager::requestAdditionalEvidence($disputeId, $adminId, $instructions);
         if ($res['success']) {
-            jsonResponse(true, ['message' => 'Manual adjustment executed successfully.', 'new_available' => $res['new_available']]);
+            jsonResponse(true, $res);
         } else {
             jsonError($res['error']);
         }
         break;
 
-    case 'impersonate':
-        // FR-022 Admin Impersonation
-        $targetUserId = (int)($input['user_id'] ?? 0);
-        if ($targetUserId <= 0) {
-            jsonError('Target User ID required.');
-        }
+    case 'update_refund':
+        // Requirement 4: Track external refund status
+        $disputeId = (int)($input['dispute_id'] ?? 0);
+        $status = $input['status'] ?? 'pending';
+        $refundRef = $input['refund_reference'] ?? null;
+        $notes = $input['notes'] ?? 'Refund status updated';
 
-        $res = AdminManager::startImpersonation($adminId, $targetUserId);
-        if ($res['success']) {
-            jsonResponse(true, [
-                'message' => 'Admin support mode started.',
-                'target_user' => $res['target_user']
-            ]);
-        } else {
-            jsonError($res['error']);
-        }
-        break;
+        if ($disputeId <= 0) jsonError('Dispute ID required.');
 
-    case 'users':
-        $pdo = Database::getConnection();
-        $stmt = $pdo->query("
-            SELECT u.id, u.phone, u.role, u.account_status, u.referral_code, u.referred_by_id,
-                   u.upi_id, u.account_holder_name, u.created_at,
-                   w.available_balance, w.reserved_balance, w.total_rewards_earned, w.total_commissions_earned
-            FROM users u
-            LEFT JOIN wallets w ON u.id = w.user_id
-            ORDER BY u.id DESC
-            LIMIT 100
-        ");
-        $users = $stmt->fetchAll();
-        jsonResponse(true, ['users' => $users]);
-        break;
-
-    case 'toggle_suspension':
-        $targetUserId = (int)($input['user_id'] ?? 0);
-        $reason = $input['reason'] ?? 'Admin action';
-        if ($targetUserId <= 0) jsonError('Target User ID required.');
-
-        $res = AdminManager::toggleUserSuspension($targetUserId, $adminId, $reason);
+        $res = AdminManager::updateRefundStatus($disputeId, $adminId, $status, $refundRef, $notes);
         if ($res['success']) {
             jsonResponse(true, $res);
         } else {
@@ -149,14 +272,18 @@ switch ($action) {
         break;
 
     case 'settings':
+        // Requirements 5 & 6: Platform variables, content, and branding
         $pdo = Database::getConnection();
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-            // FR-023 Global Configurations
             $key = $input['setting_key'] ?? '';
             $value = $input['setting_value'] ?? '';
-            $reason = $input['reason'] ?? 'Admin config update';
+            $reason = $input['reason'] ?? 'Admin settings configuration update';
 
-            $res = AdminManager::updateSetting($key, $value, $adminId, $reason);
+            if (empty($key)) {
+                jsonError('Setting key is required.');
+            }
+
+            $res = AdminManager::updateSetting($key, (string)$value, $adminId, $reason);
             if ($res['success']) {
                 jsonResponse(true, $res);
             } else {
@@ -170,21 +297,39 @@ switch ($action) {
         break;
 
     case 'audit_logs':
+        // Requirement 7: Complete administrative audit trail
         $pdo = Database::getConnection();
-        $stmt = $pdo->query("
-            SELECT a.*, u.phone as admin_phone
+        $limit = max(1, min(200, (int)($_GET['limit'] ?? 100)));
+        $stmt = $pdo->prepare("
+            SELECT a.*, u.phone as admin_phone, u.account_holder_name as admin_name
             FROM admin_audit_logs a
             LEFT JOIN users u ON a.admin_id = u.id
             ORDER BY a.id DESC
-            LIMIT 100
+            LIMIT ?
         ");
+        $stmt->bindValue(1, $limit, PDO::PARAM_INT);
+        $stmt->execute();
         $logs = $stmt->fetchAll();
         jsonResponse(true, ['audit_logs' => $logs]);
         break;
 
     case 'all_ledger':
-        $ledger = Ledger::getAllLedger(100, 0);
+        $limit = max(1, min(200, (int)($_GET['limit'] ?? 100)));
+        $ledger = Ledger::getAllLedger($limit, 0);
         jsonResponse(true, ['ledger' => $ledger]);
+        break;
+
+    case 'admin_users':
+        // Requirement 8: List administrators & roles
+        $pdo = Database::getConnection();
+        $stmt = $pdo->query("
+            SELECT id, phone, email, role, admin_role, account_status, referral_code, account_holder_name, created_at
+            FROM users
+            WHERE role = 'admin'
+            ORDER BY id ASC
+        ");
+        $admins = $stmt->fetchAll();
+        jsonResponse(true, ['admins' => $admins]);
         break;
 
     default:

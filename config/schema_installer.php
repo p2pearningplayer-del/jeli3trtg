@@ -1,7 +1,7 @@
 <?php
 /**
  * Automated Database Schema Installer / Migration Runner
- * Automatically provisions tables and initial seeds if the database is uninitialized.
+ * Automatically provisions tables, missing columns, and initial seeds for production and testing.
  */
 
 require_once __DIR__ . '/config.php';
@@ -14,36 +14,48 @@ class SchemaInstaller {
 
         if ($driver === 'sqlite') {
             self::initSqlite($pdo);
+            self::migrateColumns($pdo, 'sqlite');
+            self::seedPlatformSettings($pdo);
+            self::seedDemoAccounts($pdo);
             return;
         }
 
-        // Check if users table exists in MySQL
+        // MySQL check
+        $tableExists = false;
         try {
             $stmt = $pdo->query("SHOW TABLES LIKE 'users'");
-            if ($stmt->rowCount() > 0) {
-                return; // Already initialized
-            }
+            $tableExists = ($stmt->rowCount() > 0);
         } catch (Exception $e) {
-            // Proceed with initialization
+            $tableExists = false;
         }
 
-        $sqlFile = ROOT_PATH . '/schema.sql';
-        if (file_exists($sqlFile)) {
-            $sql = file_get_contents($sqlFile);
-            $pdo->exec($sql);
+        if (!$tableExists) {
+            $sqlFile = ROOT_PATH . '/schema.sql';
+            if (file_exists($sqlFile)) {
+                $sql = file_get_contents($sqlFile);
+                $pdo->exec($sql);
+            }
         }
+
+        self::migrateColumns($pdo, 'mysql');
+        self::seedPlatformSettings($pdo);
+        self::seedDemoAccounts($pdo);
     }
 
     public static function initSqlite(PDO $pdo): void {
-        // Creates SQLite compatible schema for automated testing
         $schema = "
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             phone TEXT UNIQUE NOT NULL,
+            email TEXT,
             password_hash TEXT NOT NULL,
             tpin_hash TEXT,
             account_status TEXT NOT NULL DEFAULT 'active',
             role TEXT NOT NULL DEFAULT 'user',
+            admin_role TEXT DEFAULT NULL,
+            is_demo INTEGER NOT NULL DEFAULT 0,
+            is_flagged INTEGER NOT NULL DEFAULT 0,
+            flag_reason TEXT,
             referral_code TEXT UNIQUE NOT NULL,
             referred_by_id INTEGER,
             upi_id TEXT,
@@ -125,6 +137,9 @@ class SchemaInstaller {
             reason TEXT NOT NULL,
             evidence_screenshot_path TEXT,
             status TEXT NOT NULL DEFAULT 'pending',
+            additional_evidence_requested INTEGER NOT NULL DEFAULT 0,
+            refund_status TEXT NOT NULL DEFAULT 'none',
+            refund_reference TEXT,
             resolution_notes TEXT,
             resolved_by_admin_id INTEGER,
             resolved_at TEXT,
@@ -197,26 +212,234 @@ class SchemaInstaller {
         ";
 
         $pdo->exec($schema);
+    }
 
-        // Seed default platform settings if empty
-        $stmt = $pdo->query("SELECT COUNT(*) FROM platform_settings");
-        if ((int)$stmt->fetchColumn() === 0) {
-            $settings = [
-                ['token_rate_inr', '1', 'Base value of 1 token in INR'],
-                ['purchase_reward_percent', '9.0', 'Buyer purchase reward percentage (default 9%)'],
-                ['referral_l1_percent', '1.0', 'Level 1 direct referral reward percentage'],
-                ['referral_l2_percent', '0.5', 'Level 2 indirect referral reward percentage'],
-                ['min_sell_amount', '100', 'Minimum allowed token amount for sell listing'],
-                ['sell_denomination_step', '100', 'Mandatory step modulo for sell amount (Amount MOD 100 == 0)'],
-                ['weekly_selling_target', '400000', 'Weekly selling target in INR for progress calculation'],
-                ['buyer_payment_window_seconds', '600', '10-minute payment countdown window for buyer'],
-                ['seller_verify_window_seconds', '900', '15-minute seller verification window before response timeout'],
-                ['max_child_splits', '8', 'Maximum micro-order portions a parent order can split into']
+    /**
+     * Incrementally apply any missing columns on existing tables
+     */
+    public static function migrateColumns(PDO $pdo, string $driver): void {
+        $userCols = [
+            'email' => 'TEXT',
+            'admin_role' => 'TEXT',
+            'is_demo' => 'INTEGER NOT NULL DEFAULT 0',
+            'is_flagged' => 'INTEGER NOT NULL DEFAULT 0',
+            'flag_reason' => 'TEXT'
+        ];
+
+        $dispCols = [
+            'additional_evidence_requested' => 'INTEGER NOT NULL DEFAULT 0',
+            'refund_status' => "TEXT NOT NULL DEFAULT 'none'",
+            'refund_reference' => 'TEXT'
+        ];
+
+        if ($driver === 'mysql') {
+            $userCols = [
+                'email' => 'VARCHAR(100) DEFAULT NULL',
+                'admin_role' => "ENUM('super_admin', 'order_manager', 'dispute_manager') DEFAULT NULL",
+                'is_demo' => 'TINYINT(1) NOT NULL DEFAULT 0',
+                'is_flagged' => 'TINYINT(1) NOT NULL DEFAULT 0',
+                'flag_reason' => 'VARCHAR(255) DEFAULT NULL'
             ];
-            $ins = $pdo->prepare("INSERT INTO platform_settings (setting_key, setting_value, description) VALUES (?, ?, ?)");
-            foreach ($settings as $s) {
+            $dispCols = [
+                'additional_evidence_requested' => 'TINYINT(1) NOT NULL DEFAULT 0',
+                'refund_status' => "ENUM('none', 'pending', 'issued', 'not_applicable') NOT NULL DEFAULT 'none'",
+                'refund_reference' => 'VARCHAR(100) DEFAULT NULL'
+            ];
+        }
+
+        foreach ($userCols as $col => $type) {
+            try {
+                if ($driver === 'sqlite') {
+                    $pdo->exec("ALTER TABLE users ADD COLUMN {$col} {$type}");
+                } else {
+                    $pdo->exec("ALTER TABLE users ADD COLUMN IF NOT EXISTS `{$col}` {$type}");
+                }
+            } catch (Exception $e) {
+                // Column likely already exists
+            }
+        }
+
+        foreach ($dispCols as $col => $type) {
+            try {
+                if ($driver === 'sqlite') {
+                    $pdo->exec("ALTER TABLE disputes ADD COLUMN {$col} {$type}");
+                } else {
+                    $pdo->exec("ALTER TABLE disputes ADD COLUMN IF NOT EXISTS `{$col}` {$type}");
+                }
+            } catch (Exception $e) {
+                // Column likely already exists
+            }
+        }
+    }
+
+    public static function seedPlatformSettings(PDO $pdo): void {
+        $settings = [
+            ['site_name', 'JeliPay', 'Website and platform public brand name'],
+            ['site_tagline', 'Unified Peer-to-Peer Token Trading Platform', 'Platform sub-header description'],
+            ['token_rate_inr', '1', 'Base value of 1 token in INR'],
+            ['purchase_reward_percent', '9.0', 'Buyer purchase reward percentage (default 9%)'],
+            ['referral_l1_percent', '1.0', 'Level 1 direct referral reward percentage'],
+            ['referral_l2_percent', '0.5', 'Level 2 indirect referral reward percentage'],
+            ['min_sell_amount', '100', 'Minimum allowed token amount for sell listing'],
+            ['max_sell_amount', '100000', 'Maximum allowed token amount for sell listing'],
+            ['min_buy_amount', '100', 'Minimum allowed token amount for custom buy allocation'],
+            ['max_buy_amount', '100000', 'Maximum allowed token amount for custom buy allocation'],
+            ['sell_denomination_step', '100', 'Mandatory step modulo for sell amount (Amount MOD 100 == 0)'],
+            ['weekly_selling_target', '400000', 'Weekly selling target in INR for progress calculation'],
+            ['buyer_payment_window_seconds', '600', '10-minute payment countdown window for buyer'],
+            ['seller_verify_window_seconds', '900', '15-minute seller verification window before response timeout'],
+            ['max_child_splits', '8', 'Maximum micro-order portions a parent order can split into'],
+            ['announcement_banner_active', '1', 'Display announcement notice banner on homepage (1=Active, 0=Inactive)'],
+            ['announcement_banner_text', '✨ Active Promotion: Earn 9% instant credit rewards on all peer token purchases!', 'Text banner displayed to traders'],
+            ['announcement_banner_image', '', 'Optional banner graphical asset URL'],
+            ['maintenance_mode', '0', 'Put marketplace into maintenance mode (1=Active, 0=Disabled)'],
+            ['maintenance_message', 'JeliPay is temporarily offline for scheduled system optimization. We will resume trading shortly.', 'Maintenance notice displayed to non-admins'],
+            ['terms_of_service', 'All token trades are peer-to-peer and settled directly via UPI banking. Users must verify payment proofs accurately.', 'Platform terms of service statement'],
+            ['privacy_policy', 'Your privacy is paramount. Personal contact details and phone numbers are masked across public trade order pools.', 'Platform privacy policy statement'],
+            ['support_contact_info', 'support@jelipay.in', 'Official administrative support contact details'],
+            ['approved_upi_config', 'jelipay@upi', 'Approved default UPI gateway reference'],
+            ['reward_eligible_types', 'ALL', 'Eligible transaction types for reward calculation']
+        ];
+
+        $stmt = $pdo->prepare("SELECT setting_key FROM platform_settings WHERE setting_key = ?");
+        $ins = $pdo->prepare("INSERT INTO platform_settings (setting_key, setting_value, description) VALUES (?, ?, ?)");
+
+        foreach ($settings as $s) {
+            $stmt->execute([$s[0]]);
+            if (!$stmt->fetch()) {
                 $ins->execute($s);
             }
+        }
+    }
+
+    public static function seedDemoAccounts(PDO $pdo): void {
+        // 1. Super Admin Account (ADMIN001 / 9999999999)
+        self::ensureUser(
+            $pdo,
+            '9999999999',
+            'admin@jelipay.in',
+            '$2y$10$nsaDWNCaNU9TRJp/FJ3NpuncVzjhS7zyQADri9qt0iWnUN1JTAW8e', // Admin@123456
+            '$2y$10$xR4yCngo7fNgdPrDkxFJ1OQPrhriUSm2RpwEvFkdBNRT3nEUVWGMm', // 1234
+            'ADMIN001',
+            'admin',
+            'super_admin',
+            0,
+            1000000.00,
+            'jelipayadmin@upi',
+            'JeliPay Admin'
+        );
+
+        // 2. Demo Admin Account (DEMOADMIN001 / 9888800000 / demoadmin@jelipay.in / DemoAdmin@123)
+        self::ensureUser(
+            $pdo,
+            '9888800000',
+            'demoadmin@jelipay.in',
+            '$2y$10$HU771qOFL016eO.hpPE5x.IVliUJ1Qca2K8TyzAzFbN7XPo/BRuhO', // DemoAdmin@123
+            '$2y$10$aq.G53.wTfw/6bxgafs2O.TcU2ZPsuBlmRUqf9rXCI.TDhQO446ou', // 1234
+            'DEMOADMIN001',
+            'admin',
+            'super_admin',
+            0,
+            500000.00,
+            'demoadmin@upi',
+            'Demo Administrator'
+        );
+
+        // 3. Demo User Account (DEMOUSER001 / 9888800001 / demouser@jelipay.in / DemoUser@123)
+        self::ensureUser(
+            $pdo,
+            '9888800001',
+            'demouser@jelipay.in',
+            '$2y$10$1djyY.sn4UJ32HNnRE/3cOqYgCRho99T.Zk1IPzjTbexhKkk0NY2.', // DemoUser@123
+            '$2y$10$aq.G53.wTfw/6bxgafs2O.TcU2ZPsuBlmRUqf9rXCI.TDhQO446ou', // 1234
+            'DEMOUSER001',
+            'user',
+            null,
+            1, // is_demo
+            10000.00,
+            'demouser@okhdfcbank',
+            'Demo Trader'
+        );
+
+        // 4. Standard User 1 (9876543210 / USER001)
+        self::ensureUser(
+            $pdo,
+            '9876543210',
+            'rohan@jelipay.in',
+            '$2y$10$VptZJT57ky0utSer8oOiMerRqnDko3zNNqzM50MHgiWoPJoQNRyjW', // User@123456
+            '$2y$10$xR4yCngo7fNgdPrDkxFJ1OQPrhriUSm2RpwEvFkdBNRT3nEUVWGMm', // 1234
+            'USER001',
+            'user',
+            null,
+            0,
+            50000.00,
+            'user1@okhdfcbank',
+            'Rohan Sharma'
+        );
+
+        // 5. Standard User 2 (9811122233 / USER002)
+        self::ensureUser(
+            $pdo,
+            '9811122233',
+            'priya@jelipay.in',
+            '$2y$10$VptZJT57ky0utSer8oOiMerRqnDko3zNNqzM50MHgiWoPJoQNRyjW', // User@123456
+            '$2y$10$xR4yCngo7fNgdPrDkxFJ1OQPrhriUSm2RpwEvFkdBNRT3nEUVWGMm', // 1234
+            'USER002',
+            'user',
+            null,
+            0,
+            20000.00,
+            'user2@paytm',
+            'Priya Patel'
+        );
+    }
+
+    private static function ensureUser(
+        PDO $pdo,
+        string $phone,
+        ?string $email,
+        string $passwordHash,
+        ?string $tpinHash,
+        string $referralCode,
+        string $role,
+        ?string $adminRole,
+        int $isDemo,
+        float $balance,
+        ?string $upiId,
+        ?string $name
+    ): void {
+        $stmt = $pdo->prepare("SELECT id FROM users WHERE phone = ?");
+        $stmt->execute([$phone]);
+        $existing = $stmt->fetch();
+
+        if (!$existing) {
+            $ins = $pdo->prepare("
+                INSERT INTO users (
+                    phone, email, password_hash, tpin_hash, account_status, role, admin_role,
+                    is_demo, referral_code, upi_id, account_holder_name
+                ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)
+            ");
+            $ins->execute([
+                $phone, $email, $passwordHash, $tpinHash, $role, $adminRole,
+                $isDemo, $referralCode, $upiId, $name
+            ]);
+            $userId = (int)$pdo->lastInsertId();
+
+            $wIns = $pdo->prepare("
+                INSERT INTO wallets (user_id, available_balance, reserved_balance, pending_credit_balance, version)
+                VALUES (?, ?, 0.00, 0.00, 1)
+            ");
+            $wIns->execute([$userId, $balance]);
+
+            $lIns = $pdo->prepare("
+                INSERT INTO wallet_ledger (
+                    user_id, transaction_type, amount, previous_balance, new_balance, balance_type,
+                    reference_id, actor_id, actor_role, notes
+                ) VALUES (?, 'INITIAL_DEPOSIT', ?, 0.00, ?, 'available', ?, ?, 'system', ?)
+            ");
+            $lIns->execute([
+                $userId, $balance, $balance, "SYS_SEED_{$userId}", $userId, "Initial balance for {$referralCode}"
+            ]);
         }
     }
 }
