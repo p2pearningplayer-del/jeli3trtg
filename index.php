@@ -1,7 +1,8 @@
 <?php
 /**
  * P2P Token Platform - Main Web Application
- * Fully responsive for Desktop, Tablet, and Mobile.
+ * Single Website, Single Database, Single User Account, Single Shared Token Wallet
+ * Navigation: Home | Buy | Sell | Refer | Profile (plus Admin Panel if administrator)
  * Production Domain: https://jelipay.in/
  */
 
@@ -52,7 +53,6 @@ $refFromQuery = htmlspecialchars($_GET['ref'] ?? '');
         body { font-family: 'Plus Jakarta Sans', sans-serif; -webkit-tap-highlight-color: transparent; }
         .font-mono { font-family: 'JetBrains Mono', monospace; }
         [x-cloak] { display: none !important; }
-        /* Custom scrollbars */
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: #090d16; }
         ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 4px; }
@@ -82,7 +82,7 @@ $refFromQuery = htmlspecialchars($_GET['ref'] ?? '');
             <div class="flex items-center justify-between h-16">
                 <!-- Brand & Value Indicators -->
                 <div class="flex items-center gap-4 sm:gap-6">
-                    <div class="flex items-center gap-2 cursor-pointer" onclick="switchTab('buy')">
+                    <div class="flex items-center gap-2 cursor-pointer" onclick="switchTab('home')">
                         <div class="h-9 w-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center shadow-lg shadow-indigo-500/20">
                             <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 10V3L4 14h7v7l9-11h-7z"/>
@@ -92,17 +92,17 @@ $refFromQuery = htmlspecialchars($_GET['ref'] ?? '');
                             <span class="text-lg font-black tracking-tight text-white flex items-center gap-1.5">
                                 JeliPay <span class="text-[10px] uppercase font-bold tracking-widest px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">P2P</span>
                             </span>
-                            <span class="text-[10px] text-slate-400 block -mt-1">Verified Token Exchange</span>
+                            <span class="text-[10px] text-slate-400 block -mt-1">Unified Marketplace</span>
                         </div>
                     </div>
 
-                    <!-- Token Valuation Baseline Badge (PRD Section 6) -->
+                    <!-- Token Valuation Baseline Badge -->
                     <div class="hidden sm:flex items-center gap-2 bg-slate-950/60 border border-slate-800/80 rounded-lg px-2.5 py-1 text-xs">
                         <span class="text-slate-400">Baseline Rate:</span>
                         <span class="font-bold text-white font-mono">1 Token = ₹1.00</span>
                     </div>
 
-                    <!-- 9% Promotional Reward Badge (PRD Section 6) -->
+                    <!-- 9% Promotional Reward Badge -->
                     <div class="hidden md:flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-2.5 py-1 text-xs text-emerald-400 font-semibold">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                         <span>+9% Purchase Reward</span>
@@ -112,19 +112,17 @@ $refFromQuery = htmlspecialchars($_GET['ref'] ?? '');
                 <!-- Navigation Links / User Actions -->
                 <div class="flex items-center gap-3">
                     <?php if ($currentUser): ?>
-                        <!-- User Balance Pill -->
-                        <div class="flex items-center bg-slate-800/80 border border-slate-700/80 rounded-xl p-1 sm:px-3 sm:py-1.5 gap-2">
+                        <!-- Shared Wallet Balance Chip -->
+                        <div class="flex items-center bg-slate-800/80 border border-slate-700/80 rounded-xl p-1 sm:px-3 sm:py-1.5 gap-2 cursor-pointer" onclick="switchTab('home')" title="Shared Available Wallet Balance">
                             <div class="text-right hidden sm:block">
-                                <span class="text-[10px] text-slate-400 uppercase tracking-wider block font-semibold leading-none">Available</span>
+                                <span class="text-[10px] text-slate-400 uppercase tracking-wider block font-semibold leading-none">Shared Wallet</span>
                                 <span class="text-sm font-black text-emerald-400 font-mono" id="headerAvailableBalance">₹0.00</span>
                             </div>
-                            <button onclick="switchTab('wallet')" title="View Wallet" class="p-1 sm:p-0 text-slate-300 hover:text-white">
-                                <svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg>
-                            </button>
+                            <svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg>
                         </div>
 
-                        <!-- Profile / Settings Trigger -->
-                        <button onclick="openProfileModal()" class="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl border border-slate-700 transition" title="Profile & TPIN">
+                        <!-- Profile Trigger -->
+                        <button onclick="switchTab('profile')" class="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl border border-slate-700 transition" title="Profile">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
                         </button>
 
@@ -143,37 +141,35 @@ $refFromQuery = htmlspecialchars($_GET['ref'] ?? '');
                 </div>
             </div>
 
-            <!-- Main Tab Bar -->
-            <?php if ($currentUser): ?>
+            <!-- PRIMARY NAVIGATION: Home | Buy | Sell | Refer | Profile -->
             <div class="flex space-x-1 sm:space-x-2 border-t border-slate-800/80 overflow-x-auto py-2 text-xs sm:text-sm font-semibold scrollbar-none">
-                <button onclick="switchTab('buy')" id="tabBtn-buy" class="tab-btn px-3 py-2 rounded-lg flex items-center gap-2 whitespace-nowrap text-indigo-400 bg-slate-800/90 border border-slate-700">
+                <button onclick="switchTab('home')" id="tabBtn-home" class="tab-btn px-3.5 py-2 rounded-lg flex items-center gap-2 whitespace-nowrap text-indigo-400 bg-slate-800/90 border border-slate-700">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+                    <span>Home</span>
+                </button>
+                <button onclick="switchTab('buy')" id="tabBtn-buy" class="tab-btn px-3.5 py-2 rounded-lg flex items-center gap-2 whitespace-nowrap text-slate-400 hover:text-slate-200">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-                    <span>Buy Tokens</span>
+                    <span>Buy</span>
                 </button>
-                <button onclick="switchTab('sell')" id="tabBtn-sell" class="tab-btn px-3 py-2 rounded-lg flex items-center gap-2 whitespace-nowrap text-slate-400 hover:text-slate-200">
+                <button onclick="switchTab('sell')" id="tabBtn-sell" class="tab-btn px-3.5 py-2 rounded-lg flex items-center gap-2 whitespace-nowrap text-slate-400 hover:text-slate-200">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 11l5-5m0 0l5 5m-5-5v12"/></svg>
-                    <span>Sell & Tracking</span>
+                    <span>Sell</span>
                 </button>
-                <button onclick="switchTab('orders')" id="tabBtn-orders" class="tab-btn px-3 py-2 rounded-lg flex items-center gap-2 whitespace-nowrap text-slate-400 hover:text-slate-200">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
-                    <span>My Purchases</span>
-                </button>
-                <button onclick="switchTab('wallet')" id="tabBtn-wallet" class="tab-btn px-3 py-2 rounded-lg flex items-center gap-2 whitespace-nowrap text-slate-400 hover:text-slate-200">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
-                    <span>Ledger & Target</span>
-                </button>
-                <button onclick="switchTab('referrals')" id="tabBtn-referrals" class="tab-btn px-3 py-2 rounded-lg flex items-center gap-2 whitespace-nowrap text-slate-400 hover:text-slate-200">
+                <button onclick="switchTab('refer')" id="tabBtn-refer" class="tab-btn px-3.5 py-2 rounded-lg flex items-center gap-2 whitespace-nowrap text-slate-400 hover:text-slate-200">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
-                    <span>Referrals</span>
+                    <span>Refer</span>
                 </button>
-                <?php if ($currentUser['role'] === 'admin' || !empty($currentUser['real_admin_id'])): ?>
-                <button onclick="switchTab('admin')" id="tabBtn-admin" class="tab-btn px-3 py-2 rounded-lg flex items-center gap-2 whitespace-nowrap text-amber-400 hover:text-amber-300">
+                <button onclick="switchTab('profile')" id="tabBtn-profile" class="tab-btn px-3.5 py-2 rounded-lg flex items-center gap-2 whitespace-nowrap text-slate-400 hover:text-slate-200">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                    <span>Profile</span>
+                </button>
+                <?php if ($currentUser && ($currentUser['role'] === 'admin' || !empty($currentUser['real_admin_id']))): ?>
+                <button onclick="switchTab('admin')" id="tabBtn-admin" class="tab-btn px-3.5 py-2 rounded-lg flex items-center gap-2 whitespace-nowrap text-amber-400 hover:text-amber-300">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
-                    <span>Admin Panel</span>
+                    <span>Admin</span>
                 </button>
                 <?php endif; ?>
             </div>
-            <?php endif; ?>
         </div>
     </header>
 
@@ -181,9 +177,117 @@ $refFromQuery = htmlspecialchars($_GET['ref'] ?? '');
     <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
 
         <!-- ========================================== -->
-        <!-- TAB 1: BUY TOKENS (FR-006, FR-007, FR-008) -->
+        <!-- TAB 1: HOME (Unified Dashboard & Shared Wallet Overview) -->
         <!-- ========================================== -->
-        <section id="view-buy" class="tab-view space-y-6">
+        <section id="view-home" class="tab-view space-y-6">
+            <!-- Welcome Banner -->
+            <div class="bg-gradient-to-r from-indigo-950/80 via-slate-900 to-slate-900 border border-indigo-900/40 rounded-2xl p-6 sm:p-8 flex flex-col md:flex-row md:items-center justify-between gap-6 shadow-xl">
+                <div class="space-y-2 max-w-2xl">
+                    <div class="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold uppercase tracking-wider">
+                        <span>Unified P2P Marketplace</span>
+                        <span>&bull;</span>
+                        <span>One Account &bull; Shared Wallet</span>
+                    </div>
+                    <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Buy, Hold & Sell Tokens Seamlessly</h1>
+                    <p class="text-sm text-slate-300">
+                        Buy tokens from peers to receive a <strong>9% purchase reward</strong> directly into your wallet. Use that same wallet balance to list sell orders anytime. All transactions update one centralized ledger.
+                    </p>
+                </div>
+
+                <!-- Quick Action Buttons -->
+                <div class="flex flex-col sm:flex-row items-stretch gap-3 w-full md:w-auto">
+                    <button onclick="switchTab('buy')" class="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-lg shadow-indigo-600/30 transition text-sm flex items-center justify-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                        <span>Buy Tokens (+9%)</span>
+                    </button>
+                    <button onclick="switchTab('sell')" class="px-6 py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-xl border border-slate-700 transition text-sm flex items-center justify-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 11l5-5m0 0l5 5m-5-5v12"/></svg>
+                        <span>Sell Tokens</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Shared Wallet Segregated Pools -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+                    <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider block">Available Balance</span>
+                    <p class="text-2xl sm:text-3xl font-black text-emerald-400 font-mono mt-1" id="homeStatAvailable">₹0.00</p>
+                    <span class="text-[11px] text-slate-500 mt-1 block">Ready for transfer or sell listing</span>
+                </div>
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+                    <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider block">Reserved Balance</span>
+                    <p class="text-2xl sm:text-3xl font-black text-amber-400 font-mono mt-1" id="homeStatReserved">₹0.00</p>
+                    <span class="text-[11px] text-slate-500 mt-1 block">Locked in active sell orders</span>
+                </div>
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+                    <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider block">Total Rewards</span>
+                    <p class="text-2xl sm:text-3xl font-black text-indigo-400 font-mono mt-1" id="homeStatRewards">₹0.00</p>
+                    <span class="text-[11px] text-slate-500 mt-1 block">9% promotional credits earned</span>
+                </div>
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+                    <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider block">Commissions</span>
+                    <p class="text-2xl sm:text-3xl font-black text-violet-400 font-mono mt-1" id="homeStatCommissions">₹0.00</p>
+                    <span class="text-[11px] text-slate-500 mt-1 block">2-tier referral earnings</span>
+                </div>
+            </div>
+
+            <!-- Weekly Milestone Target Progress -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-3">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                        <span class="text-xs font-bold text-indigo-400 uppercase tracking-wider block">Weekly Platform Milestone</span>
+                        <h3 class="text-lg font-bold text-white">Target Trading Volume: ₹4,00,000.00</h3>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-2xl font-black text-white font-mono" id="homeWeeklyProgressPct">0.0%</span>
+                        <span class="text-xs text-slate-500 block">Progress Completed</span>
+                    </div>
+                </div>
+                <div class="w-full bg-slate-950 rounded-full h-3 overflow-hidden border border-slate-800">
+                    <div id="homeWeeklyProgressBar" class="bg-gradient-to-r from-indigo-500 to-emerald-400 h-full rounded-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+                <div class="flex justify-between text-xs text-slate-500 font-mono">
+                    <span>Your Completed Vol: <strong class="text-slate-300" id="homeStatCompletedVol">₹0.00</strong></span>
+                    <span>Platform Target: ₹4,00,000.00</span>
+                </div>
+            </div>
+
+            <!-- Unified Transaction History (Centralized Wallet Ledger) -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="text-lg font-bold text-white">Unified Wallet Transaction History</h3>
+                        <p class="text-xs text-slate-400">All token movements (purchases, rewards, reserves, settlements, referrals) in one ledger</p>
+                    </div>
+                    <button onclick="loadLedger()" class="p-2 text-slate-400 hover:text-white bg-slate-950 border border-slate-800 rounded-lg transition" title="Refresh">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    </button>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs">
+                        <thead class="bg-slate-950 text-slate-400 uppercase tracking-wider font-semibold border-b border-slate-800">
+                            <tr>
+                                <th class="p-3">Ledger ID</th>
+                                <th class="p-3">Action Type</th>
+                                <th class="p-3">Amount</th>
+                                <th class="p-3">Balance Progression</th>
+                                <th class="p-3">Reference / Order ID</th>
+                                <th class="p-3">Timestamp (UTC)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="homeLedgerTableBody" class="divide-y divide-slate-800/60 font-mono text-slate-300">
+                            <!-- Populated dynamically via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ========================================== -->
+        <!-- TAB 2: BUY (Buy Pool, Custom Match & Purchases) -->
+        <!-- ========================================== -->
+        <section id="view-buy" class="tab-view space-y-6 hidden">
             <!-- Buy Hero Banner -->
             <div class="bg-gradient-to-r from-indigo-950/70 via-slate-900 to-slate-900 border border-indigo-900/40 rounded-2xl p-6 sm:p-8 flex flex-col md:flex-row md:items-center justify-between gap-6 shadow-xl">
                 <div class="space-y-2 max-w-xl">
@@ -195,9 +299,6 @@ $refFromQuery = htmlspecialchars($_GET['ref'] ?? '');
                     <h2 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Purchase Peer-to-Peer Tokens</h2>
                     <p class="text-sm text-slate-400">
                         Select an available token portion or specify a custom buy amount. Complete direct manual UPI transfer within the 10-minute deadline to receive your tokens plus a 9% purchase reward.
-                    </p>
-                    <p class="text-[11px] text-slate-500 italic">
-                        * Note: The 9% reward is a promotional platform configuration, not a guaranteed return or investment vehicle.
                     </p>
                     <div class="flex items-center gap-2 pt-1 text-[11px] text-indigo-400 font-semibold">
                         <svg class="w-4 h-4 text-emerald-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
@@ -220,18 +321,33 @@ $refFromQuery = htmlspecialchars($_GET['ref'] ?? '');
                 </div>
             </div>
 
-            <!-- Market Buy Pool Listing (FR-006) -->
-            <div>
+            <!-- Active Buy Orders & Payment Status (My Purchases in Buy Section) -->
+            <div class="space-y-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="text-lg font-bold text-white">My Active Buy Orders & Payment Deadlines</h3>
+                        <p class="text-xs text-slate-400">Complete transfer within 10 minutes and submit UTR screenshot</p>
+                    </div>
+                    <button onclick="loadMyPurchases()" class="p-2 text-slate-400 hover:text-white bg-slate-900 border border-slate-800 rounded-lg transition" title="Refresh Purchases">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    </button>
+                </div>
+                <div id="myPurchasesList" class="space-y-3">
+                    <!-- Populated dynamically via JS -->
+                </div>
+            </div>
+
+            <!-- Live Market Buy Pool Listing (FR-006) -->
+            <div class="pt-4 border-t border-slate-800">
                 <div class="flex items-center justify-between mb-4">
                     <div>
-                        <h3 class="text-lg font-bold text-white">Live Buy Pool Listings</h3>
-                        <p class="text-xs text-slate-400">Auto-fragmented micro-order portions available for instant reservation</p>
+                        <h3 class="text-lg font-bold text-white">Available Peer Sell Portions</h3>
+                        <p class="text-xs text-slate-400">Select an unpicked micro-order portion to buy</p>
                     </div>
                     <button onclick="loadBuyPool()" class="p-2 text-slate-400 hover:text-white bg-slate-900 border border-slate-800 rounded-lg transition" title="Refresh Pool">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                     </button>
                 </div>
-
                 <div id="buyPoolGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                     <!-- Populated dynamically via JS -->
                 </div>
@@ -239,18 +355,22 @@ $refFromQuery = htmlspecialchars($_GET['ref'] ?? '');
         </section>
 
         <!-- ========================================== -->
-        <!-- TAB 2: SELL TOKENS (FR-011, FR-012, FR-014) -->
+        <!-- TAB 3: SELL (List Sell Order & Seller Tracking) -->
         <!-- ========================================== -->
         <section id="view-sell" class="tab-view space-y-6 hidden">
-            <!-- Sell Listing Form -->
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <!-- Sell Creation Card -->
                 <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
                     <div>
                         <h2 class="text-xl font-bold text-white">List Tokens for Sale</h2>
                         <p class="text-xs text-slate-400 mt-1">
-                            Tokens will be automatically divided into micro-orders (up to 8 portions) according to liquidity rules.
+                            Tokens are sold from your Available Wallet Balance. The system automatically divides large orders into micro-orders (up to 8 portions) and displays them in the Buy section.
                         </p>
+                    </div>
+
+                    <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs flex justify-between items-center">
+                        <span class="text-slate-400">Available to Sell:</span>
+                        <span class="text-emerald-400 font-mono font-bold text-sm" id="sellFormAvailableBalance">₹0.00</span>
                     </div>
 
                     <div class="space-y-3">
@@ -268,7 +388,7 @@ $refFromQuery = htmlspecialchars($_GET['ref'] ?? '');
 
                         <!-- Banking Snapshot Notice (FR-013) -->
                         <div class="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3 text-xs text-slate-400 space-y-1">
-                            <span class="text-indigo-400 font-bold block">Snapshotted Bank Details:</span>
+                            <span class="text-indigo-400 font-bold block">Snapshotted Payout Details:</span>
                             <div id="sellProfilePreview" class="text-[11px]">Loading verified UPI details...</div>
                         </div>
 
@@ -283,9 +403,9 @@ $refFromQuery = htmlspecialchars($_GET['ref'] ?? '');
                     <div class="flex items-center justify-between">
                         <div>
                             <h3 class="text-lg font-bold text-white">Seller Tracking Dashboard</h3>
-                            <p class="text-xs text-slate-400">Parent sell orders and real-time micro-order payment tracking</p>
+                            <p class="text-xs text-slate-400">Parent sell orders, micro-order statuses, and buyer confirmation timers</p>
                         </div>
-                        <button onclick="loadSellerDashboard()" class="p-2 text-slate-400 hover:text-white bg-slate-900 border border-slate-800 rounded-lg transition">
+                        <button onclick="loadSellerDashboard()" class="p-2 text-slate-400 hover:text-white bg-slate-900 border border-slate-800 rounded-lg transition" title="Refresh">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                         </button>
                     </div>
@@ -298,117 +418,16 @@ $refFromQuery = htmlspecialchars($_GET['ref'] ?? '');
         </section>
 
         <!-- ========================================== -->
-        <!-- TAB 3: MY PURCHASES & PROOFS (FR-009, FR-010) -->
+        <!-- TAB 4: REFER (2-Tier Referral Hub) -->
         <!-- ========================================== -->
-        <section id="view-orders" class="tab-view space-y-6 hidden">
-            <div class="flex items-center justify-between">
-                <div>
-                    <h2 class="text-xl font-bold text-white">Active Buy Orders & Payment Status</h2>
-                    <p class="text-xs text-slate-400">Upload payment proof within the 10-minute window to complete token transfer</p>
-                </div>
-                <button onclick="loadMyPurchases()" class="p-2 text-slate-400 hover:text-white bg-slate-900 border border-slate-800 rounded-lg transition">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-                </button>
-            </div>
-
-            <div id="myPurchasesList" class="space-y-4">
-                <!-- Populated dynamically via JS -->
-            </div>
-        </section>
-
-        <!-- ========================================== -->
-        <!-- TAB 4: WALLET, LEDGER & TARGETS (FR-003, FR-004, FR-005) -->
-        <!-- ========================================== -->
-        <section id="view-wallet" class="tab-view space-y-6 hidden">
-            <!-- Segregated Balances Metric Cards (FR-004) -->
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
-                    <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider block">Available Balance</span>
-                    <p class="text-2xl sm:text-3xl font-black text-emerald-400 font-mono mt-1" id="statAvailable">₹0.00</p>
-                    <span class="text-[11px] text-slate-500 mt-1 block">Ready for transfer or sell listing</span>
-                </div>
-                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
-                    <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider block">Reserved Balance</span>
-                    <p class="text-2xl sm:text-3xl font-black text-amber-400 font-mono mt-1" id="statReserved">₹0.00</p>
-                    <span class="text-[11px] text-slate-500 mt-1 block">Locked in open sell listings</span>
-                </div>
-                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
-                    <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider block">Total Rewards</span>
-                    <p class="text-2xl sm:text-3xl font-black text-indigo-400 font-mono mt-1" id="statRewards">₹0.00</p>
-                    <span class="text-[11px] text-slate-500 mt-1 block">9% promotional credits earned</span>
-                </div>
-                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
-                    <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider block">Commissions</span>
-                    <p class="text-2xl sm:text-3xl font-black text-violet-400 font-mono mt-1" id="statCommissions">₹0.00</p>
-                    <span class="text-[11px] text-slate-500 mt-1 block">Multi-tier referral earnings</span>
-                </div>
-            </div>
-
-            <!-- Weekly Volume Target Card (FR-003, PRD Section 6) -->
-            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-3">
-                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div>
-                        <span class="text-xs font-bold text-indigo-400 uppercase tracking-wider block">Weekly Target Incentive</span>
-                        <h3 class="text-lg font-bold text-white">Platform Volume Milestone: ₹4,00,000</h3>
-                    </div>
-                    <div class="text-right">
-                        <span class="text-2xl font-black text-white font-mono" id="weeklyProgressPct">0.0%</span>
-                        <span class="text-xs text-slate-500 block">Progress Completed</span>
-                    </div>
-                </div>
-                <!-- Progress Bar -->
-                <div class="w-full bg-slate-950 rounded-full h-3 overflow-hidden border border-slate-800">
-                    <div id="weeklyProgressBar" class="bg-gradient-to-r from-indigo-500 to-emerald-400 h-full rounded-full transition-all duration-500" style="width: 0%"></div>
-                </div>
-                <div class="flex justify-between text-xs text-slate-500 font-mono">
-                    <span>Completed Vol: <strong class="text-slate-300" id="statCompletedVol">₹0.00</strong></span>
-                    <span>Target: ₹4,00,000.00</span>
-                </div>
-            </div>
-
-            <!-- Immutable Double-Entry Ledger History (FR-005) -->
-            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <h3 class="text-lg font-bold text-white">Immutable Wallet Ledger</h3>
-                        <p class="text-xs text-slate-400">Strict append-only transaction history with cryptographic actor verification</p>
-                    </div>
-                    <button onclick="loadLedger()" class="p-2 text-slate-400 hover:text-white bg-slate-950 border border-slate-800 rounded-lg transition">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-                    </button>
-                </div>
-
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left text-xs">
-                        <thead class="bg-slate-950 text-slate-400 uppercase tracking-wider font-semibold border-b border-slate-800">
-                            <tr>
-                                <th class="p-3">Ledger ID</th>
-                                <th class="p-3">Type</th>
-                                <th class="p-3">Amount</th>
-                                <th class="p-3">Prev &bull; New Balance</th>
-                                <th class="p-3">Reference / Notes</th>
-                                <th class="p-3">Timestamp (UTC)</th>
-                            </tr>
-                        </thead>
-                        <tbody id="ledgerTableBody" class="divide-y divide-slate-800/60 font-mono text-slate-300">
-                            <!-- Populated dynamically via JS -->
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </section>
-
-        <!-- ========================================== -->
-        <!-- TAB 5: REFERRALS (FR-019) -->
-        <!-- ========================================== -->
-        <section id="view-referrals" class="tab-view space-y-6 hidden">
+        <section id="view-refer" class="tab-view space-y-6 hidden">
             <!-- Referral Header -->
             <div class="bg-gradient-to-r from-violet-950/70 to-slate-900 border border-violet-900/40 rounded-2xl p-6 sm:p-8 space-y-4">
                 <div class="max-w-2xl space-y-2">
                     <span class="text-xs uppercase font-bold text-violet-400 tracking-wider">Multi-Tier Network</span>
                     <h2 class="text-2xl sm:text-3xl font-extrabold text-white">Earn 2-Tier Referral Commissions</h2>
                     <p class="text-sm text-slate-400">
-                        Earn <strong>1.0% Level 1</strong> direct commission whenever your invited peers complete a buy order, plus <strong>0.5% Level 2</strong> indirect commission on their invited networks.
+                        Earn <strong>1.0% Level 1</strong> direct commission whenever your invited peers complete a buy order, plus <strong>0.5% Level 2</strong> indirect commission on their invited networks. All commissions are credited to your single shared wallet!
                     </p>
                 </div>
 
@@ -454,7 +473,102 @@ $refFromQuery = htmlspecialchars($_GET['ref'] ?? '');
         </section>
 
         <!-- ========================================== -->
-        <!-- TAB 6: ADMIN PANEL (FR-018, FR-020, FR-021, FR-022, FR-023) -->
+        <!-- TAB 5: PROFILE (Account, TPIN, Bank Details & Complete History) -->
+        <!-- ========================================== -->
+        <section id="view-profile" class="tab-view space-y-6 hidden">
+            <!-- Profile Info & Account Security -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Banking Payout Settings -->
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+                    <div class="border-b border-slate-800 pb-3">
+                        <span class="text-xs uppercase font-bold text-indigo-400 tracking-wider">UPI Configuration</span>
+                        <h3 class="text-lg font-bold text-white mt-1">Payout Banking Details</h3>
+                        <p class="text-xs text-slate-400">Buyers will transfer funds directly to this verified UPI ID when picking your sell orders</p>
+                    </div>
+
+                    <form onsubmit="handleProfileUpdate(event)" class="space-y-3">
+                        <div>
+                            <label class="text-xs font-semibold text-slate-300 block mb-1">Account Holder Full Name</label>
+                            <input type="text" id="profHolderName" required placeholder="Rohan Sharma" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:border-indigo-500 focus:outline-none">
+                        </div>
+                        <div>
+                            <label class="text-xs font-semibold text-slate-300 block mb-1">UPI ID (e.g. user@okhdfcbank)</label>
+                            <input type="text" id="profUpiId" required placeholder="user@bank" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white font-mono focus:border-indigo-500 focus:outline-none">
+                        </div>
+                        <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition">
+                            Save Payout Details
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Selling TPIN Configuration -->
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+                    <div class="border-b border-slate-800 pb-3">
+                        <span class="text-xs uppercase font-bold text-amber-400 tracking-wider">Security Protection</span>
+                        <h3 class="text-lg font-bold text-white mt-1">Selling Transaction PIN (TPIN)</h3>
+                        <p class="text-xs text-slate-400">Secondary 4–6 digit PIN required to authorize every sell order listing</p>
+                    </div>
+
+                    <form onsubmit="handleTpinUpdate(event)" class="space-y-3">
+                        <div>
+                            <label class="text-xs font-semibold text-slate-300 block mb-1">Set New Selling TPIN (4-6 Digits)</label>
+                            <input type="password" id="profNewTpin" required maxlength="6" placeholder="••••" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white font-mono tracking-widest focus:border-amber-500 focus:outline-none">
+                            <span class="text-[11px] text-slate-500 mt-1 block">Bcrypt hashed. Never stored in plaintext.</span>
+                        </div>
+                        <button type="submit" class="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition">
+                            Save Selling TPIN
+                        </button>
+                    </form>
+
+                    <!-- Account Metadata Chip -->
+                    <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs space-y-1">
+                        <div class="flex justify-between text-slate-400">
+                            <span>Phone:</span>
+                            <span class="text-white font-mono" id="profilePhoneDisplay">-</span>
+                        </div>
+                        <div class="flex justify-between text-slate-400">
+                            <span>Referral Code:</span>
+                            <span class="text-indigo-400 font-mono font-bold" id="profileRefCodeDisplay">-</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Complete Unified Ledger Audit Log -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="text-lg font-bold text-white">Complete Wallet Audit History</h3>
+                        <p class="text-xs text-slate-400">Immutable, append-only record of every token credit, debit, reward, and settlement</p>
+                    </div>
+                    <button onclick="loadLedger()" class="p-2 text-slate-400 hover:text-white bg-slate-950 border border-slate-800 rounded-lg transition" title="Refresh Ledger">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    </button>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs">
+                        <thead class="bg-slate-950 text-slate-400 uppercase tracking-wider font-semibold border-b border-slate-800">
+                            <tr>
+                                <th class="p-3">ID</th>
+                                <th class="p-3">Type</th>
+                                <th class="p-3">Amount</th>
+                                <th class="p-3">Previous Balance</th>
+                                <th class="p-3">New Balance</th>
+                                <th class="p-3">Order / Reference</th>
+                                <th class="p-3">Timestamp (UTC)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="profileLedgerTableBody" class="divide-y divide-slate-800/60 font-mono text-slate-300">
+                            <!-- Populated dynamically via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ========================================== -->
+        <!-- TAB 6: ADMIN PANEL (Arbitration, Impersonation, Settings) -->
         <!-- ========================================== -->
         <?php if ($currentUser && ($currentUser['role'] === 'admin' || !empty($currentUser['real_admin_id']))): ?>
         <section id="view-admin" class="tab-view space-y-6 hidden">
@@ -621,7 +735,7 @@ $refFromQuery = htmlspecialchars($_GET['ref'] ?? '');
             </div>
             <div class="flex items-center gap-4">
                 <a href="/test_qa.php" target="_blank" class="text-indigo-400 hover:text-indigo-300 font-semibold underline">
-                    Live QA Acceptance Report (8/8 Passed)
+                    Live QA Acceptance Report (11/11 Passed)
                 </a>
                 <span>&bull;</span>
                 <span class="font-mono text-[11px] text-slate-400">Server UTC: <?= gmdate('H:i:s') ?></span>
@@ -641,7 +755,7 @@ $refFromQuery = htmlspecialchars($_GET['ref'] ?? '');
             </button>
             <div class="text-center mb-6">
                 <h3 id="authModalTitle" class="text-2xl font-black text-white">Sign In</h3>
-                <p id="authModalSubtitle" class="text-xs text-slate-400 mt-1">Access your P2P token wallet</p>
+                <p id="authModalSubtitle" class="text-xs text-slate-400 mt-1">Access your unified P2P token wallet</p>
             </div>
 
             <form id="authForm" onsubmit="handleAuthSubmit(event)" class="space-y-4">
@@ -769,48 +883,6 @@ $refFromQuery = htmlspecialchars($_GET['ref'] ?? '');
 
                 <button type="submit" id="appealSubmitBtn" class="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-red-600/30 transition text-sm">
                     Freeze Order & Escalate to Admin
-                </button>
-            </form>
-        </div>
-    </div>
-
-    <!-- 4. Profile & TPIN Settings Modal (FR-002) -->
-    <div id="profileModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
-        <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl relative space-y-6">
-            <button onclick="closeProfileModal()" class="absolute right-4 top-4 text-slate-400 hover:text-white">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-            </button>
-            <div>
-                <h3 class="text-xl font-bold text-white">Profile & Security Settings</h3>
-                <p class="text-xs text-slate-400 mt-1">Manage your verified banking details and Selling TPIN</p>
-            </div>
-
-            <!-- Banking Settings Form -->
-            <form onsubmit="handleProfileUpdate(event)" class="space-y-3 border-b border-slate-800 pb-5">
-                <span class="text-xs uppercase font-bold text-indigo-400 tracking-wider block">Banking Payout Details</span>
-                <div>
-                    <label class="text-xs font-semibold text-slate-300 block mb-1">Account Holder Name</label>
-                    <input type="text" id="profHolderName" required placeholder="Rohan Sharma" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none">
-                </div>
-                <div>
-                    <label class="text-xs font-semibold text-slate-300 block mb-1">UPI ID</label>
-                    <input type="text" id="profUpiId" required placeholder="user@bank" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-white font-mono focus:border-indigo-500 focus:outline-none">
-                </div>
-                <button type="submit" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold py-2 rounded-xl text-xs uppercase tracking-wider transition">
-                    Save Bank Details
-                </button>
-            </form>
-
-            <!-- Selling TPIN Configuration Form (FR-002) -->
-            <form onsubmit="handleTpinUpdate(event)" class="space-y-3">
-                <span class="text-xs uppercase font-bold text-amber-400 tracking-wider block">Selling Transaction PIN (TPIN)</span>
-                <div>
-                    <label class="text-xs font-semibold text-slate-300 block mb-1">Configure New 4-6 Digit TPIN</label>
-                    <input type="password" id="profNewTpin" required maxlength="6" placeholder="••••" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-white font-mono tracking-widest focus:border-amber-500 focus:outline-none">
-                    <span class="text-[11px] text-slate-500 mt-1 block">Used to authorize listing sell orders</span>
-                </div>
-                <button type="submit" class="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold py-2 rounded-xl text-xs uppercase tracking-wider transition">
-                    Set Selling TPIN
                 </button>
             </form>
         </div>

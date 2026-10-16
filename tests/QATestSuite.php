@@ -71,6 +71,7 @@ class QATestSuite {
         $this->testQA008();
         $this->testQA009UnifiedFlow();
         $this->testQA010AntiWashTrading();
+        $this->testQA011FullUnifiedE2ELifecycle();
         return $this->results;
     }
 
@@ -443,6 +444,96 @@ class QATestSuite {
             'error_returned' => $selfPickRes['error'] ?? null,
             'matches_exact_specification' => $matchesExactMessage,
             'order_remained_available' => $orderRemainedAvailable
+        ]);
+    }
+
+    /**
+     * QA-011: Complete End-to-End Unified Marketplace Lifecycle
+     * Verification of User Requirements 1 through 6:
+     * 1. Register & log in once.
+     * 2. Buy tokens from another peer's sell order.
+     * 3. Receive purchased tokens + 9% reward in the single shared wallet upon settlement.
+     * 4. Open Sell section and create sell order using that Available Balance with Selling TPIN.
+     * 5. Sell those tokens to another peer through the same platform.
+     * 6. View all buy, reward, reserve, and sell movements in one unified wallet transaction history.
+     */
+    public function testQA011FullUnifiedE2ELifecycle(): void {
+        $testId = 'QA-011';
+        $title = 'Full E2E Unified Lifecycle: Register -> Buy & Reward -> Shared Wallet Credit -> Sell with TPIN -> Peer Settlement -> Unified History';
+
+        // Step 1: Register User Alpha (Single account, single wallet)
+        $regAlpha = Auth::register('9800000010', 'Password@123', null, 'alpha@okhdfc', 'Alpha Trader');
+        $alphaId = (int)$regAlpha['user_id'];
+        Auth::setTPIN($alphaId, '1234');
+
+        // Register Peer Beta (who lists an order to sell)
+        $regBeta = Auth::register('9800000020', 'Password@123', null, 'beta@paytm', 'Beta Peer');
+        $betaId = (int)$regBeta['user_id'];
+        Auth::setTPIN($betaId, '1234');
+        // Give Beta initial liquidity
+        Wallet::adminAdjust($betaId, 'credit', 2000.00, 'Initial peer liquidity', 1);
+
+        // Beta creates a sell order of ₹1,000
+        $betaSell = OrderEngine::createSellOrder($betaId, 1000.00, '1234');
+        $betaChildId = (int)$betaSell['children'][0]['id'];
+        $childAmount = (float)$betaSell['children'][0]['amount']; // e.g. 500
+
+        // Step 2: User Alpha buys tokens from Beta's sell order
+        $pickRes = StateMachine::pickOrder($betaChildId, $alphaId);
+
+        // Step 3: Alpha submits proof, Beta confirms payment
+        $alphaUtr = 'UTR_E2E_' . time() . rand(100, 999);
+        StateMachine::submitPaymentProof($betaChildId, $alphaId, $alphaUtr, 'proofs/e2e.png', 'E2E test transfer');
+        $settleRes = StateMachine::confirmPayment($betaChildId, $betaId, 'IDEM_E2E_' . uniqid());
+
+        // Verify Step 3: Alpha received purchased tokens + 9% reward into their shared Available Balance
+        $alphaWalletAfterBuy = Wallet::getWallet($alphaId);
+        $expectedReward = round($childAmount * 0.09, 2);
+        $expectedTotalCredit = round($childAmount + $expectedReward, 2);
+        $step3Valid = ((float)$alphaWalletAfterBuy['available_balance'] == $expectedTotalCredit);
+
+        // Step 4: Alpha opens Sell section and lists tokens using their Available Balance with TPIN
+        $sellAmount = floor($expectedTotalCredit / 100) * 100; // e.g. 500
+        $alphaSell = OrderEngine::createSellOrder($alphaId, $sellAmount, '1234');
+        $step4Valid = ($alphaSell['success'] === true);
+        $alphaChildId = (int)$alphaSell['children'][0]['id'];
+
+        // Step 5: User Gamma (third user) buys from Alpha
+        $regGamma = Auth::register('9800000030', 'Password@123', null, 'gamma@icici', 'Gamma Buyer');
+        $gammaId = (int)$regGamma['user_id'];
+        StateMachine::pickOrder($alphaChildId, $gammaId);
+        $gammaUtr = 'UTR_GAMMA_' . time() . rand(100, 999);
+        StateMachine::submitPaymentProof($alphaChildId, $gammaId, $gammaUtr, 'proofs/gamma.png');
+        $alphaConfirm = StateMachine::confirmPayment($alphaChildId, $alphaId, 'IDEM_GAMMA_' . uniqid());
+        $step5Valid = ($alphaConfirm['success'] === true);
+
+        // Step 6: Verify Unified Transaction History for User Alpha
+        $alphaLedger = Ledger::getUserHistory($alphaId, 50);
+        $types = array_column($alphaLedger, 'transaction_type');
+
+        $hasBuyCredit = in_array('BUY_CREDIT', $types, true);
+        $hasBuyReward = in_array('BUY_REWARD', $types, true);
+        $hasSellReserve = in_array('SELL_RESERVE', $types, true);
+        $hasSellSettle = in_array('SELL_SETTLE', $types, true);
+        $step6Valid = $hasBuyCredit && $hasBuyReward && $hasSellReserve && $hasSellSettle;
+
+        $passed = ($regAlpha['success'] === true) &&
+                  ($pickRes['success'] === true) &&
+                  $step3Valid &&
+                  $step4Valid &&
+                  $step5Valid &&
+                  $step6Valid;
+
+        $this->recordResult($testId, $title, $passed, [
+            'step_1_registration' => $regAlpha['success'] ?? false,
+            'step_2_order_pick' => $pickRes['success'] ?? false,
+            'step_3_tokens_and_reward_credited' => $step3Valid,
+            'expected_credited_tokens' => $expectedTotalCredit,
+            'actual_available_balance' => (float)$alphaWalletAfterBuy['available_balance'],
+            'step_4_sell_listing_created' => $step4Valid,
+            'step_5_peer_sold_and_settled' => $step5Valid,
+            'step_6_unified_history_verified' => $step6Valid,
+            'ledger_transaction_types_found' => array_values(array_unique($types))
         ]);
     }
 

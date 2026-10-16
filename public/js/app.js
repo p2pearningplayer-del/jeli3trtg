@@ -5,7 +5,7 @@
  */
 
 let currentUser = null;
-let currentTab = 'buy';
+let currentTab = 'home';
 let activeTimers = {};
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -21,7 +21,7 @@ async function initApp() {
     if (tabParam) {
         switchTab(tabParam);
     } else {
-        switchTab('buy');
+        switchTab('home');
     }
 }
 
@@ -59,7 +59,7 @@ function updateProfilePreviews(user) {
         if (user.upi_id && user.account_holder_name) {
             previewEl.innerHTML = `<span class="text-white font-semibold">${escapeHtml(user.account_holder_name)}</span> &bull; <span class="font-mono text-emerald-400">${escapeHtml(user.upi_id)}</span>`;
         } else {
-            previewEl.innerHTML = `<span class="text-amber-400 font-semibold">Missing UPI info.</span> <button type="button" onclick="openProfileModal()" class="text-indigo-400 underline ml-1">Configure now</button>`;
+            previewEl.innerHTML = `<span class="text-amber-400 font-semibold">Missing UPI info.</span> <button type="button" onclick="switchTab('profile')" class="text-indigo-400 underline ml-1">Configure in Profile</button>`;
         }
     }
 
@@ -67,9 +67,19 @@ function updateProfilePreviews(user) {
     const upiInput = document.getElementById('profUpiId');
     if (holderInput && user.account_holder_name) holderInput.value = user.account_holder_name;
     if (upiInput && user.upi_id) upiInput.value = user.upi_id;
+
+    const phoneDisplay = document.getElementById('profilePhoneDisplay');
+    const refCodeDisplay = document.getElementById('profileRefCodeDisplay');
+    if (phoneDisplay && user.phone) phoneDisplay.innerText = user.phone;
+    if (refCodeDisplay && user.referral_code) refCodeDisplay.innerText = user.referral_code;
 }
 
 function switchTab(tabId) {
+    // Aliases for smooth compatibility
+    if (tabId === 'orders') tabId = 'buy';
+    if (tabId === 'wallet') tabId = 'home';
+    if (tabId === 'referrals') tabId = 'refer';
+
     currentTab = tabId;
 
     document.querySelectorAll('.tab-view').forEach(el => el.classList.add('hidden'));
@@ -88,20 +98,21 @@ function switchTab(tabId) {
     }
 
     // Trigger tab data load
-    if (tabId === 'buy') loadBuyPool();
-    if (tabId === 'sell') loadSellerDashboard();
-    if (tabId === 'orders') loadMyPurchases();
-    if (tabId === 'wallet') { loadWalletStats(); loadLedger(); }
-    if (tabId === 'referrals') loadReferrals();
+    if (tabId === 'home') { loadWalletStats(); loadLedger(); }
+    if (tabId === 'buy') { loadBuyPool(); loadMyPurchases(); }
+    if (tabId === 'sell') { loadWalletStats(); loadSellerDashboard(); }
+    if (tabId === 'refer') loadReferrals();
+    if (tabId === 'profile') { loadWalletStats(); loadLedger(); }
     if (tabId === 'admin') loadAdminDashboard();
 }
 
 function periodicSync() {
     if (!currentUser) return;
-    if (currentTab === 'buy') loadBuyPool(true);
-    if (currentTab === 'sell') loadSellerDashboard(true);
-    if (currentTab === 'orders') loadMyPurchases(true);
-    if (currentTab === 'wallet') loadWalletStats(true);
+    if (currentTab === 'home') { loadWalletStats(true); }
+    if (currentTab === 'buy') { loadBuyPool(true); loadMyPurchases(true); }
+    if (currentTab === 'sell') { loadSellerDashboard(true); loadWalletStats(true); }
+    if (currentTab === 'refer') loadReferrals();
+    if (currentTab === 'profile') loadWalletStats(true);
 }
 
 // -------------------------------------------------------------
@@ -287,6 +298,7 @@ async function submitSellOrder() {
             amountInput.value = '';
             tpinInput.value = '';
             fetchSession();
+            loadWalletStats();
             loadSellerDashboard();
         } else {
             alert(data.error || 'Failed to list sell order.');
@@ -430,6 +442,7 @@ async function confirmPayment(orderId) {
         if (data.success) {
             alert('Settlement confirmed! Reserved tokens transferred and buyer credited successfully.');
             fetchSession();
+            loadWalletStats();
             loadSellerDashboard();
         } else {
             alert(data.error || 'Settlement failed.');
@@ -669,7 +682,7 @@ async function handleAppealSubmit(e) {
 }
 
 // -------------------------------------------------------------
-// TAB 4: WALLET, LEDGER & TARGETS (FR-003, FR-004, FR-005)
+// TAB: WALLET STATS, LEDGER & TARGETS (FR-003, FR-004, FR-005)
 // -------------------------------------------------------------
 
 async function loadWalletStats(silent = false) {
@@ -680,15 +693,48 @@ async function loadWalletStats(silent = false) {
         if (!data.success || !data.wallet) return;
 
         const w = data.wallet;
-        document.getElementById('statAvailable').innerText = `₹${parseFloat(w.available_balance).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
-        document.getElementById('statReserved').innerText = `₹${parseFloat(w.reserved_balance).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
-        document.getElementById('statRewards').innerText = `₹${parseFloat(w.total_rewards).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
-        document.getElementById('statCommissions').innerText = `₹${parseFloat(w.total_commissions).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+        const availFormatted = `₹${parseFloat(w.available_balance).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+        const resvFormatted = `₹${parseFloat(w.reserved_balance).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+        const rewFormatted = `₹${parseFloat(w.total_rewards).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+        const commFormatted = `₹${parseFloat(w.total_commissions).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+        const volFormatted = `₹${parseFloat(w.completed_sell_volume).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+        const pctFormatted = `${parseFloat(w.weekly_progress_percent).toFixed(1)}%`;
+        const pctVal = `${Math.min(100, parseFloat(w.weekly_progress_percent))}%`;
 
-        // Weekly target milestone (PRD Section 6)
-        document.getElementById('weeklyProgressPct').innerText = `${parseFloat(w.weekly_progress_percent).toFixed(1)}%`;
-        document.getElementById('weeklyProgressBar').style.width = `${parseFloat(w.weekly_progress_percent)}%`;
-        document.getElementById('statCompletedVol').innerText = `₹${parseFloat(w.completed_sell_volume).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+        // Home View elements
+        const hAvail = document.getElementById('homeStatAvailable');
+        if (hAvail) hAvail.innerText = availFormatted;
+
+        const hResv = document.getElementById('homeStatReserved');
+        if (hResv) hResv.innerText = resvFormatted;
+
+        const hRew = document.getElementById('homeStatRewards');
+        if (hRew) hRew.innerText = rewFormatted;
+
+        const hComm = document.getElementById('homeStatCommissions');
+        if (hComm) hComm.innerText = commFormatted;
+
+        const hPct = document.getElementById('homeWeeklyProgressPct');
+        if (hPct) hPct.innerText = pctFormatted;
+
+        const hBar = document.getElementById('homeWeeklyProgressBar');
+        if (hBar) hBar.style.width = pctVal;
+
+        const hVol = document.getElementById('homeStatCompletedVol');
+        if (hVol) hVol.innerText = volFormatted;
+
+        // Sell View available balance indicator
+        const sAvail = document.getElementById('sellFormAvailableBalance');
+        if (sAvail) sAvail.innerText = availFormatted;
+
+        // Legacy / Generic IDs if present
+        if (document.getElementById('statAvailable')) document.getElementById('statAvailable').innerText = availFormatted;
+        if (document.getElementById('statReserved')) document.getElementById('statReserved').innerText = resvFormatted;
+        if (document.getElementById('statRewards')) document.getElementById('statRewards').innerText = rewFormatted;
+        if (document.getElementById('statCommissions')) document.getElementById('statCommissions').innerText = commFormatted;
+        if (document.getElementById('weeklyProgressPct')) document.getElementById('weeklyProgressPct').innerText = pctFormatted;
+        if (document.getElementById('weeklyProgressBar')) document.getElementById('weeklyProgressBar').style.width = pctVal;
+        if (document.getElementById('statCompletedVol')) document.getElementById('statCompletedVol').innerText = volFormatted;
 
         updateHeaderBalances(w);
     } catch (e) {
@@ -701,11 +747,16 @@ async function loadLedger() {
     try {
         const res = await fetch('/api/wallet.php?action=ledger&limit=50');
         const data = await res.json();
-        const tbody = document.getElementById('ledgerTableBody');
-        if (!tbody) return;
+        const homeBody = document.getElementById('homeLedgerTableBody');
+        const profileBody = document.getElementById('profileLedgerTableBody');
+        const fallbackBody = document.getElementById('ledgerTableBody');
 
         if (!data.success || !data.ledger || data.ledger.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-slate-500">No ledger entries recorded yet.</td></tr>`;
+            const emptyRowHome = `<tr><td colspan="6" class="p-6 text-center text-slate-500 font-sans">No wallet transactions recorded yet.</td></tr>`;
+            const emptyRowProfile = `<tr><td colspan="7" class="p-6 text-center text-slate-500 font-sans">No wallet audit records found.</td></tr>`;
+            if (homeBody) homeBody.innerHTML = emptyRowHome;
+            if (profileBody) profileBody.innerHTML = emptyRowProfile;
+            if (fallbackBody) fallbackBody.innerHTML = emptyRowHome;
             return;
         }
 
@@ -722,7 +773,7 @@ async function loadLedger() {
             'INITIAL_DEPOSIT': 'text-slate-400 bg-slate-800'
         };
 
-        tbody.innerHTML = data.ledger.map(row => `
+        const homeHtml = data.ledger.map(row => `
             <tr class="hover:bg-slate-900/60">
                 <td class="p-3 text-slate-500">#${row.id}</td>
                 <td class="p-3">
@@ -738,6 +789,26 @@ async function loadLedger() {
                 <td class="p-3 text-slate-500 text-[11px]">${row.created_at}</td>
             </tr>
         `).join('');
+
+        const profileHtml = data.ledger.map(row => `
+            <tr class="hover:bg-slate-900/60">
+                <td class="p-3 text-slate-500">#${row.id}</td>
+                <td class="p-3">
+                    <span class="px-2 py-0.5 rounded text-[10px] font-bold ${typeColors[row.transaction_type] || 'text-slate-400 bg-slate-800'}">
+                        ${row.transaction_type}
+                    </span>
+                </td>
+                <td class="p-3 font-bold text-white">₹${parseFloat(row.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                <td class="p-3 text-slate-400 font-mono">₹${parseFloat(row.previous_balance).toFixed(2)}</td>
+                <td class="p-3 text-emerald-400 font-mono font-bold">₹${parseFloat(row.new_balance).toFixed(2)}</td>
+                <td class="p-3 text-slate-400 truncate max-w-xs font-sans text-[11px]">${escapeHtml(row.notes || row.reference_id || '-')}</td>
+                <td class="p-3 text-slate-500 text-[11px]">${row.created_at}</td>
+            </tr>
+        `).join('');
+
+        if (homeBody) homeBody.innerHTML = homeHtml;
+        if (profileBody) profileBody.innerHTML = profileHtml;
+        if (fallbackBody) fallbackBody.innerHTML = homeHtml;
     } catch (e) {
         console.error('Failed to load ledger:', e);
     }
