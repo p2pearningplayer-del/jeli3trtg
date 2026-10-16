@@ -36,7 +36,7 @@ echo sprintf("Summary: %d / %d Acceptance Scenarios Passed (%.1f%%)\n", $passedC
 echo "--------------------------------------------------------------------\n";
 
 if ($allPassed) {
-    echo "\033[32mSUCCESS: All PRD acceptance scenarios (QA-001 through QA-008) passed strictly on backend logic.\033[0m\n\n";
+    echo "\033[32mSUCCESS: All PRD acceptance scenarios & additional directives (QA-001 through QA-010) passed strictly on backend logic.\033[0m\n\n";
     exit(0);
 } else {
     echo "\033[31mFAILURE: One or more acceptance tests failed.\033[0m\n\n";

@@ -69,6 +69,8 @@ class QATestSuite {
         $this->testQA006();
         $this->testQA007();
         $this->testQA008();
+        $this->testQA009UnifiedFlow();
+        $this->testQA010AntiWashTrading();
         return $this->results;
     }
 
@@ -368,6 +370,79 @@ class QATestSuite {
             'status_immune_to_timer_expiry' => ($statusAfterExpiryRun === 'Disputed'),
             'admin_arbitration_success' => $resolveRes['success'],
             'final_resolved_status' => $statusAfterArbitration
+        ]);
+    }
+
+    /**
+     * QA-009: Unified Buyer/Seller Account Flow
+     * Scenario: A single user account purchases tokens (₹1,000 + ₹90 reward = 1,090 tokens credited to available balance),
+     * and subsequently lists ₹1,000 for sale using their Selling TPIN and denomination rules.
+     */
+    public function testQA009UnifiedFlow(): void {
+        $testId = 'QA-009';
+        $title = 'Unified Account Flow: Purchased tokens & 9% rewards are credited to Available Balance and can be listed for sale';
+
+        $userId = 4; // Buyer Two
+        $initialAvailable = (float)Wallet::getWallet($userId)['available_balance'];
+
+        // User receives purchased tokens + 9% reward (1,000 + 90 = 1,090)
+        $creditRes = Wallet::creditBuyer($userId, 1000.00, 90.00, 'UNIFIED_BUY_TEST');
+        $afterBuyAvailable = (float)Wallet::getWallet($userId)['available_balance'];
+
+        $creditedExpected = (round($afterBuyAvailable - $initialAvailable, 2) == 1090.00);
+
+        // Same user now lists ₹1,000 of their available tokens for sale using their TPIN
+        $sellRes = OrderEngine::createSellOrder($userId, 1000.00, '1234');
+        $afterSellWallet = Wallet::getWallet($userId);
+
+        $sellSuccessful = ($sellRes['success'] === true);
+        $reservedCorrect = ((float)$afterSellWallet['reserved_balance'] == 1000.00);
+        $availableDeducted = (round($afterBuyAvailable - (float)$afterSellWallet['available_balance'], 2) == 1000.00);
+
+        $passed = $creditedExpected && $sellSuccessful && $reservedCorrect && $availableDeducted;
+        $this->recordResult($testId, $title, $passed, [
+            'initial_available' => $initialAvailable,
+            'after_buy_available' => $afterBuyAvailable,
+            'credited_diff' => round($afterBuyAvailable - $initialAvailable, 2),
+            'sell_order_created' => $sellSuccessful,
+            'reserved_after_sell' => (float)$afterSellWallet['reserved_balance'],
+            'available_after_sell' => (float)$afterSellWallet['available_balance']
+        ]);
+    }
+
+    /**
+     * QA-010: Anti-Wash Trading (Self-Trading Prevention)
+     * Scenario: A user is strictly prohibited from picking, reserving, or buying their own sell order.
+     * Must return the explicit error: "You cannot purchase your own sell order."
+     */
+    public function testQA010AntiWashTrading(): void {
+        $testId = 'QA-010';
+        $title = 'Anti-Wash Trading: User cannot pick their own sell order (Rejects with: "You cannot purchase your own sell order.")';
+
+        // Seller (User ID 2) creates a sell order
+        $orderRes = OrderEngine::createSellOrder(2, 500.00, '1234');
+        $childId = $orderRes['children'][0]['id'];
+
+        // Seller attempts to pick their own sell order
+        $selfPickRes = StateMachine::pickOrder($childId, 2);
+
+        $isRejected = ($selfPickRes['success'] === false);
+        $expectedMessage = 'You cannot purchase your own sell order.';
+        $matchesExactMessage = (($selfPickRes['error'] ?? '') === $expectedMessage);
+
+        // Verify order remained Available in the pool
+        $stmt = $this->pdo->prepare("SELECT status, buyer_id FROM child_orders WHERE id = ?");
+        $stmt->execute([$childId]);
+        $orderState = $stmt->fetch();
+
+        $orderRemainedAvailable = ($orderState['status'] === 'Available' && $orderState['buyer_id'] === null);
+
+        $passed = $isRejected && $matchesExactMessage && $orderRemainedAvailable;
+        $this->recordResult($testId, $title, $passed, [
+            'self_pick_rejected' => $isRejected,
+            'error_returned' => $selfPickRes['error'] ?? null,
+            'matches_exact_specification' => $matchesExactMessage,
+            'order_remained_available' => $orderRemainedAvailable
         ]);
     }
 

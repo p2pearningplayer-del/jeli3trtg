@@ -27,7 +27,7 @@ class StateMachine {
         }
 
         if ((int)$order['seller_id'] === $buyerId) {
-            return ['success' => false, 'error' => 'You cannot purchase your own sell listing.'];
+            return ['success' => false, 'error' => 'You cannot purchase your own sell order.'];
         }
 
         if ($order['status'] !== 'Available') {

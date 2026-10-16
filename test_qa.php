@@ -35,7 +35,7 @@ $passPercentage = round(($passedCount / $totalCount) * 100, 1);
                     <span class="h-3 w-3 rounded-full bg-emerald-500 animate-pulse"></span>
                     <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">P2P Token Platform QA Report</h1>
                 </div>
-                <p class="text-sm text-slate-400 mt-1">PRD v1.0 Acceptance Test Scenarios (QA-001 through QA-008)</p>
+                <p class="text-sm text-slate-400 mt-1">PRD v1.0 & Additional Directives (QA-001 through QA-010)</p>
             </div>
             <div class="flex items-center gap-4">
                 <a href="/" class="text-xs font-semibold px-3 py-2 bg-slate-800 hover:bg-slate-700 text-indigo-400 rounded-lg border border-slate-700 transition">

@@ -199,6 +199,10 @@ $refFromQuery = htmlspecialchars($_GET['ref'] ?? '');
                     <p class="text-[11px] text-slate-500 italic">
                         * Note: The 9% reward is a promotional platform configuration, not a guaranteed return or investment vehicle.
                     </p>
+                    <div class="flex items-center gap-2 pt-1 text-[11px] text-indigo-400 font-semibold">
+                        <svg class="w-4 h-4 text-emerald-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                        <span>Unified Account: Buy tokens, earn 9% rewards, and sell available tokens anytime. Self-trading is strictly prohibited.</span>
+                    </div>
                 </div>
                 <!-- Custom Buy Allocation Widget (FR-008) -->
                 <div class="bg-slate-950/80 border border-slate-800 rounded-xl p-5 w-full md:w-80 space-y-3">

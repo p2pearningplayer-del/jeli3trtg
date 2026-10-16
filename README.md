@@ -17,6 +17,8 @@ JeliPay is an enterprise-grade, web-based Peer-to-Peer (P2P) Token Trading and O
 - **Automated Order Splitting Engine:** Automatically divides large parent sell listings into up to 8 manageable micro-order child portions (e.g., ₹10,000 splits to [5k, 3k, 2k]) without token creation.
 - **Multi-Tier Referral Engine:** 2-tier commission attribution (Level 1: 1.0%, Level 2: 0.5%) on completed buy transactions, with loop prevention and PII masking.
 - **Weekly Volume Target:** ₹4,00,000 milestone progress tracking (`Progress % = (Completed Vol / 400000) * 100`, capped at 100%).
+- **Unified Buyer/Seller Account Flow:** Every registered account seamlessly supports both buying and selling. Purchased tokens and 9% rewards credit to the Available Wallet Balance and can subsequently be listed for sale by the same user with their Selling TPIN.
+- **Anti-Wash Trading (Self-Trading Prevention):** Users are strictly blocked from reserving or picking their own sell orders (`buyer_id !== seller_id`), with orders hidden from their view in the pool and API calls blocked with: `"You cannot purchase your own sell order."`
 
 ---
 
@@ -118,6 +120,8 @@ The platform passes all 8 PRD acceptance tests natively on backend logic:
 | **QA-006** | Timeout Handling | Missed 10-minute payment deadline auto-expires order and unlocks seller tokens | **PASSED** (100%) |
 | **QA-007** | Settlement & Idempotency | Confirm Payment triggers ledger updates once; double-clicks never duplicate credit | **PASSED** (100%) |
 | **QA-008** | Dispute Freeze | Raised appeal permanently freezes order state, preventing auto-release | **PASSED** (100%) |
+| **QA-009** | Unified Account Flow | Purchased tokens & 9% rewards are credited to Available Balance and can be listed for sale | **PASSED** (100%) |
+| **QA-010** | Anti-Wash Trading | User cannot pick their own sell order (Rejects with: "You cannot purchase your own sell order.") | **PASSED** (100%) |
 
 ### Running the Test Suite
 - **CLI Runner:**
