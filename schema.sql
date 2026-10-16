@@ -1,0 +1,279 @@
+-- ====================================================================
+-- P2P TOKEN PLATFORM (PRD v1.0) - PRODUCTION SCHEMA & SEED DATA
+-- Target Database: u591469534_jelii
+-- Production Domain: https://jelipay.in/
+-- ====================================================================
+
+SET FOREIGN_KEY_CHECKS = 0;
+DROP TABLE IF EXISTS `notifications`;
+DROP TABLE IF EXISTS `rate_limits`;
+DROP TABLE IF EXISTS `admin_audit_logs`;
+DROP TABLE IF EXISTS `wallet_ledger`;
+DROP TABLE IF EXISTS `disputes`;
+DROP TABLE IF EXISTS `payment_proofs`;
+DROP TABLE IF EXISTS `child_orders`;
+DROP TABLE IF EXISTS `parent_sell_orders`;
+DROP TABLE IF EXISTS `wallets`;
+DROP TABLE IF EXISTS `platform_settings`;
+DROP TABLE IF EXISTS `users`;
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- 1. USERS & AUTHENTICATION TABLE
+CREATE TABLE `users` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `phone` VARCHAR(20) NOT NULL UNIQUE,
+  `password_hash` VARCHAR(255) NOT NULL,
+  `tpin_hash` VARCHAR(255) DEFAULT NULL,
+  `account_status` ENUM('active', 'suspended') NOT NULL DEFAULT 'active',
+  `role` ENUM('user', 'admin') NOT NULL DEFAULT 'user',
+  `referral_code` VARCHAR(32) NOT NULL UNIQUE,
+  `referred_by_id` INT DEFAULT NULL,
+  `upi_id` VARCHAR(100) DEFAULT NULL,
+  `account_holder_name` VARCHAR(100) DEFAULT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX `idx_users_phone` (`phone`),
+  INDEX `idx_users_ref` (`referral_code`),
+  INDEX `idx_users_referred_by` (`referred_by_id`),
+  CONSTRAINT `fk_users_referred_by` FOREIGN KEY (`referred_by_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 2. USER WALLETS TABLE (Strict segregation & optimistic locking)
+CREATE TABLE `wallets` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `user_id` INT NOT NULL UNIQUE,
+  `available_balance` DECIMAL(16,2) NOT NULL DEFAULT 0.00,
+  `reserved_balance` DECIMAL(16,2) NOT NULL DEFAULT 0.00,
+  `pending_credit_balance` DECIMAL(16,2) NOT NULL DEFAULT 0.00,
+  `total_rewards_earned` DECIMAL(16,2) NOT NULL DEFAULT 0.00,
+  `total_commissions_earned` DECIMAL(16,2) NOT NULL DEFAULT 0.00,
+  `version` INT NOT NULL DEFAULT 1,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_wallets_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 3. PARENT SELL ORDERS TABLE
+CREATE TABLE `parent_sell_orders` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `seller_id` INT NOT NULL,
+  `original_amount` DECIMAL(16,2) NOT NULL,
+  `remaining_amount` DECIMAL(16,2) NOT NULL,
+  `reserved_amount` DECIMAL(16,2) NOT NULL DEFAULT 0.00,
+  `completed_amount` DECIMAL(16,2) NOT NULL DEFAULT 0.00,
+  `status` ENUM('active', 'completed', 'cancelled') NOT NULL DEFAULT 'active',
+  `snapshotted_upi_id` VARCHAR(100) NOT NULL,
+  `snapshotted_account_holder` VARCHAR(100) NOT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX `idx_parent_orders_seller` (`seller_id`),
+  INDEX `idx_parent_orders_status` (`status`),
+  CONSTRAINT `fk_parent_orders_seller` FOREIGN KEY (`seller_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 4. CHILD ORDERS TABLE (Full 10-state lifecycle)
+CREATE TABLE `child_orders` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `parent_order_id` INT NOT NULL,
+  `seller_id` INT NOT NULL,
+  `buyer_id` INT DEFAULT NULL,
+  `amount` DECIMAL(16,2) NOT NULL,
+  `snapshotted_reward_rate` DECIMAL(5,2) NOT NULL DEFAULT 9.00,
+  `snapshotted_reward_amount` DECIMAL(16,2) NOT NULL,
+  `snapshotted_upi_id` VARCHAR(100) NOT NULL,
+  `snapshotted_account_holder` VARCHAR(100) NOT NULL,
+  `status` ENUM(
+    'Available',
+    'Reserved',
+    'Payment Proof Submitted',
+    'Seller Confirmation Pending',
+    'Seller Response Timeout',
+    'Disputed',
+    'Under Admin Review',
+    'Completed',
+    'Expired',
+    'Cancelled / Reversed'
+  ) NOT NULL DEFAULT 'Available',
+  `payment_deadline` DATETIME DEFAULT NULL,
+  `verification_deadline` DATETIME DEFAULT NULL,
+  `picked_at` DATETIME DEFAULT NULL,
+  `proof_submitted_at` DATETIME DEFAULT NULL,
+  `completed_at` DATETIME DEFAULT NULL,
+  `idempotency_key` VARCHAR(100) DEFAULT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX `idx_child_orders_status` (`status`),
+  INDEX `idx_child_orders_parent` (`parent_order_id`),
+  INDEX `idx_child_orders_seller` (`seller_id`),
+  INDEX `idx_child_orders_buyer` (`buyer_id`),
+  INDEX `idx_child_orders_idempotency` (`idempotency_key`),
+  CONSTRAINT `fk_child_orders_parent` FOREIGN KEY (`parent_order_id`) REFERENCES `parent_sell_orders` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_child_orders_seller` FOREIGN KEY (`seller_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_child_orders_buyer` FOREIGN KEY (`buyer_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 5. PAYMENT PROOFS TABLE (Globally unique UTR enforcement)
+CREATE TABLE `payment_proofs` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `child_order_id` INT NOT NULL UNIQUE,
+  `buyer_id` INT NOT NULL,
+  `utr_number` VARCHAR(100) NOT NULL UNIQUE,
+  `screenshot_path` VARCHAR(255) NOT NULL,
+  `notes` TEXT DEFAULT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_proofs_buyer` (`buyer_id`),
+  CONSTRAINT `fk_proofs_child_order` FOREIGN KEY (`child_order_id`) REFERENCES `child_orders` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_proofs_buyer` FOREIGN KEY (`buyer_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 6. DISPUTES & APPEALS TABLE
+CREATE TABLE `disputes` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `child_order_id` INT NOT NULL UNIQUE,
+  `raised_by_user_id` INT NOT NULL,
+  `raised_by_role` ENUM('seller', 'buyer', 'admin') NOT NULL,
+  `reason` TEXT NOT NULL,
+  `evidence_screenshot_path` VARCHAR(255) DEFAULT NULL,
+  `status` ENUM('pending', 'under_review', 'resolved_buyer', 'resolved_seller') NOT NULL DEFAULT 'pending',
+  `resolution_notes` TEXT DEFAULT NULL,
+  `resolved_by_admin_id` INT DEFAULT NULL,
+  `resolved_at` DATETIME DEFAULT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX `idx_disputes_order` (`child_order_id`),
+  INDEX `idx_disputes_status` (`status`),
+  CONSTRAINT `fk_disputes_order` FOREIGN KEY (`child_order_id`) REFERENCES `child_orders` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_disputes_raised_by` FOREIGN KEY (`raised_by_user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_disputes_admin` FOREIGN KEY (`resolved_by_admin_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 7. WALLET LEDGER TABLE (Append-only, immutable financial transactions)
+CREATE TABLE `wallet_ledger` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `user_id` INT NOT NULL,
+  `transaction_type` ENUM(
+    'BUY_CREDIT',
+    'BUY_REWARD',
+    'SELL_RESERVE',
+    'SELL_SETTLE',
+    'SELL_RELEASE',
+    'REFERRAL_L1',
+    'REFERRAL_L2',
+    'ADMIN_CREDIT',
+    'ADMIN_DEBIT',
+    'DISPUTE_REVERSAL',
+    'INITIAL_DEPOSIT'
+  ) NOT NULL,
+  `amount` DECIMAL(16,2) NOT NULL,
+  `previous_balance` DECIMAL(16,2) NOT NULL,
+  `new_balance` DECIMAL(16,2) NOT NULL,
+  `balance_type` ENUM('available', 'reserved', 'pending') NOT NULL,
+  `reference_id` VARCHAR(100) DEFAULT NULL,
+  `actor_id` INT NOT NULL,
+  `actor_role` ENUM('user', 'admin', 'system') NOT NULL,
+  `status` ENUM('completed', 'reversed') NOT NULL DEFAULT 'completed',
+  `notes` VARCHAR(255) DEFAULT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_ledger_user` (`user_id`),
+  INDEX `idx_ledger_type` (`transaction_type`),
+  INDEX `idx_ledger_created` (`created_at`),
+  CONSTRAINT `fk_ledger_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 8. ADMIN AUDIT LOGS TABLE
+CREATE TABLE `admin_audit_logs` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `admin_id` INT NOT NULL,
+  `action_type` VARCHAR(100) NOT NULL,
+  `target_entity` VARCHAR(100) NOT NULL,
+  `target_id` VARCHAR(100) NOT NULL,
+  `before_state` LONGTEXT DEFAULT NULL,
+  `after_state` LONGTEXT DEFAULT NULL,
+  `reason` TEXT NOT NULL,
+  `ip_address` VARCHAR(45) DEFAULT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_audit_admin` (`admin_id`),
+  INDEX `idx_audit_created` (`created_at`),
+  CONSTRAINT `fk_audit_admin` FOREIGN KEY (`admin_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 9. PLATFORM CONFIGURATION SETTINGS
+CREATE TABLE `platform_settings` (
+  `setting_key` VARCHAR(100) PRIMARY KEY,
+  `setting_value` VARCHAR(255) NOT NULL,
+  `description` VARCHAR(255) DEFAULT NULL,
+  `updated_by` INT DEFAULT NULL,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_settings_updated_by` FOREIGN KEY (`updated_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 10. RATE LIMITING TABLE
+CREATE TABLE `rate_limits` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `identifier` VARCHAR(100) NOT NULL,
+  `action` VARCHAR(50) NOT NULL,
+  `hits` INT NOT NULL DEFAULT 1,
+  `window_start` INT NOT NULL,
+  UNIQUE KEY `uq_rate_identifier_action` (`identifier`, `action`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 11. NOTIFICATIONS TABLE
+CREATE TABLE `notifications` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `user_id` INT NOT NULL,
+  `title` VARCHAR(200) NOT NULL,
+  `message` TEXT NOT NULL,
+  `is_read` TINYINT(1) NOT NULL DEFAULT 0,
+  `type` VARCHAR(50) NOT NULL DEFAULT 'info',
+  `reference_id` VARCHAR(100) DEFAULT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_notifications_user` (`user_id`, `is_read`),
+  CONSTRAINT `fk_notifications_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ====================================================================
+-- DEFAULT CONFIGURATION SEEDS
+-- ====================================================================
+INSERT INTO `platform_settings` (`setting_key`, `setting_value`, `description`) VALUES
+('token_rate_inr', '1', 'Base value of 1 token in INR'),
+('purchase_reward_percent', '9.0', 'Buyer purchase reward percentage (default 9%)'),
+('referral_l1_percent', '1.0', 'Level 1 direct referral reward percentage'),
+('referral_l2_percent', '0.5', 'Level 2 indirect referral reward percentage'),
+('min_sell_amount', '100', 'Minimum allowed token amount for sell listing'),
+('sell_denomination_step', '100', 'Mandatory step modulo for sell amount (Amount MOD 100 == 0)'),
+('weekly_selling_target', '400000', 'Weekly selling target in INR for progress calculation'),
+('buyer_payment_window_seconds', '600', '10-minute payment countdown window for buyer'),
+('seller_verify_window_seconds', '900', '15-minute seller verification window before response timeout'),
+('max_child_splits', '8', 'Maximum micro-order portions a parent order can split into');
+
+-- ====================================================================
+-- INITIAL USERS & WALLET SEEDS
+-- ====================================================================
+-- Admin Account: Phone 9999999999 / Password 'Admin@123456' / TPIN '1234'
+INSERT INTO `users` (`id`, `phone`, `password_hash`, `tpin_hash`, `account_status`, `role`, `referral_code`, `referred_by_id`, `upi_id`, `account_holder_name`)
+VALUES (1, '9999999999', '$2y$10$nsaDWNCaNU9TRJp/FJ3NpuncVzjhS7zyQADri9qt0iWnUN1JTAW8e', '$2y$10$xR4yCngo7fNgdPrDkxFJ1OQPrhriUSm2RpwEvFkdBNRT3nEUVWGMm', 'active', 'admin', 'ADMIN001', NULL, 'jelipayadmin@upi', 'JeliPay Admin');
+
+INSERT INTO `wallets` (`id`, `user_id`, `available_balance`, `reserved_balance`, `pending_credit_balance`, `total_rewards_earned`, `total_commissions_earned`, `version`)
+VALUES (1, 1, 1000000.00, 0.00, 0.00, 0.00, 0.00, 1);
+
+INSERT INTO `wallet_ledger` (`user_id`, `transaction_type`, `amount`, `previous_balance`, `new_balance`, `balance_type`, `reference_id`, `actor_id`, `actor_role`, `notes`)
+VALUES (1, 'INITIAL_DEPOSIT', 1000000.00, 0.00, 1000000.00, 'available', 'SYS_INIT_1', 1, 'system', 'Platform liquidity initial reserve');
+
+-- Standard User: Phone 9876543210 / Password 'User@123456' / TPIN '1234' (Referred by Admin)
+INSERT INTO `users` (`id`, `phone`, `password_hash`, `tpin_hash`, `account_status`, `role`, `referral_code`, `referred_by_id`, `upi_id`, `account_holder_name`)
+VALUES (2, '9876543210', '$2y$10$VptZJT57ky0utSer8oOiMerRqnDko3zNNqzM50MHgiWoPJoQNRyjW', '$2y$10$xR4yCngo7fNgdPrDkxFJ1OQPrhriUSm2RpwEvFkdBNRT3nEUVWGMm', 'active', 'user', 'USER001', 1, 'user1@okhdfcbank', 'Rohan Sharma');
+
+INSERT INTO `wallets` (`id`, `user_id`, `available_balance`, `reserved_balance`, `pending_credit_balance`, `total_rewards_earned`, `total_commissions_earned`, `version`)
+VALUES (2, 2, 50000.00, 0.00, 0.00, 0.00, 0.00, 1);
+
+INSERT INTO `wallet_ledger` (`user_id`, `transaction_type`, `amount`, `previous_balance`, `new_balance`, `balance_type`, `reference_id`, `actor_id`, `actor_role`, `notes`)
+VALUES (2, 'INITIAL_DEPOSIT', 50000.00, 0.00, 50000.00, 'available', 'SYS_INIT_2', 1, 'system', 'Demo user initial balance');
+
+-- Standard User 2: Phone 9811122233 / Password 'User@123456' / TPIN '1234' (Referred by User 1 for multi-tier referral testing)
+INSERT INTO `users` (`id`, `phone`, `password_hash`, `tpin_hash`, `account_status`, `role`, `referral_code`, `referred_by_id`, `upi_id`, `account_holder_name`)
+VALUES (3, '9811122233', '$2y$10$VptZJT57ky0utSer8oOiMerRqnDko3zNNqzM50MHgiWoPJoQNRyjW', '$2y$10$xR4yCngo7fNgdPrDkxFJ1OQPrhriUSm2RpwEvFkdBNRT3nEUVWGMm', 'active', 'user', 'USER002', 2, 'user2@paytm', 'Priya Patel');
+
+INSERT INTO `wallets` (`id`, `user_id`, `available_balance`, `reserved_balance`, `pending_credit_balance`, `total_rewards_earned`, `total_commissions_earned`, `version`)
+VALUES (3, 3, 20000.00, 0.00, 0.00, 0.00, 0.00, 1);
+
+INSERT INTO `wallet_ledger` (`user_id`, `transaction_type`, `amount`, `previous_balance`, `new_balance`, `balance_type`, `reference_id`, `actor_id`, `actor_role`, `notes`)
+VALUES (3, 'INITIAL_DEPOSIT', 20000.00, 0.00, 20000.00, 'available', 'SYS_INIT_3', 1, 'system', 'Demo user 2 initial balance');

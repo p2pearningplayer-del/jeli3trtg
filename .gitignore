@@ -1,0 +1,10 @@
+# Environment & test files
+database_test.sqlite
+*.log
+.DS_Store
+Thumbs.db
+uploads/proofs/*
+uploads/evidence/*
+!uploads/proofs/.gitkeep
+!uploads/evidence/.gitkeep
+!uploads/.htaccess

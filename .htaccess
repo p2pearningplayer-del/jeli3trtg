@@ -1,0 +1,40 @@
+# ====================================================================
+# P2P TOKEN PLATFORM (JELIPAY.IN) - ROOT HTACCESS CONFIGURATION
+# ====================================================================
+
+RewriteEngine On
+
+# Pass Authorization header to PHP
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+# Deny access to sensitive files
+<FilesMatch "^\.|\.sqlite$|\.log$|\.md$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# Allow schema and test files
+<FilesMatch "^(schema\.sql|database\.sql|test_qa\.php)$">
+    Order allow,deny
+    Allow from all
+</FilesMatch>
+
+# Prevent directory listings
+Options -Indexes
+
+# Security Headers
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "SAMEORIGIN"
+    Header set X-XSS-Protection "1; mode=block"
+    Header set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>
+
+# Handle front controller routing
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^api/([a-zA-Z0-9_-]+)$ api/$1.php [L,QSA]
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ index.php [L,QSA]
