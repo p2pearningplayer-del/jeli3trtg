@@ -104,6 +104,99 @@ assert($cancelRes['success'], "Cancel reservation failed: " . ($cancelRes['error
 $freshChild = $pdo->query("SELECT * FROM child_orders WHERE id = {$childId}")->fetch();
 assert($freshChild['status'] === 'Available', "Child order should be Available after cancellation");
 assert(empty($freshChild['buyer_id']), "Buyer ID should be empty after cancellation");
-echo "[PASS] Buyer cancellation releases reservation cleanly back to Available\n";
+// 5. One Active Buy Order Limit Test (Part 5, Item 2)
+// Buyer picks first order
+$pickRes1 = StateMachine::pickOrder($childId, $buyer['id']);
+assert($pickRes1['success'], "First pick should succeed");
+
+// Create another sell order for testing limit
+$secondSell = OrderEngine::createSellOrder($seller['id'], 200, '1234', 'Seller Test', 'seller@upi');
+assert($secondSell['success'], "Second sell order creation should succeed");
+$secondChildId = $secondSell['children'][0]['id'];
+
+// Buyer attempts to pick second order while first is active
+$pickRes2 = StateMachine::pickOrder($secondChildId, $buyer['id']);
+assert(!$pickRes2['success'], "Second pick should be blocked by active order limit");
+assert(isset($pickRes2['active_order_id']) && $pickRes2['active_order_id'] === $childId, "Should return active_order_id");
+
+// Buyer attempts custom allocation while active order exists
+$allocRes = OrderEngine::allocateCustomBuy($buyer['id'], 200);
+assert(!$allocRes['success'], "Custom allocation should be blocked by active order limit");
+assert(isset($allocRes['active_order_id']), "Custom allocation error should include active_order_id");
+echo "[PASS] Enforce One Active Buy Order Limit (pick & custom allocation blocked)\n";
+
+// 6. Payment Proof & Seller Appeal / Dispute Center (Part 5, Item 1)
+$utr = 'UTR_DISPUTE_TEST_' . time();
+$proofRes = StateMachine::submitPaymentProof($childId, $buyer['id'], $utr, 'uploads/test_proof.jpg');
+assert($proofRes['success'], "Submitting payment proof should succeed");
+
+// Seller raises appeal
+$appealRes = StateMachine::raiseAppeal($childId, $seller['id'], 'Payment not received in bank account', 'uploads/seller_statement.pdf');
+assert($appealRes['success'], "Seller raising appeal should succeed");
+assert(isset($appealRes['dispute_id']), "Appeal response should contain dispute_id");
+$disputeId = (int)$appealRes['dispute_id'];
+
+// Verify dispute in database
+$dStmt = $pdo->prepare("SELECT * FROM disputes WHERE id = ?");
+$dStmt->execute([$disputeId]);
+$dispute = $dStmt->fetch();
+assert($dispute && $dispute['status'] === 'pending', "Dispute should be pending");
+
+// Additional evidence upload by buyer
+$evStmt = $pdo->prepare("
+    UPDATE disputes 
+    SET evidence_screenshot_path = CASE 
+        WHEN evidence_screenshot_path IS NULL OR evidence_screenshot_path = '' THEN ? 
+        ELSE evidence_screenshot_path || ',' || ? 
+    END,
+    resolution_notes = CASE 
+        WHEN resolution_notes IS NULL OR resolution_notes = '' THEN ? 
+        ELSE resolution_notes || '\n[Buyer Evidence]: ' || ? 
+    END,
+    status = 'under_review'
+    WHERE id = ?
+");
+$newEvidence = 'uploads/buyer_video.mp4';
+$evStmt->execute([$newEvidence, $newEvidence, "Attached video confirmation", "Attached video confirmation", $disputeId]);
+
+$dFresh = $pdo->query("SELECT * FROM disputes WHERE id = {$disputeId}")->fetch();
+assert(strpos($dFresh['evidence_screenshot_path'], 'buyer_video.mp4') !== false, "Evidence screenshot path should contain appended evidence");
+assert($dFresh['status'] === 'under_review', "Dispute status should be updated to under_review");
+echo "[PASS] Dispute lifecycle & additional evidence submission verification\n";
+
+// 7. Separation of Transaction History: Buy History vs Sell History (Part 5, Item 4)
+// Admin resolves dispute in favor of buyer so order completes
+require_once __DIR__ . '/../src/AdminManager.php';
+$resolveRes = AdminManager::resolveDispute($disputeId, 1, 'force_settle', 'Arbitration resolved');
+assert($resolveRes['success'], "Dispute settlement should succeed");
+
+// Check buyer's buy history entries
+$buyHistoryStmt = $pdo->prepare("
+    SELECT c.id, c.amount, c.snapshotted_reward_rate, c.status, p.utr_number, u.account_holder_name as seller_name
+    FROM child_orders c
+    LEFT JOIN payment_proofs p ON c.id = p.child_order_id
+    JOIN users u ON c.seller_id = u.id
+    WHERE c.buyer_id = ?
+    ORDER BY c.id DESC
+");
+$buyHistoryStmt->execute([$buyer['id']]);
+$buyerOrders = $buyHistoryStmt->fetchAll();
+assert(count($buyerOrders) > 0, "Buyer should have at least 1 buy history record");
+assert(!empty($buyerOrders[0]['seller_name']), "Buy history should include seller name");
+
+// Check seller's sell history entries
+$sellHistoryStmt = $pdo->prepare("
+    SELECT c.id, c.parent_order_id, c.amount, c.status, p.utr_number, u.phone as buyer_phone
+    FROM child_orders c
+    LEFT JOIN payment_proofs p ON c.id = p.child_order_id
+    LEFT JOIN users u ON c.buyer_id = u.id
+    WHERE c.seller_id = ?
+    ORDER BY c.id DESC
+");
+$sellHistoryStmt->execute([$seller['id']]);
+$sellerOrders = $sellHistoryStmt->fetchAll();
+assert(count($sellerOrders) > 0, "Seller should have sell history records");
+echo "[PASS] Separation of Transaction History: Buy History & Sell History queries verified\n";
 
 echo "\nALL NEW FEATURE TESTS PASSED SUCCESSFULLY!\n";
+

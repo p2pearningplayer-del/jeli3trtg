@@ -214,6 +214,12 @@ endif;
                             </div>
                         </div>
 
+                        <!-- Dedicated Appeals Navigation Button (Part 5, Item 1) -->
+                        <button onclick="switchTab('appeals')" class="relative p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl border border-slate-700 transition" title="Dispute & Appeal Center">
+                            <svg class="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3"/></svg>
+                            <span id="appealsBadge" class="absolute -top-1 -right-1 bg-amber-500 text-slate-950 text-[10px] font-bold rounded-full h-4 w-4 flex items-center justify-center hidden">0</span>
+                        </button>
+
                         <?php if ($isAdminUser): ?>
                         <!-- Dedicated Admin Console Link -->
                         <a href="/admin.php" class="px-2.5 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-xl text-xs font-bold transition flex items-center gap-1.5" title="Dedicated Admin Console">
@@ -453,21 +459,7 @@ endif;
                 </div>
             </div>
 
-            <!-- Active Buy Orders & Payment Status (My Purchases in Buy Section) -->
-            <div class="space-y-4">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <h3 class="text-lg font-bold text-white">My Active Buy Orders & Payment Deadlines</h3>
-                        <p class="text-xs text-slate-400">Complete transfer within 10 minutes and submit UTR screenshot</p>
-                    </div>
-                    <button onclick="loadMyPurchases()" class="p-2 text-slate-400 hover:text-white bg-slate-900 border border-slate-800 rounded-lg transition" title="Refresh Purchases">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-                    </button>
-                </div>
-                <div id="myPurchasesList" class="space-y-3">
-                    <!-- Populated dynamically via JS -->
-                </div>
-            </div>
+
 
             <!-- Live Market Buy Pool Listing (FR-006) -->
             <div class="pt-4 border-t border-slate-800">
@@ -558,7 +550,33 @@ endif;
         </section>
 
         <!-- ========================================== -->
-        <!-- TAB 4: REFER (2-Tier Referral Hub) -->
+        <!-- TAB 4: APPEALS & DISPUTE CENTER (Part 5, Item 1) -->
+        <!-- ========================================== -->
+        <section id="view-appeals" class="tab-view space-y-6 hidden">
+            <!-- Header Banner -->
+            <div class="bg-gradient-to-r from-slate-900 via-amber-950/20 to-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs uppercase font-bold text-amber-400 tracking-wider">Arbitration Center</span>
+                        <span class="text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2.5 py-0.5 rounded-full font-semibold">Live Admin Arbitration</span>
+                    </div>
+                    <h2 class="text-xl sm:text-2xl font-bold text-white mt-1">Dispute & Appeal Center</h2>
+                    <p class="text-xs text-slate-400 mt-1">Track raised claims, review administrative decisions, and submit photo or video evidence.</p>
+                </div>
+                <button onclick="loadDisputesCenter()" class="p-2.5 text-slate-400 hover:text-white bg-slate-950 border border-slate-800 rounded-xl transition flex items-center gap-2 text-xs font-semibold self-start sm:self-auto">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    <span>Refresh</span>
+                </button>
+            </div>
+
+            <!-- Appeals Center List -->
+            <div id="appealsCenterList" class="space-y-4">
+                <!-- Populated dynamically via JS -->
+            </div>
+        </section>
+
+        <!-- ========================================== -->
+        <!-- TAB 5: REFER (2-Tier Referral Hub) -->
         <!-- ========================================== -->
         <section id="view-refer" class="tab-view space-y-6 hidden">
             <!-- Referral Header -->
@@ -1083,16 +1101,16 @@ endif;
         </div>
     </div>
 
-    <!-- 5. Dedicated Transaction History Modal (Item 3 & 7) -->
+    <!-- 5. Dedicated Transaction History Modal (Part 5, Item 4) -->
     <div id="historyModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
         <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-4xl w-full p-6 sm:p-8 shadow-2xl relative space-y-4 max-h-[90vh] flex flex-col">
             <div class="flex items-center justify-between border-b border-slate-800 pb-4">
                 <div>
-                    <h3 class="text-xl font-bold text-white">Wallet Transaction History</h3>
-                    <p class="text-xs text-slate-400">All token movements, purchases, rewards, reserves, and settlements</p>
+                    <h3 class="text-xl font-bold text-white">Transaction History</h3>
+                    <p class="text-xs text-slate-400">Dedicated logs for buy purchases, sell portions, and wallet audits</p>
                 </div>
                 <div class="flex items-center gap-2">
-                    <button onclick="loadLedger()" class="p-2 text-slate-400 hover:text-white bg-slate-950 border border-slate-800 rounded-xl transition" title="Refresh">
+                    <button onclick="refreshCurrentHistoryTab()" class="p-2 text-slate-400 hover:text-white bg-slate-950 border border-slate-800 rounded-xl transition" title="Refresh">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                     </button>
                     <button onclick="closeHistoryModal()" class="p-2 text-slate-400 hover:text-white bg-slate-950 border border-slate-800 rounded-xl transition">
@@ -1101,22 +1119,49 @@ endif;
                 </div>
             </div>
 
+            <!-- Tab Switcher (Buy History | Sell History | Wallet Audit) -->
+            <div class="flex border-b border-slate-800 gap-1 sm:gap-2">
+                <button onclick="switchHistoryTab('buy')" id="historyTabBtn-buy" class="px-3 sm:px-4 py-2 text-xs font-bold border-b-2 border-indigo-500 text-white transition flex items-center gap-1.5">
+                    <span>Buy History</span>
+                </button>
+                <button onclick="switchHistoryTab('sell')" id="historyTabBtn-sell" class="px-3 sm:px-4 py-2 text-xs font-bold border-b-2 border-transparent text-slate-400 hover:text-white transition flex items-center gap-1.5">
+                    <span>Sell History</span>
+                </button>
+                <button onclick="switchHistoryTab('ledger')" id="historyTabBtn-ledger" class="px-3 sm:px-4 py-2 text-xs font-bold border-b-2 border-transparent text-slate-400 hover:text-white transition flex items-center gap-1.5">
+                    <span>Wallet Audit</span>
+                </button>
+            </div>
+
+            <!-- Tab Contents -->
             <div class="overflow-y-auto flex-1">
-                <table class="w-full text-left text-xs">
-                    <thead class="bg-slate-950 text-slate-400 uppercase tracking-wider font-semibold border-b border-slate-800 sticky top-0">
-                        <tr>
-                            <th class="p-3">ID</th>
-                            <th class="p-3">Type</th>
-                            <th class="p-3">Amount</th>
-                            <th class="p-3">Balance Progression</th>
-                            <th class="p-3">Order / Reference</th>
-                            <th class="p-3">Timestamp (UTC)</th>
-                        </tr>
-                    </thead>
-                    <tbody id="modalLedgerTableBody" class="divide-y divide-slate-800/60 font-mono text-slate-300">
-                        <!-- Populated dynamically via JS -->
-                    </tbody>
-                </table>
+                <!-- 1. Dedicated Buy History (Part 5, Item 4) -->
+                <div id="historyView-buy" class="space-y-3">
+                    <div class="text-slate-500 text-center py-8">Loading buy history...</div>
+                </div>
+
+                <!-- 2. Dedicated Sell History (Part 5, Item 4) -->
+                <div id="historyView-sell" class="space-y-3 hidden">
+                    <div class="text-slate-500 text-center py-8">Loading sell history...</div>
+                </div>
+
+                <!-- 3. Wallet Audit Ledger -->
+                <div id="historyView-ledger" class="hidden">
+                    <table class="w-full text-left text-xs">
+                        <thead class="bg-slate-950 text-slate-400 uppercase tracking-wider font-semibold border-b border-slate-800 sticky top-0">
+                            <tr>
+                                <th class="p-3">ID</th>
+                                <th class="p-3">Type</th>
+                                <th class="p-3">Amount</th>
+                                <th class="p-3">Balance Progression</th>
+                                <th class="p-3">Order / Ref</th>
+                                <th class="p-3">Timestamp (UTC)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="modalLedgerTableBody" class="divide-y divide-slate-800/60 font-mono text-slate-300">
+                            <!-- Populated dynamically via JS -->
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
@@ -1150,7 +1195,16 @@ endif;
                     <span class="text-[11px] font-bold mt-0.5 tracking-tight">Sell</span>
                 </button>
 
-                <!-- 4. Refer -->
+                <!-- 4. Appeals & Disputes (Part 5, Item 1) -->
+                <button onclick="switchTab('appeals')" id="tabBtn-appeals" class="tab-btn flex-1 flex flex-col items-center justify-center py-1.5 transition-all text-slate-400 hover:text-slate-200 group relative">
+                    <div class="p-1 rounded-xl group-hover:bg-amber-500/10 transition relative">
+                        <svg class="w-5 h-5 transition-transform group-hover:scale-110 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3"/></svg>
+                        <span id="bottomAppealsDot" class="absolute top-0 right-0 w-2 h-2 rounded-full bg-amber-400 hidden"></span>
+                    </div>
+                    <span class="text-[11px] font-bold mt-0.5 tracking-tight">Appeals</span>
+                </button>
+
+                <!-- 5. Refer -->
                 <button onclick="switchTab('refer')" id="tabBtn-refer" class="tab-btn flex-1 flex flex-col items-center justify-center py-1.5 transition-all text-slate-400 hover:text-slate-200 group">
                     <div class="p-1 rounded-xl group-hover:bg-indigo-500/10 transition">
                         <svg class="w-5 h-5 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
@@ -1158,7 +1212,7 @@ endif;
                     <span class="text-[11px] font-bold mt-0.5 tracking-tight">Refer</span>
                 </button>
 
-                <!-- 5. Profile -->
+                <!-- 6. Profile -->
                 <button onclick="switchTab('profile')" id="tabBtn-profile" class="tab-btn flex-1 flex flex-col items-center justify-center py-1.5 transition-all text-slate-400 hover:text-slate-200 group">
                     <div class="p-1 rounded-xl group-hover:bg-indigo-500/10 transition">
                         <svg class="w-5 h-5 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
@@ -1178,6 +1232,23 @@ endif;
             </div>
         </div>
     </nav>
+
+    <!-- Floating Bottom Seller Action Bar (Part 5, Item 5) -->
+    <div id="sellerPendingActionBar" class="fixed bottom-20 left-4 right-4 max-w-xl mx-auto z-40 bg-slate-900/95 border border-indigo-500/40 backdrop-blur-xl rounded-2xl p-3.5 shadow-2xl flex items-center justify-between gap-3 text-xs hidden">
+        <div class="flex items-center gap-2.5 min-w-0">
+            <span class="flex h-3 w-3 relative flex-shrink-0">
+                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+            </span>
+            <div class="truncate">
+                <span class="font-bold text-white block truncate" id="sellerPendingBarTitle">Payment Proof Received</span>
+                <span class="text-[11px] text-indigo-300" id="sellerPendingBarSubtitle">Action Required</span>
+            </div>
+        </div>
+        <div class="flex items-center gap-2 flex-shrink-0" id="sellerPendingBarActions">
+            <!-- Dynamically populated buttons -->
+        </div>
+    </div>
     <?php endif; ?>
 
     <!-- JavaScript Controller with Cache Busting -->

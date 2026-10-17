@@ -10,7 +10,27 @@ let activeTimers = {};
 let pendingConfirmOrderId = null;
 let pendingConfirmSeconds = 0;
 let proofModalSeconds = 0;
+let activeElapsedTimers = {};
+let currentHistoryTab = 'buy';
 let notificationsOpen = false;
+
+// Format order IDs into compact 4-digit format (Part 5, Item 3)
+function formatOrderId(id) {
+    if (!id && id !== 0) return '';
+    const num = parseInt(id, 10);
+    return isNaN(num) ? String(id) : '#' + String(num).padStart(4, '0');
+}
+
+// Format elapsed sell time into human-readable counter (Part 5, Item 5)
+function formatElapsed(seconds) {
+    if (isNaN(seconds) || seconds < 0) return '0s';
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    if (hrs > 0) return `${hrs}h ${mins}m ${secs}s`;
+    if (mins > 0) return `${mins}m ${secs}s`;
+    return `${secs}s`;
+}
 
 document.addEventListener('DOMContentLoaded', () => {
     initApp();
@@ -171,8 +191,9 @@ function switchTab(tabId) {
 
     // Trigger tab data load
     if (tabId === 'home') { loadWalletStats(); loadLedger(); }
-    if (tabId === 'buy') { loadBuyPool(); loadMyPurchases(); }
+    if (tabId === 'buy') { loadBuyPool(); }
     if (tabId === 'sell') { loadWalletStats(); loadSellerDashboard(); }
+    if (tabId === 'appeals') { loadDisputesCenter(); }
     if (tabId === 'refer') loadReferrals();
     if (tabId === 'profile') { loadWalletStats(); loadLedger(); }
     if (tabId === 'admin') loadAdminDashboard();
@@ -183,8 +204,9 @@ function periodicSync() {
     loadNotifications();
     checkPendingSellerConfirmations();
     if (currentTab === 'home') { loadWalletStats(true); }
-    if (currentTab === 'buy') { loadBuyPool(true); loadMyPurchases(true); }
+    if (currentTab === 'buy') { loadBuyPool(true); }
     if (currentTab === 'sell') { loadSellerDashboard(true); loadWalletStats(true); }
+    if (currentTab === 'appeals') { loadDisputesCenter(true); }
     if (currentTab === 'refer') loadReferrals();
     if (currentTab === 'profile') loadWalletStats(true);
 }
@@ -228,7 +250,7 @@ async function loadBuyPool(silent = false) {
             <div class="bg-slate-900 border border-slate-800 hover:border-slate-700/80 rounded-2xl p-5 flex flex-col justify-between transition-all duration-200 shadow-sm">
                 <div class="space-y-3">
                     <div class="flex items-center justify-between">
-                        <span class="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-slate-800 text-slate-400">Order #${order.id}</span>
+                        <span class="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-slate-800 text-slate-400">Order ${formatOrderId(order.id)}</span>
                         <span class="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
                             +${order.reward_rate}% Reward
                         </span>
@@ -298,14 +320,38 @@ async function pickOrder(orderId) {
         });
         const data = await res.json();
         if (data.success) {
-            alert(`Order #${orderId} reserved successfully! You have 10 minutes to complete the UPI payment.`);
-            switchTab('orders');
+            // Requirement 2: Redirect directly to the payment page showing UPI details immediately
+            loadBuyPool();
+            openProofModal(data.order_id, data.amount, data.seller_upi, data.seller_name, data.seconds_remaining);
         } else {
-            alert(data.error || 'Failed to pick order.');
+            if (data.active_order_id) {
+                if (confirm(`${data.error}\n\nWould you like to open your active order (${formatOrderId(data.active_order_id)}) to complete payment now?`)) {
+                    openActiveBuyOrderModal(data.active_order_id);
+                }
+            } else {
+                alert(data.error || 'Failed to pick order.');
+            }
             loadBuyPool();
         }
     } catch (e) {
         alert('Network error while reserving order.');
+    }
+}
+
+async function openActiveBuyOrderModal(orderId) {
+    try {
+        const res = await fetch('/api/buy.php?action=my_purchases');
+        const data = await res.json();
+        if (data.success && data.purchases && data.purchases.length > 0) {
+            const ord = data.purchases.find(p => parseInt(p.id, 10) === parseInt(orderId, 10)) || data.purchases[0];
+            if (ord) {
+                openProofModal(ord.id, ord.amount, ord.seller_upi_id, ord.seller_account_holder, ord.seconds_remaining);
+                return;
+            }
+        }
+        alert(`Active order ${formatOrderId(orderId)} not found or already settled.`);
+    } catch (e) {
+        alert('Network error retrieving active order details.');
     }
 }
 
@@ -331,11 +377,17 @@ async function requestCustomAllocation() {
         });
         const data = await res.json();
         if (data.success) {
-            alert(`Order portion for ₹${amount} allocated and reserved! You have 10 minutes to submit payment proof.`);
             input.value = '';
-            switchTab('orders');
+            loadBuyPool();
+            openProofModal(data.order_id, data.amount, data.seller_upi, data.seller_name, data.seconds_remaining);
         } else {
-            alert(data.error || 'Allocation failed.');
+            if (data.active_order_id) {
+                if (confirm(`${data.error}\n\nWould you like to open your active order (${formatOrderId(data.active_order_id)}) to complete payment now?`)) {
+                    openActiveBuyOrderModal(data.active_order_id);
+                }
+            } else {
+                alert(data.error || 'Allocation failed.');
+            }
         }
     } catch (e) {
         alert('Network error during custom allocation.');
@@ -423,32 +475,64 @@ async function loadSellerDashboard(silent = false) {
             return;
         }
 
+        // Scan for pending seller actions to update bottom floating action bar (Part 5, Item 5)
+        const pendingActionItems = [];
+        data.parent_orders.forEach(parent => {
+            (parent.children || []).forEach(child => {
+                if (['Payment Proof Submitted', 'Seller Confirmation Pending', 'Seller Response Timeout'].includes(child.status)) {
+                    pendingActionItems.push(child);
+                }
+            });
+        });
+
+        const pBar = document.getElementById('sellerPendingActionBar');
+        if (pBar) {
+            if (pendingActionItems.length > 0) {
+                const first = pendingActionItems[0];
+                const tEl = document.getElementById('sellerPendingBarTitle');
+                const sEl = document.getElementById('sellerPendingBarSubtitle');
+                const aEl = document.getElementById('sellerPendingBarActions');
+                if (tEl) tEl.innerText = `Payment Proof Received for Order ${formatOrderId(first.id)} (₹${parseFloat(first.amount).toLocaleString('en-IN')})`;
+                if (sEl) sEl.innerText = `${pendingActionItems.length} order(s) awaiting your verification`;
+                if (aEl) {
+                    aEl.innerHTML = `
+                        <button onclick="confirmPayment(${first.id})" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition shadow-sm">Confirm</button>
+                        <button onclick="openAppealModal(${first.id})" class="px-3 py-1.5 bg-red-600/30 hover:bg-red-600/40 text-red-300 border border-red-500/30 rounded-lg text-xs font-bold transition">Appeal</button>
+                        ${first.screenshot_path ? `<a href="/serve_file.php?file=${encodeURIComponent(first.screenshot_path)}" target="_blank" class="text-xs text-indigo-400 underline font-semibold ml-1">Proof</a>` : ''}
+                    `;
+                }
+                pBar.classList.remove('hidden');
+            } else {
+                pBar.classList.add('hidden');
+            }
+        }
+
         list.innerHTML = data.parent_orders.map(parent => `
-            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
-                <div class="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-3 gap-2">
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-3">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-2.5 gap-2">
                     <div>
                         <div class="flex items-center gap-2">
-                            <span class="text-xs font-mono font-bold text-indigo-400">Parent #${parent.id}</span>
-                            <span class="text-xs px-2 py-0.5 rounded uppercase font-bold ${parent.status === 'completed' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-800 text-slate-300'}">${parent.status}</span>
+                            <span class="text-xs font-mono font-bold text-indigo-400">Parent ${formatOrderId(parent.id)}</span>
+                            <span class="text-[10px] px-2 py-0.5 rounded uppercase font-bold ${parent.status === 'completed' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-800 text-slate-300'}">${parent.status}</span>
                         </div>
-                        <p class="text-xs text-slate-400 mt-0.5">Snapshotted UPI: <span class="font-mono text-slate-200">${escapeHtml(parent.snapshotted_upi_id)}</span></p>
+                        <p class="text-[11px] text-slate-400 mt-0.5">UPI: <span class="font-mono text-slate-200">${escapeHtml(parent.snapshotted_upi_id)}</span></p>
                     </div>
-                    <div class="flex items-center gap-4 text-xs font-mono">
-                        <div><span class="text-slate-500 block">Total</span> <strong class="text-white">₹${parseFloat(parent.original_amount).toLocaleString('en-IN')}</strong></div>
-                        <div><span class="text-slate-500 block">Completed</span> <strong class="text-emerald-400">₹${parseFloat(parent.completed_amount).toLocaleString('en-IN')}</strong></div>
-                        <div><span class="text-slate-500 block">Remaining</span> <strong class="text-slate-300">₹${parseFloat(parent.remaining_amount).toLocaleString('en-IN')}</strong></div>
+                    <div class="flex items-center gap-3 sm:gap-4 text-xs font-mono">
+                        <div><span class="text-slate-500 block text-[10px]">Total</span> <strong class="text-white">₹${parseFloat(parent.original_amount).toLocaleString('en-IN')}</strong></div>
+                        <div><span class="text-slate-500 block text-[10px]">Completed</span> <strong class="text-emerald-400">₹${parseFloat(parent.completed_amount).toLocaleString('en-IN')}</strong></div>
+                        <div><span class="text-slate-500 block text-[10px]">Remaining</span> <strong class="text-slate-300">₹${parseFloat(parent.remaining_amount).toLocaleString('en-IN')}</strong></div>
                         ${(parent.status === 'active' || (parseFloat(parent.remaining_amount) > 0 && !parent.status.includes('cancelled') && parent.status !== 'completed')) ? `
-                            <button onclick="cancelParentSellOrder(${parent.id})" class="ml-2 px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/30 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm">
+                            <button onclick="cancelParentSellOrder(${parent.id})" class="ml-1 sm:ml-2 px-2.5 py-1 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/30 rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-sm">
                                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-                                <span>Cancel Listing</span>
+                                <span>Cancel</span>
                             </button>
                         ` : ''}
                     </div>
                 </div>
 
                 <!-- Child portions list -->
-                <div class="space-y-2">
-                    <span class="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">Micro-Order Portions (${parent.children.length})</span>
+                <div class="space-y-1.5">
+                    <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Micro-Order Portions (${parent.children.length})</span>
                     <div class="grid grid-cols-1 gap-2">
                         ${parent.children.map(child => renderSellerChildCard(child)).join('')}
                     </div>
@@ -509,10 +593,19 @@ function renderSellerChildCard(child) {
         };
     }
 
+    // Sell Timer (Part 5, Item 5)
+    let elapsedSecs = 0;
+    if (child.created_at) {
+        const createdUtc = new Date(child.created_at.replace(' ', 'T') + 'Z').getTime();
+        elapsedSecs = Math.max(0, Math.floor((Date.now() - createdUtc) / 1000));
+        activeElapsedTimers[`child_${child.id}`] = elapsedSecs;
+    }
+
     return `
         <div class="bg-slate-950/70 border border-slate-800/80 rounded-xl p-3 text-xs">
             <div class="flex items-center justify-between">
                 <div class="flex items-center gap-2">
+                    <span class="font-mono font-bold text-slate-400">${formatOrderId(child.id)}</span>
                     <span class="font-bold text-white font-mono">₹${parseFloat(child.amount).toLocaleString('en-IN')}</span>
                     <span class="text-[10px] font-mono px-2 py-0.5 rounded ${statusBadges[child.status] || 'bg-slate-800 text-slate-400'}">${child.status}</span>
                 </div>
@@ -521,7 +614,11 @@ function renderSellerChildCard(child) {
                         <span class="font-mono font-bold text-amber-400" id="timer_child_${child.id}">
                             ${formatSeconds(child.seconds_remaining)}
                         </span>
-                    ` : ''}
+                    ` : `
+                        <span class="text-[10px] text-slate-500 font-mono" id="elapsed_child_${child.id}">
+                            On Sale: ${formatElapsed(elapsedSecs)}
+                        </span>
+                    `}
                 </div>
             </div>
 
@@ -1048,15 +1145,380 @@ async function loadLedger() {
     }
 }
 
-function openHistoryModal() {
+function openHistoryModal(defaultTab = 'buy') {
     const modal = document.getElementById('historyModal');
     if (modal) modal.classList.remove('hidden');
-    loadLedger();
+    switchHistoryTab(defaultTab);
 }
 
 function closeHistoryModal() {
     const modal = document.getElementById('historyModal');
     if (modal) modal.classList.add('hidden');
+}
+
+function switchHistoryTab(tab) {
+    currentHistoryTab = tab;
+
+    const tabs = ['buy', 'sell', 'ledger'];
+    tabs.forEach(t => {
+        const btn = document.getElementById(`historyTabBtn-${t}`);
+        const view = document.getElementById(`historyView-${t}`);
+        if (btn) {
+            if (t === tab) {
+                btn.className = 'px-3 sm:px-4 py-2 text-xs font-bold border-b-2 border-indigo-500 text-white transition flex items-center gap-1.5';
+            } else {
+                btn.className = 'px-3 sm:px-4 py-2 text-xs font-bold border-b-2 border-transparent text-slate-400 hover:text-white transition flex items-center gap-1.5';
+            }
+        }
+        if (view) {
+            if (t === tab) view.classList.remove('hidden');
+            else view.classList.add('hidden');
+        }
+    });
+
+    refreshCurrentHistoryTab();
+}
+
+function refreshCurrentHistoryTab() {
+    if (currentHistoryTab === 'buy') loadBuyHistory();
+    else if (currentHistoryTab === 'sell') loadSellHistory();
+    else if (currentHistoryTab === 'ledger') loadLedger();
+}
+
+async function loadBuyHistory() {
+    try {
+        const res = await fetch('/api/wallet.php?action=buy_history');
+        const data = await res.json();
+        const container = document.getElementById('historyView-buy');
+        if (!container) return;
+
+        if (!data.success || !data.buy_history || data.buy_history.length === 0) {
+            container.innerHTML = `
+                <div class="text-center py-8 text-slate-400">
+                    <p class="font-bold text-white">No Buy Purchases Found</p>
+                    <p class="text-xs text-slate-500 mt-1">Pick an order in the Buy section to start purchasing tokens with +9% rewards.</p>
+                </div>
+            `;
+            return;
+        }
+
+        const statusBadges = {
+            'Completed': 'bg-emerald-500/10 text-emerald-400',
+            'Reserved': 'bg-amber-500/10 text-amber-400',
+            'Payment Proof Submitted': 'bg-indigo-500/10 text-indigo-400',
+            'Seller Confirmation Pending': 'bg-indigo-500/10 text-indigo-400',
+            'Disputed': 'bg-red-500/10 text-red-400',
+            'Expired': 'bg-slate-800 text-slate-500',
+            'Cancelled': 'bg-red-500/10 text-red-400'
+        };
+
+        container.innerHTML = `
+            <table class="w-full text-left text-xs">
+                <thead class="bg-slate-950 text-slate-400 uppercase tracking-wider font-semibold border-b border-slate-800 sticky top-0">
+                    <tr>
+                        <th class="p-3">Order</th>
+                        <th class="p-3">Purchase</th>
+                        <th class="p-3">Reward (+9%)</th>
+                        <th class="p-3">Total Credit</th>
+                        <th class="p-3">Seller Details</th>
+                        <th class="p-3">UTR / Proof</th>
+                        <th class="p-3">Status</th>
+                        <th class="p-3">Date</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-800/60 font-mono text-slate-300">
+                    ${data.buy_history.map(row => `
+                        <tr class="hover:bg-slate-900/60">
+                            <td class="p-3 text-indigo-400 font-bold">${formatOrderId(row.id)}</td>
+                            <td class="p-3 text-white font-bold">₹${parseFloat(row.amount).toLocaleString('en-IN')}</td>
+                            <td class="p-3 text-emerald-400">+₹${parseFloat(row.reward_amount).toFixed(2)}</td>
+                            <td class="p-3 text-white">₹${parseFloat(row.total_credit).toFixed(2)}</td>
+                            <td class="p-3 font-sans text-slate-300">${escapeHtml(row.seller_name_masked || 'Peer')} <span class="text-slate-500 text-[11px] block font-mono">${escapeHtml(row.snapshotted_upi_id)}</span></td>
+                            <td class="p-3">
+                                ${row.utr_number ? `<span class="text-slate-200 font-mono text-[11px] block">${escapeHtml(row.utr_number)}</span>` : '<span class="text-slate-600">-</span>'}
+                                ${row.screenshot_path ? `<a href="/serve_file.php?file=${encodeURIComponent(row.screenshot_path)}" target="_blank" class="text-[11px] text-indigo-400 underline font-sans">View Proof</a>` : ''}
+                            </td>
+                            <td class="p-3 font-sans">
+                                <span class="px-2 py-0.5 rounded text-[10px] font-bold ${statusBadges[row.status] || 'bg-slate-800 text-slate-400'}">
+                                    ${row.status}
+                                </span>
+                            </td>
+                            <td class="p-3 text-slate-500 text-[11px]">${row.created_at}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+    } catch (e) {
+        console.error('Failed to load buy history:', e);
+    }
+}
+
+async function loadSellHistory() {
+    try {
+        const res = await fetch('/api/wallet.php?action=sell_history');
+        const data = await res.json();
+        const container = document.getElementById('historyView-sell');
+        if (!container) return;
+
+        if (!data.success || !data.sell_history || data.sell_history.length === 0) {
+            container.innerHTML = `
+                <div class="text-center py-8 text-slate-400">
+                    <p class="font-bold text-white">No Sell History Found</p>
+                    <p class="text-xs text-slate-500 mt-1">Tokens listed for sale will appear here once created.</p>
+                </div>
+            `;
+            return;
+        }
+
+        const statusBadges = {
+            'Completed': 'bg-emerald-500/10 text-emerald-400',
+            'Available': 'bg-slate-800 text-slate-400',
+            'Reserved': 'bg-amber-500/10 text-amber-400',
+            'Payment Proof Submitted': 'bg-indigo-500/10 text-indigo-400',
+            'Seller Confirmation Pending': 'bg-indigo-500/10 text-indigo-400',
+            'Disputed': 'bg-red-500/10 text-red-400',
+            'Expired': 'bg-slate-800 text-slate-500',
+            'Cancelled': 'bg-red-500/10 text-red-400'
+        };
+
+        container.innerHTML = `
+            <table class="w-full text-left text-xs">
+                <thead class="bg-slate-950 text-slate-400 uppercase tracking-wider font-semibold border-b border-slate-800 sticky top-0">
+                    <tr>
+                        <th class="p-3">Portion</th>
+                        <th class="p-3">Parent Listing</th>
+                        <th class="p-3">Amount</th>
+                        <th class="p-3">Buyer</th>
+                        <th class="p-3">UTR / Receipt</th>
+                        <th class="p-3">Status</th>
+                        <th class="p-3">Date</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-800/60 font-mono text-slate-300">
+                    ${data.sell_history.map(row => `
+                        <tr class="hover:bg-slate-900/60">
+                            <td class="p-3 text-indigo-400 font-bold">${formatOrderId(row.id)}</td>
+                            <td class="p-3 text-slate-400">Parent ${formatOrderId(row.parent_order_id)}</td>
+                            <td class="p-3 text-white font-bold">₹${parseFloat(row.amount).toLocaleString('en-IN')}</td>
+                            <td class="p-3 font-sans text-slate-300">${escapeHtml(row.buyer_phone_masked || 'Unmatched')}</td>
+                            <td class="p-3">
+                                ${row.utr_number ? `<span class="text-slate-200 font-mono text-[11px] block">${escapeHtml(row.utr_number)}</span>` : '<span class="text-slate-600">-</span>'}
+                                ${row.screenshot_path ? `<a href="/serve_file.php?file=${encodeURIComponent(row.screenshot_path)}" target="_blank" class="text-[11px] text-indigo-400 underline font-sans">View Proof</a>` : ''}
+                            </td>
+                            <td class="p-3 font-sans">
+                                <span class="px-2 py-0.5 rounded text-[10px] font-bold ${statusBadges[row.status] || 'bg-slate-800 text-slate-400'}">
+                                    ${row.status}
+                                </span>
+                            </td>
+                            <td class="p-3 text-slate-500 text-[11px]">${row.created_at}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+    } catch (e) {
+        console.error('Failed to load sell history:', e);
+    }
+}
+
+// -------------------------------------------------------------
+// DEDICATED DISPUTE & APPEAL CENTER (Part 5, Item 1)
+// -------------------------------------------------------------
+
+async function loadDisputesCenter(silent = false) {
+    if (!currentUser) return;
+    try {
+        const res = await fetch('/api/disputes.php?action=list');
+        const data = await res.json();
+        const container = document.getElementById('appealsCenterList');
+        const badge = document.getElementById('appealsBadge');
+        const dot = document.getElementById('bottomAppealsDot');
+
+        if (!data.success || !data.disputes || data.disputes.length === 0) {
+            if (badge) badge.classList.add('hidden');
+            if (dot) dot.classList.add('hidden');
+            if (container) {
+                container.innerHTML = `
+                    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center text-slate-400">
+                        <svg class="w-12 h-12 mx-auto text-slate-600 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+                        <p class="font-bold text-white text-base">No Active Disputes or Appeals</p>
+                        <p class="text-xs text-slate-500 mt-1">All your orders are running smoothly. If an appeal or dispute arises, it will appear here with live admin arbitration.</p>
+                    </div>
+                `;
+            }
+            return;
+        }
+
+        const activeCount = data.disputes.filter(d => !['resolved_seller', 'resolved_buyer', 'cancelled'].includes(d.status)).length;
+        if (badge) {
+            if (activeCount > 0) {
+                badge.innerText = activeCount;
+                badge.classList.remove('hidden');
+            } else {
+                badge.classList.add('hidden');
+            }
+        }
+        if (dot) {
+            if (activeCount > 0) dot.classList.remove('hidden');
+            else dot.classList.add('hidden');
+        }
+
+        if (!container) return;
+
+        const statusBadges = {
+            'pending': 'bg-amber-500/10 text-amber-400 border border-amber-500/20',
+            'under_review': 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20',
+            'resolved_buyer': 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
+            'resolved_seller': 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
+            'cancelled': 'bg-slate-800 text-slate-400'
+        };
+
+        const statusLabels = {
+            'pending': 'Pending Admin Review',
+            'under_review': 'Under Review / Evidence Requested',
+            'resolved_buyer': 'Resolved in Favor of Buyer',
+            'resolved_seller': 'Resolved in Favor of Seller',
+            'cancelled': 'Closed'
+        };
+
+        container.innerHTML = data.disputes.map(disp => {
+            const isResolved = ['resolved_seller', 'resolved_buyer', 'cancelled'].includes(disp.status);
+            const evidenceFiles = disp.evidence_screenshot_path ? disp.evidence_screenshot_path.split(',').map(s => s.trim()).filter(Boolean) : [];
+
+            return `
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-sm">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-800 gap-2">
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs font-mono font-bold text-indigo-400">Order ${formatOrderId(disp.child_order_id)}</span>
+                            <span class="text-[10px] font-mono px-2 py-0.5 rounded ${disp.user_role === 'seller' ? 'bg-violet-500/20 text-violet-300' : 'bg-emerald-500/20 text-emerald-300'}">You are ${disp.user_role === 'seller' ? 'Seller' : 'Buyer'}</span>
+                            <span class="text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider ${statusBadges[disp.status] || 'bg-slate-800 text-slate-400'}">
+                                ${statusLabels[disp.status] || disp.status}
+                            </span>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-lg font-black text-white font-mono">₹${parseFloat(disp.amount).toLocaleString('en-IN')}</span>
+                            <span class="text-[11px] text-slate-500 block">Filed on ${disp.created_at}</span>
+                        </div>
+                    </div>
+
+                    <!-- Dispute Details -->
+                    <div class="bg-slate-950 border border-slate-800/80 rounded-xl p-4 text-xs space-y-2">
+                        <div class="flex items-start justify-between">
+                            <span class="text-slate-400 font-semibold">Claim Reason:</span>
+                            <span class="text-slate-200 text-right max-w-md">${escapeHtml(disp.reason)}</span>
+                        </div>
+                        ${evidenceFiles.length > 0 ? `
+                            <div class="pt-2 border-t border-slate-800/80 flex items-center gap-2 flex-wrap">
+                                <span class="text-slate-400 font-semibold">Attached Proofs:</span>
+                                ${evidenceFiles.map((path, idx) => `
+                                    <a href="/serve_file.php?file=${encodeURIComponent(path)}" target="_blank" class="px-2.5 py-1 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/20 rounded-lg text-xs font-semibold flex items-center gap-1 transition">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                                        <span>Proof #${idx + 1}</span>
+                                    </a>
+                                `).join('')}
+                            </div>
+                        ` : ''}
+                    </div>
+
+                    <!-- Admin Communication Box (Requirement 1) -->
+                    <div class="bg-indigo-950/30 border border-indigo-500/30 rounded-xl p-4 space-y-2">
+                        <div class="flex items-center gap-1.5 text-xs font-bold text-indigo-300">
+                            <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+                            <span>Administrative Decision & Guidance:</span>
+                        </div>
+                        <p class="text-xs text-slate-300 leading-relaxed font-mono whitespace-pre-wrap">${escapeHtml(disp.resolution_notes || 'Case assigned to Admin arbitration desk. Both parties have evidence rights. Tokens remain securely locked in double-entry escrow.')}</p>
+                    </div>
+
+                    ${!isResolved ? `
+                        <!-- Upload Additional Evidence / Reply Box -->
+                        <div class="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-3">
+                            <span class="text-xs font-semibold text-slate-300 block">Submit Additional Photo / Video Evidence & Statement</span>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label class="text-[11px] text-slate-400 block mb-1">Select Files (Images, Video, PDF):</label>
+                                    <input type="file" id="disputeFile_${disp.id}" multiple accept="image/*,video/*,application/pdf" class="w-full text-xs text-slate-400 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-600 file:text-white hover:file:bg-indigo-500 cursor-pointer">
+                                </div>
+                                <div>
+                                    <label class="text-[11px] text-slate-400 block mb-1">Statement / Note:</label>
+                                    <input type="text" id="disputeNote_${disp.id}" placeholder="Explain proof (e.g. Bank statement timestamp)" class="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500">
+                                </div>
+                            </div>
+                            <div class="flex items-center justify-between pt-1">
+                                <span class="text-[11px] text-slate-500" id="disputeUploadStatus_${disp.id}">Encrypted bank-grade upload</span>
+                                <button onclick="submitDisputeAdditionalEvidence(${disp.id})" class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-indigo-600/20">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+                                    <span>Upload Evidence</span>
+                                </button>
+                            </div>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }).join('');
+    } catch (e) {
+        console.error('Failed to load disputes center:', e);
+    }
+}
+
+async function submitDisputeAdditionalEvidence(disputeId) {
+    const fileInput = document.getElementById(`disputeFile_${disputeId}`);
+    const noteInput = document.getElementById(`disputeNote_${disputeId}`);
+    const statusEl = document.getElementById(`disputeUploadStatus_${disputeId}`);
+
+    let evidencePath = '';
+    const statement = noteInput ? noteInput.value.trim() : '';
+
+    if (fileInput && fileInput.files && fileInput.files.length > 0) {
+        if (statusEl) statusEl.innerHTML = `<span class="text-indigo-400 font-semibold">Uploading ${fileInput.files.length} file(s)...</span>`;
+        const formData = new FormData();
+        for (let i = 0; i < fileInput.files.length; i++) {
+            formData.append('files[]', fileInput.files[i]);
+        }
+        formData.append('file', fileInput.files[0]);
+        formData.append('type', 'evidence');
+
+        try {
+            const upRes = await fetch('/api/uploads.php', { method: 'POST', body: formData });
+            const upData = await upRes.json();
+            if (upData.success) {
+                evidencePath = upData.file_path || (upData.file_paths ? upData.file_paths.join(',') : '');
+            } else {
+                alert(upData.error || 'Upload failed.');
+                if (statusEl) statusEl.innerText = 'Upload failed.';
+                return;
+            }
+        } catch (e) {
+            alert('Network upload error.');
+            return;
+        }
+    }
+
+    if (!evidencePath && !statement) {
+        alert('Please select an evidence file or enter an explanation statement.');
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/disputes.php?action=upload_evidence', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                dispute_id: disputeId,
+                evidence_path: evidencePath,
+                statement: statement
+            })
+        });
+        const data = await res.json();
+        if (data.success) {
+            alert('Evidence submitted successfully! Admin will review shortly.');
+            loadDisputesCenter();
+        } else {
+            alert(data.error || 'Failed to submit evidence.');
+        }
+    } catch (e) {
+        alert('Network error submitting dispute evidence.');
+    }
 }
 
 // -------------------------------------------------------------
@@ -1458,6 +1920,15 @@ function updateLiveCountdowns() {
         } else {
             const el = document.getElementById(`timer_${key}`);
             if (el) el.innerText = '00:00 (Expired)';
+        }
+    }
+
+    // Live Elapsed Timers for Sell Listings (Part 5, Item 5)
+    for (const [key, secs] of Object.entries(activeElapsedTimers)) {
+        activeElapsedTimers[key] = secs + 1;
+        const el = document.getElementById(`elapsed_${key}`);
+        if (el) {
+            el.innerText = `On Sale: ${formatElapsed(activeElapsedTimers[key])}`;
         }
     }
 

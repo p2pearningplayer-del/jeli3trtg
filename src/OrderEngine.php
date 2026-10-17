@@ -202,14 +202,29 @@ class OrderEngine {
      * Manual Buy Custom Allocation (FR-008, QA-005)
      * Reallocates/splits a larger unpicked order to cleanly fulfill the custom buy amount without duplicating quantity.
      */
-    public static function allocateCustomBuy(int $buyerId, float $customAmount): array {
-        $val = Validator::validateSellAmount($customAmount);
+    public static function allocateCustomBuy(int $buyerId, float $amount): array {
+        $val = Validator::validateSellAmount($amount);
         if (!$val['valid']) {
             return ['success' => false, 'error' => $val['error']];
         }
-        $amount = $val['amount'];
-
         $pdo = Database::getConnection();
+
+        // Enforce "One Active Buy Order" limit (Part 5, Item 2)
+        $activeBuyStmt = $pdo->prepare("
+            SELECT id, status FROM child_orders
+            WHERE buyer_id = ? AND status IN ('Reserved', 'Payment Proof Submitted', 'Seller Confirmation Pending', 'Disputed')
+            LIMIT 1
+        ");
+        $activeBuyStmt->execute([$buyerId]);
+        $activeBuy = $activeBuyStmt->fetch();
+        if ($activeBuy) {
+            $formattedId = sprintf('#%04d', (int)$activeBuy['id']);
+            return [
+                'success' => false,
+                'active_order_id' => (int)$activeBuy['id'],
+                'error' => "You already have an active buy order in progress ({$formattedId}). Please complete or resolve it before initiating a new order."
+            ];
+        }
 
         // Look for exact match first
         $exactStmt = $pdo->prepare("

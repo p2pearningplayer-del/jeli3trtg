@@ -65,7 +65,7 @@ switch ($action) {
             jsonResponse(true, $res);
         } else {
             $statusCode = ($res['error'] === 'You cannot purchase your own sell order.') ? 403 : 409;
-            jsonError($res['error'], $statusCode);
+            jsonError($res['error'], $statusCode, $res);
         }
         break;
 
@@ -97,7 +97,7 @@ switch ($action) {
         if ($res['success']) {
             jsonResponse(true, $res);
         } else {
-            jsonError($res['error']);
+            jsonError($res['error'], 400, $res);
         }
         break;
 

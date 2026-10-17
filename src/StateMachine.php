@@ -14,11 +14,29 @@ require_once __DIR__ . '/ReferralEngine.php';
 class StateMachine {
     /**
      * Atomically pick and reserve an available child order (FR-007, QA-004)
+     * Enforces One Active Buy Order limit (Part 5, Item 2)
      */
     public static function pickOrder(int $childOrderId, int $buyerId): array {
         $pdo = Database::getConnection();
 
-        $chk = $pdo->prepare("SELECT seller_id, amount, status FROM child_orders WHERE id = ?");
+        // Enforce "One Active Buy Order" limit (Part 5, Item 2)
+        $activeBuyStmt = $pdo->prepare("
+            SELECT id, status FROM child_orders
+            WHERE buyer_id = ? AND status IN ('Reserved', 'Payment Proof Submitted', 'Seller Confirmation Pending', 'Disputed')
+            LIMIT 1
+        ");
+        $activeBuyStmt->execute([$buyerId]);
+        $activeBuy = $activeBuyStmt->fetch();
+        if ($activeBuy) {
+            $formattedId = sprintf('#%04d', (int)$activeBuy['id']);
+            return [
+                'success' => false,
+                'active_order_id' => (int)$activeBuy['id'],
+                'error' => "You already have an active buy order in progress ({$formattedId}). Please complete or resolve it before initiating a new order."
+            ];
+        }
+
+        $chk = $pdo->prepare("SELECT seller_id, amount, status, snapshotted_upi_id, snapshotted_account_holder FROM child_orders WHERE id = ?");
         $chk->execute([$childOrderId]);
         $order = $chk->fetch();
 
@@ -67,7 +85,10 @@ class StateMachine {
             return [
                 'success' => true,
                 'order_id' => $childOrderId,
+                'formatted_order_id' => sprintf('#%04d', $childOrderId),
                 'amount' => (float)$order['amount'],
+                'seller_upi' => $order['snapshotted_upi_id'],
+                'seller_name' => $order['snapshotted_account_holder'],
                 'payment_deadline' => $deadlineUtc,
                 'seconds_remaining' => BUYER_PAYMENT_WINDOW_SECONDS
             ];

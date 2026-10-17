@@ -179,6 +179,10 @@ class QATestSuite {
         $pick2 = StateMachine::pickOrder($childId, 4);
 
         $passed = ($pick1['success'] === true) && ($pick2['success'] === false);
+
+        // Clean up buyer 1 reservation so buyer 3 is clean for subsequent tests
+        $this->pdo->prepare("UPDATE child_orders SET status = 'Cancelled' WHERE id = ?")->execute([$childId]);
+
         $this->recordResult($testId, $title, $passed, [
             'buyer_1_success' => $pick1['success'],
             'buyer_2_success' => $pick2['success'],
@@ -220,6 +224,9 @@ class QATestSuite {
         $passed = ($allocRes['success'] === true) &&
                   ($allocRes['amount'] == 5000.0) &&
                   ($remaining && (float)$remaining['amount'] == 5000.0);
+
+        // Clean up buyer 3 custom allocation reservation so buyer 3 is clean for subsequent tests
+        $this->pdo->prepare("UPDATE child_orders SET status = 'Cancelled' WHERE buyer_id = 3 AND status = 'Reserved'")->execute();
 
         $this->recordResult($testId, $title, $passed, [
             'allocation_success' => $allocRes['success'] ?? false,
