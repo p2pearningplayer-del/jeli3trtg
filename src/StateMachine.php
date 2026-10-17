@@ -390,11 +390,10 @@ class StateMachine {
                 return false;
             }
 
-            // Release seller's reserved tokens back to available balance
             $amount = (float)$order['amount'];
-            Wallet::releaseReserved((int)$order['seller_id'], $amount, (string)$childOrderId, 'Buyer missed 10-minute payment window');
 
-            // Update parent order
+            // Requirement 3: Buyer timeout keeps seller's listing active and automatically relists for sale (re-sell)
+            // Adjust parent order reserved_amount and remaining_amount back to available/unpicked state
             $parentUpd = $pdo->prepare("
                 UPDATE parent_sell_orders
                 SET reserved_amount = reserved_amount - ?,

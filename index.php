@@ -473,8 +473,7 @@ endif;
             <div class="pt-4 border-t border-slate-800">
                 <div class="flex items-center justify-between mb-4">
                     <div>
-                        <h3 class="text-lg font-bold text-white">Available Peer Sell Portions</h3>
-                        <p class="text-xs text-slate-400">Select an unpicked micro-order portion to buy</p>
+                        <h3 class="text-lg font-bold text-white">List of Tokens</h3>
                     </div>
                     <button onclick="loadBuyPool()" class="p-2 text-slate-400 hover:text-white bg-slate-900 border border-slate-800 rounded-lg transition" title="Refresh Pool">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
@@ -495,9 +494,6 @@ endif;
                 <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
                     <div>
                         <h2 class="text-xl font-bold text-white">List Tokens for Sale</h2>
-                        <p class="text-xs text-slate-400 mt-1">
-                            Tokens are sold from your Available Wallet Balance. The system automatically divides large orders into micro-orders (up to 8 portions) and displays them in the Buy section.
-                        </p>
                     </div>
 
                     <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs flex justify-between items-center">

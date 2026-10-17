@@ -334,4 +334,156 @@ class OrderEngine {
 
         return $parents;
     }
+
+    /**
+     * Seller manually cancels active sell order (Requirement 1 & 2)
+     * All unsold/available tokens are immediately released from locked/reserved state
+     * directly back to the seller's Available Balance.
+     */
+    public static function cancelParentSellOrder(int $sellerId, int $parentOrderId): array {
+        $pdo = Database::getConnection();
+
+        $stmt = $pdo->prepare("SELECT * FROM parent_sell_orders WHERE id = ? AND seller_id = ?");
+        $stmt->execute([$parentOrderId, $sellerId]);
+        $parent = $stmt->fetch();
+
+        if (!$parent) {
+            return ['success' => false, 'error' => 'Parent sell order not found.'];
+        }
+
+        if (in_array($parent['status'], ['cancelled', 'completed'])) {
+            return ['success' => false, 'error' => "Sell order is already {$parent['status']}."];
+        }
+
+        // Find all unsold/available child portions
+        $childStmt = $pdo->prepare("SELECT * FROM child_orders WHERE parent_order_id = ? AND status = 'Available'");
+        $childStmt->execute([$parentOrderId]);
+        $availableChildren = $childStmt->fetchAll();
+
+        if (empty($availableChildren)) {
+            return [
+                'success' => false,
+                'error' => 'No unsold portions available to cancel. Any matched orders with active buyers must be settled or arbitrated.'
+            ];
+        }
+
+        $refundAmount = 0.0;
+        foreach ($availableChildren as $c) {
+            $refundAmount += (float)$c['amount'];
+        }
+        $refundAmount = round($refundAmount, 2);
+
+        $pdo->beginTransaction();
+        try {
+            // Cancel all available portions so they are removed from the Buy Pool
+            $updChild = $pdo->prepare("UPDATE child_orders SET status = 'Cancelled' WHERE parent_order_id = ? AND status = 'Available'");
+            $updChild->execute([$parentOrderId]);
+
+            // Release reserved tokens directly back to seller's Available Balance
+            Wallet::releaseReserved($sellerId, $refundAmount, (string)$parentOrderId, "Seller manually cancelled unsold sell listing #{$parentOrderId}");
+
+            // Check if any in-flight orders remain (Reserved, Payment Proof Submitted, Seller Confirmation Pending, Disputed)
+            $activeChk = $pdo->prepare("
+                SELECT COUNT(*) FROM child_orders
+                WHERE parent_order_id = ?
+                  AND status IN ('Reserved', 'Payment Proof Submitted', 'Seller Confirmation Pending', 'Disputed')
+            ");
+            $activeChk->execute([$parentOrderId]);
+            $activeCount = (int)$activeChk->fetchColumn();
+
+            $newParentStatus = $parent['status'];
+            if ($activeCount === 0) {
+                $completedAmount = (float)$parent['completed_amount'];
+                $newParentStatus = ($completedAmount > 0) ? 'partially_cancelled' : 'cancelled';
+            }
+
+            $updParent = $pdo->prepare("
+                UPDATE parent_sell_orders
+                SET remaining_amount = max(0, remaining_amount - ?),
+                    status = ?
+                WHERE id = ?
+            ");
+            $updParent->execute([$refundAmount, $newParentStatus, $parentOrderId]);
+
+            $pdo->commit();
+
+            return [
+                'success' => true,
+                'parent_order_id' => $parentOrderId,
+                'refunded_amount' => $refundAmount,
+                'message' => "Sell listing #{$parentOrderId} cancelled. ₹" . number_format($refundAmount, 2) . " tokens immediately credited back to your Available Balance."
+            ];
+        } catch (Exception $e) {
+            $pdo->rollBack();
+            return ['success' => false, 'error' => 'Failed to cancel sell listing: ' . $e->getMessage()];
+        }
+    }
+
+    /**
+     * Seller manually cancels an individual available child micro-portion (Requirement 1 & 2)
+     */
+    public static function cancelChildSellPortion(int $sellerId, int $childOrderId): array {
+        $pdo = Database::getConnection();
+
+        $stmt = $pdo->prepare("SELECT * FROM child_orders WHERE id = ? AND seller_id = ? AND status = 'Available'");
+        $stmt->execute([$childOrderId, $sellerId]);
+        $child = $stmt->fetch();
+
+        if (!$child) {
+            return ['success' => false, 'error' => 'Unsold available sell portion not found or order is already reserved/completed.'];
+        }
+
+        $amount = (float)$child['amount'];
+        $parentOrderId = (int)$child['parent_order_id'];
+
+        $pdo->beginTransaction();
+        try {
+            // Cancel this specific child portion
+            $updChild = $pdo->prepare("UPDATE child_orders SET status = 'Cancelled' WHERE id = ? AND status = 'Available'");
+            $updChild->execute([$childOrderId]);
+
+            if ($updChild->rowCount() === 0) {
+                $pdo->rollBack();
+                return ['success' => false, 'error' => 'Order is no longer available.'];
+            }
+
+            // Release reserved tokens back to seller Available Balance
+            Wallet::releaseReserved($sellerId, $amount, (string)$childOrderId, "Seller manually cancelled sell portion #{$childOrderId}");
+
+            // Update parent remaining amount
+            $updParent = $pdo->prepare("
+                UPDATE parent_sell_orders
+                SET remaining_amount = max(0, remaining_amount - ?)
+                WHERE id = ?
+            ");
+            $updParent->execute([$amount, $parentOrderId]);
+
+            // Check if any in-flight or available child orders remain for parent
+            $activeChk = $pdo->prepare("
+                SELECT COUNT(*) FROM child_orders
+                WHERE parent_order_id = ?
+                  AND status IN ('Available', 'Reserved', 'Payment Proof Submitted', 'Seller Confirmation Pending', 'Disputed')
+            ");
+            $activeChk->execute([$parentOrderId]);
+            if ((int)$activeChk->fetchColumn() === 0) {
+                $pStmt = $pdo->prepare("SELECT completed_amount FROM parent_sell_orders WHERE id = ?");
+                $pStmt->execute([$parentOrderId]);
+                $compAmt = (float)$pStmt->fetchColumn();
+                $pStatus = ($compAmt > 0) ? 'partially_cancelled' : 'cancelled';
+                $pdo->prepare("UPDATE parent_sell_orders SET status = ? WHERE id = ?")->execute([$pStatus, $parentOrderId]);
+            }
+
+            $pdo->commit();
+
+            return [
+                'success' => true,
+                'child_order_id' => $childOrderId,
+                'refunded_amount' => $amount,
+                'message' => "Sell portion #{$childOrderId} cancelled. ₹" . number_format($amount, 2) . " tokens immediately credited back to your Available Balance."
+            ];
+        } catch (Exception $e) {
+            $pdo->rollBack();
+            return ['success' => false, 'error' => 'Failed to cancel portion: ' . $e->getMessage()];
+        }
+    }
 }

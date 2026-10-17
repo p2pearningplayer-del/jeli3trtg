@@ -437,6 +437,12 @@ async function loadSellerDashboard(silent = false) {
                         <div><span class="text-slate-500 block">Total</span> <strong class="text-white">₹${parseFloat(parent.original_amount).toLocaleString('en-IN')}</strong></div>
                         <div><span class="text-slate-500 block">Completed</span> <strong class="text-emerald-400">₹${parseFloat(parent.completed_amount).toLocaleString('en-IN')}</strong></div>
                         <div><span class="text-slate-500 block">Remaining</span> <strong class="text-slate-300">₹${parseFloat(parent.remaining_amount).toLocaleString('en-IN')}</strong></div>
+                        ${(parent.status === 'active' || (parseFloat(parent.remaining_amount) > 0 && !parent.status.includes('cancelled') && parent.status !== 'completed')) ? `
+                            <button onclick="cancelParentSellOrder(${parent.id})" class="ml-2 px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/30 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                                <span>Cancel Listing</span>
+                            </button>
+                        ` : ''}
                     </div>
                 </div>
 
@@ -464,6 +470,7 @@ function renderSellerChildCard(child) {
         'Disputed': 'bg-red-500/20 text-red-400 border border-red-500/30',
         'Completed': 'bg-emerald-500/10 text-emerald-400',
         'Expired': 'bg-slate-800 text-slate-500',
+        'Cancelled': 'bg-red-500/10 text-red-400',
         'Cancelled / Reversed': 'bg-red-500/10 text-red-400'
     };
 
@@ -480,6 +487,16 @@ function renderSellerChildCard(child) {
                     Appeal (Not Received)
                 </button>
                 ${child.screenshot_path ? `<a href="/serve_file.php?file=${encodeURIComponent(child.screenshot_path)}" target="_blank" class="text-xs text-indigo-400 underline font-semibold ml-auto">View Buyer Proof</a>` : ''}
+            </div>
+        `;
+    } else if (child.status === 'Available') {
+        actions = `
+            <div class="flex items-center justify-between mt-2 pt-2 border-t border-slate-800/80">
+                <span class="text-[11px] text-slate-500">Unsold in Buy Pool</span>
+                <button onclick="cancelChildSellPortion(${child.id})" class="px-2.5 py-1 bg-red-600/15 hover:bg-red-600/25 text-red-400 border border-red-500/25 rounded-lg text-[11px] font-bold transition flex items-center gap-1">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    <span>Cancel</span>
+                </button>
             </div>
         `;
     }
@@ -518,6 +535,58 @@ function renderSellerChildCard(child) {
             ${actions}
         </div>
     `;
+}
+
+async function cancelParentSellOrder(parentId) {
+    if (!confirm(`Are you sure you want to cancel Sell Listing #${parentId}?\n\nAll unsold tokens will be immediately unlocked and credited back directly to your Available Wallet Balance.`)) {
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/sell.php?action=cancel_order', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ parent_order_id: parentId })
+        });
+        const data = await res.json();
+        if (data.success) {
+            alert(data.message || `Listing #${parentId} cancelled. Tokens refunded to your Available Balance.`);
+            fetchSession();
+            loadWalletStats();
+            loadSellerDashboard();
+            loadBuyPool();
+        } else {
+            alert(data.error || 'Failed to cancel sell listing.');
+        }
+    } catch (e) {
+        alert('Network error cancelling sell listing.');
+    }
+}
+
+async function cancelChildSellPortion(childId) {
+    if (!confirm(`Are you sure you want to cancel this unsold portion (#${childId})?\n\nIts tokens will be released back to your Available Wallet Balance.`)) {
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/sell.php?action=cancel_order', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ child_order_id: childId })
+        });
+        const data = await res.json();
+        if (data.success) {
+            alert(data.message || `Portion #${childId} cancelled. Tokens refunded to your Available Balance.`);
+            fetchSession();
+            loadWalletStats();
+            loadSellerDashboard();
+            loadBuyPool();
+        } else {
+            alert(data.error || 'Failed to cancel sell portion.');
+        }
+    } catch (e) {
+        alert('Network error cancelling sell portion.');
+    }
 }
 
 async function confirmPayment(orderId) {

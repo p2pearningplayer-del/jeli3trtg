@@ -256,18 +256,31 @@ class QATestSuite {
 
         $sellerBalAfter = (float)Wallet::getWallet(2)['reserved_balance'];
 
-        // Verify status in DB
+        // Verify timed-out buyer reservation is Expired
         $chkStmt = $this->pdo->prepare("SELECT status FROM child_orders WHERE id = ?");
         $chkStmt->execute([$childId]);
         $finalStatus = $chkStmt->fetchColumn();
 
+        // Verify that the portion was automatically relisted as Available for new buyers
+        $relistedStmt = $this->pdo->prepare("SELECT id, status FROM child_orders WHERE parent_order_id = ? AND status = 'Available'");
+        $relistedStmt->execute([$orderRes['parent_order_id']]);
+        $relisted = $relistedStmt->fetch();
+
+        // Now verify manual seller cancellation: seller cancels and gets full refund back to Available Balance
+        $availBeforeCancel = (float)Wallet::getWallet(2)['available_balance'];
+        $cancelRes = OrderEngine::cancelParentSellOrder(2, (int)$orderRes['parent_order_id']);
+        $availAfterCancel = (float)Wallet::getWallet(2)['available_balance'];
+
         $passed = ($finalStatus === 'Expired') &&
-                  (round($sellerBalBefore - $sellerBalAfter, 2) == $childAmount);
+                  !empty($relisted) &&
+                  $cancelRes['success'] &&
+                  (round($availAfterCancel - $availBeforeCancel, 2) == 300.0);
 
         $this->recordResult($testId, $title, $passed, [
             'final_order_status' => $finalStatus,
-            'reserved_tokens_unlocked' => round($sellerBalBefore - $sellerBalAfter, 2),
-            'expected_tokens_unlocked' => $childAmount,
+            'relisted_for_new_buyers' => !empty($relisted),
+            'seller_cancel_refund' => round($availAfterCancel - $availBeforeCancel, 2),
+            'expected_refund' => 300.0,
             'expiry_counts' => $expiryResults
         ]);
     }

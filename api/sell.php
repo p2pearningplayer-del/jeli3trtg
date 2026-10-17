@@ -108,6 +108,30 @@ switch ($action) {
         }
         break;
 
+    case 'cancel_order':
+    case 'cancel_listing':
+        if ($user['is_impersonating']) {
+            jsonError('Order cancellation is disabled in Admin Support Mode.', 403);
+        }
+
+        $parentOrderId = (int)($input['parent_order_id'] ?? $input['order_id'] ?? 0);
+        $childOrderId = (int)($input['child_order_id'] ?? 0);
+
+        if ($childOrderId > 0) {
+            $res = OrderEngine::cancelChildSellPortion($user['id'], $childOrderId);
+        } elseif ($parentOrderId > 0) {
+            $res = OrderEngine::cancelParentSellOrder($user['id'], $parentOrderId);
+        } else {
+            jsonError('Order ID required for cancellation.');
+        }
+
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
     default:
         jsonError("Unknown action '{$action}'.", 404);
 }
