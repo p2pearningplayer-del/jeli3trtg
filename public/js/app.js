@@ -1360,17 +1360,21 @@ async function logout() {
 }
 
 function openProfileModal() {
-    document.getElementById('profileModal').classList.remove('hidden');
+    const modal = document.getElementById('profileModal');
+    if (modal) modal.classList.remove('hidden');
 }
 
 function closeProfileModal() {
-    document.getElementById('profileModal').classList.add('hidden');
+    const modal = document.getElementById('profileModal');
+    if (modal) modal.classList.add('hidden');
 }
 
 async function handleProfileUpdate(e) {
     e.preventDefault();
-    const holderName = document.getElementById('profHolderName').value.trim();
-    const upiId = document.getElementById('profUpiId').value.trim();
+    const holderInput = document.getElementById('profHolderName');
+    const upiInput = document.getElementById('profUpiId');
+    const holderName = holderInput ? holderInput.value.trim() : '';
+    const upiId = upiInput ? upiInput.value.trim() : '';
 
     try {
         const res = await fetch('/api/auth.php?action=update_profile', {
@@ -1393,7 +1397,8 @@ async function handleProfileUpdate(e) {
 
 async function handleTpinUpdate(e) {
     e.preventDefault();
-    const tpin = document.getElementById('profNewTpin').value.trim();
+    const tpinInput = document.getElementById('profNewTpin');
+    const tpin = tpinInput ? tpinInput.value.trim() : '';
 
     if (!tpin || tpin.length < 4 || tpin.length > 6 || isNaN(tpin)) {
         alert('TPIN must be a 4 to 6 digit numeric PIN.');
@@ -1409,13 +1414,14 @@ async function handleTpinUpdate(e) {
         const data = await res.json();
         if (data.success) {
             alert('Selling TPIN configured successfully! You can now authorize sell listings.');
-            document.getElementById('profNewTpin').value = '';
+            if (tpinInput) tpinInput.value = '';
             closeProfileModal();
             fetchSession();
         } else {
             alert(data.error || 'Failed to configure TPIN.');
         }
     } catch (e) {
+        console.error('Error configuring TPIN:', e);
         alert('Network error configuring TPIN.');
     }
 }
