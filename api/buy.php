@@ -123,6 +123,58 @@ switch ($action) {
         }
         break;
 
+    case 'order_details':
+        $orderId = (int)($_GET['order_id'] ?? $input['order_id'] ?? 0);
+        if ($orderId <= 0) {
+            jsonError('Invalid order ID.');
+        }
+
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare("
+            SELECT c.*, (c.amount + c.snapshotted_reward_amount) as total_credit,
+                   p.utr_number, p.screenshot_path, p.created_at as proof_uploaded_at,
+                   d.status as dispute_status, d.reason as dispute_reason
+            FROM child_orders c
+            LEFT JOIN payment_proofs p ON c.id = p.child_order_id
+            LEFT JOIN disputes d ON c.id = d.child_order_id
+            WHERE c.id = ? AND (c.buyer_id = ? OR c.seller_id = ? OR ? = 1)
+            LIMIT 1
+        ");
+        $stmt->execute([$orderId, (int)$user['id'], (int)$user['id'], $user['role'] === 'admin' ? 1 : 0]);
+        $order = $stmt->fetch();
+
+        if (!$order) {
+            jsonError('Order not found or unauthorized access.', 404);
+        }
+
+        $order = formatChildOrderResponse($order, time());
+        jsonResponse(true, ['order' => $order]);
+        break;
+
+    case 'active_order':
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare("
+            SELECT c.*, (c.amount + c.snapshotted_reward_amount) as total_credit,
+                   p.utr_number, p.screenshot_path, p.created_at as proof_uploaded_at,
+                   d.status as dispute_status, d.reason as dispute_reason
+            FROM child_orders c
+            LEFT JOIN payment_proofs p ON c.id = p.child_order_id
+            LEFT JOIN disputes d ON c.id = d.child_order_id
+            WHERE c.buyer_id = ? AND c.status IN ('Reserved', 'Payment Proof Submitted', 'Seller Confirmation Pending', 'Disputed')
+            ORDER BY c.id DESC
+            LIMIT 1
+        ");
+        $stmt->execute([(int)$user['id']]);
+        $activeOrder = $stmt->fetch();
+
+        if (!$activeOrder) {
+            jsonResponse(true, ['has_active' => false, 'order' => null]);
+        }
+
+        $activeOrder = formatChildOrderResponse($activeOrder, time());
+        jsonResponse(true, ['has_active' => true, 'order' => $activeOrder]);
+        break;
+
     case 'my_purchases':
         $pdo = Database::getConnection();
         $stmt = $pdo->prepare("
@@ -140,25 +192,42 @@ switch ($action) {
         $purchases = $stmt->fetchAll();
 
         $now = time();
-        foreach ($purchases as &$p) {
-            $p['amount'] = (float)$p['amount'];
-            $p['reward_amount'] = (float)$p['snapshotted_reward_amount'];
-            $p['total_credit'] = (float)$p['total_credit'];
-
-            if ($p['status'] === 'Reserved' && !empty($p['payment_deadline'])) {
-                $deadline = strtotime($p['payment_deadline'] . ' UTC');
-                $p['seconds_remaining'] = max(0, $deadline - $now);
-            } elseif ($p['status'] === 'Seller Confirmation Pending' && !empty($p['verification_deadline'])) {
-                $deadline = strtotime($p['verification_deadline'] . ' UTC');
-                $p['seconds_remaining'] = max(0, $deadline - $now);
-            } else {
-                $p['seconds_remaining'] = 0;
-            }
+        $formattedPurchases = [];
+        foreach ($purchases as $p) {
+            $formattedPurchases[] = formatChildOrderResponse($p, $now);
         }
 
-        jsonResponse(true, ['purchases' => $purchases]);
+        jsonResponse(true, ['purchases' => $formattedPurchases]);
         break;
 
     default:
         jsonError("Unknown action '{$action}'.", 404);
+}
+
+function formatChildOrderResponse(array $p, int $now): array {
+    $p['id'] = (int)$p['id'];
+    $p['parent_order_id'] = (int)$p['parent_order_id'];
+    $p['seller_id'] = (int)$p['seller_id'];
+    $p['buyer_id'] = !empty($p['buyer_id']) ? (int)$p['buyer_id'] : null;
+    $p['amount'] = (float)$p['amount'];
+    $p['reward_amount'] = (float)($p['snapshotted_reward_amount'] ?? ($p['amount'] * 0.09));
+    $p['snapshotted_reward_amount'] = (float)($p['snapshotted_reward_amount'] ?? ($p['amount'] * 0.09));
+    $p['total_credit'] = (float)($p['total_credit'] ?? ($p['amount'] + $p['reward_amount']));
+
+    $p['seller_upi_id'] = $p['snapshotted_upi_id'] ?? '';
+    $p['seller_account_holder'] = $p['snapshotted_account_holder'] ?? '';
+    $p['seller_upi'] = $p['snapshotted_upi_id'] ?? '';
+    $p['seller_name'] = $p['snapshotted_account_holder'] ?? '';
+    $p['seller_name_masked'] = Validator::maskName($p['seller_account_holder']);
+
+    if ($p['status'] === 'Reserved' && !empty($p['payment_deadline'])) {
+        $deadline = strtotime($p['payment_deadline'] . ' UTC');
+        $p['seconds_remaining'] = max(0, $deadline - $now);
+    } elseif ($p['status'] === 'Seller Confirmation Pending' && !empty($p['verification_deadline'])) {
+        $deadline = strtotime($p['verification_deadline'] . ' UTC');
+        $p['seconds_remaining'] = max(0, $deadline - $now);
+    } else {
+        $p['seconds_remaining'] = 0;
+    }
+    return $p;
 }

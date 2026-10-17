@@ -14,6 +14,28 @@ let activeElapsedTimers = {};
 let currentHistoryTab = 'buy';
 let notificationsOpen = false;
 
+// Global Order State Badge Style Mapping
+const statusBadges = {
+    'Available': 'bg-slate-800 text-slate-400',
+    'Reserved': 'bg-amber-500/10 text-amber-400 border border-amber-500/20',
+    'Payment Proof Submitted': 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20',
+    'Seller Confirmation Pending': 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20',
+    'Seller Response Timeout': 'bg-amber-500/20 text-amber-300 border border-amber-500/30',
+    'Disputed': 'bg-red-500/20 text-red-400 border border-red-500/30',
+    'Under Admin Review': 'bg-purple-500/20 text-purple-300 border border-purple-500/30',
+    'Completed': 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
+    'Expired': 'bg-slate-800 text-slate-500',
+    'Cancelled': 'bg-red-500/10 text-red-400',
+    'Cancelled / Reversed': 'bg-red-500/10 text-red-400',
+    'active': 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20',
+    'open': 'bg-amber-500/20 text-amber-300 border border-amber-500/30',
+    'resolved': 'bg-emerald-500/10 text-emerald-400'
+};
+
+function getStatusBadgeClass(status) {
+    return statusBadges[status] || 'bg-slate-800 text-slate-400 border border-slate-700';
+}
+
 // Format order IDs into compact 4-digit format (Part 5, Item 3)
 function formatOrderId(id) {
     if (!id && id !== 0) return '';
@@ -356,17 +378,47 @@ async function showActiveOrderNotice(orderId, errorMsg) {
     if (msgEl && errorMsg) msgEl.innerText = errorMsg;
 
     try {
-        const res = await fetch('/api/buy.php?action=my_purchases');
-        const data = await res.json();
-        if (data.success && data.purchases) {
-            const ord = data.purchases.find(p => parseInt(p.id, 10) === parseInt(orderId, 10));
-            if (ord) {
-                if (statusEl) statusEl.innerText = ord.status;
-                if (amountEl) amountEl.innerText = `₹${parseFloat(ord.amount).toLocaleString('en-IN')}`;
+        let ord = null;
+        if (orderId) {
+            try {
+                const directRes = await fetch(`/api/buy.php?action=order_details&order_id=${encodeURIComponent(orderId)}`);
+                if (directRes.ok) {
+                    const directData = await directRes.json();
+                    if (directData.success && directData.order) {
+                        ord = directData.order;
+                    }
+                }
+            } catch (_) {}
+        }
+
+        if (!ord) {
+            try {
+                const activeRes = await fetch('/api/buy.php?action=active_order');
+                if (activeRes.ok) {
+                    const activeData = await activeRes.json();
+                    if (activeData.success && activeData.has_active && activeData.order) {
+                        ord = activeData.order;
+                    }
+                }
+            } catch (_) {}
+        }
+
+        if (!ord) {
+            const res = await fetch('/api/buy.php?action=my_purchases');
+            const data = await res.json();
+            if (data.success && data.purchases && data.purchases.length > 0) {
+                ord = data.purchases.find(p => parseInt(p.id, 10) === parseInt(orderId, 10)) || data.purchases[0];
             }
         }
+
+        if (ord) {
+            currentActiveOrderId = ord.id;
+            if (orderIdEl) orderIdEl.innerText = formatOrderId(ord.id);
+            if (statusEl) statusEl.innerText = ord.status;
+            if (amountEl) amountEl.innerText = `₹${parseFloat(ord.amount).toLocaleString('en-IN')}`;
+        }
     } catch (e) {
-        // Fallback gracefully
+        console.warn('Could not pre-fetch notice details:', e);
     }
 
     if (modal && card) {
@@ -392,6 +444,8 @@ function handleActiveNoticeReview() {
     closeActiveOrderNotice();
     if (currentActiveOrderId) {
         openActiveOrderStatusModal(currentActiveOrderId);
+    } else {
+        openActiveOrderStatusModal();
     }
 }
 
@@ -401,40 +455,89 @@ async function openActiveOrderStatusModal(orderId) {
     if (!modal || !card) return;
 
     try {
-        const res = await fetch('/api/buy.php?action=my_purchases');
-        const data = await res.json();
-        if (!data.success || !data.purchases || data.purchases.length === 0) {
-            alert(`Active order ${formatOrderId(orderId)} not found or already settled.`);
-            return;
+        let ord = null;
+
+        // 1. Try order_details if orderId provided
+        if (orderId) {
+            try {
+                const directRes = await fetch(`/api/buy.php?action=order_details&order_id=${encodeURIComponent(orderId)}`);
+                if (directRes.ok) {
+                    const directData = await directRes.json();
+                    if (directData.success && directData.order) {
+                        ord = directData.order;
+                    }
+                }
+            } catch (err) {
+                console.warn('Direct order fetch failed, attempting active_order fallback:', err);
+            }
         }
 
-        const ord = data.purchases.find(p => parseInt(p.id, 10) === parseInt(orderId, 10)) || data.purchases[0];
+        // 2. Try active_order endpoint
         if (!ord) {
-            alert(`Order ${formatOrderId(orderId)} not found.`);
+            try {
+                const activeRes = await fetch('/api/buy.php?action=active_order');
+                if (activeRes.ok) {
+                    const activeData = await activeRes.json();
+                    if (activeData.success && activeData.has_active && activeData.order) {
+                        ord = activeData.order;
+                    }
+                }
+            } catch (err) {
+                console.warn('Active order fetch failed, attempting my_purchases fallback:', err);
+            }
+        }
+
+        // 3. Fallback to my_purchases
+        if (!ord) {
+            const res = await fetch('/api/buy.php?action=my_purchases');
+            const data = await res.json();
+            if (data.success && data.purchases && data.purchases.length > 0) {
+                if (orderId) {
+                    ord = data.purchases.find(p => parseInt(p.id, 10) === parseInt(orderId, 10));
+                }
+                if (!ord) {
+                    ord = data.purchases[0];
+                }
+            }
+        }
+
+        if (!ord) {
+            alert(orderId ? `Order ${formatOrderId(orderId)} not found or already settled.` : 'No active buy orders found.');
             return;
         }
 
         currentActiveOrderId = ord.id;
-        document.getElementById('activeDetailsOrderId').innerText = formatOrderId(ord.id);
-        document.getElementById('activeDetailsAmount').innerText = `₹${parseFloat(ord.amount).toLocaleString('en-IN')}`;
-        const rewardAmount = parseFloat(ord.snapshotted_reward_amount || (ord.amount * 0.09)).toFixed(2);
-        document.getElementById('activeDetailsReward').innerText = `+₹${rewardAmount} (Total: ₹${(parseFloat(ord.amount) + parseFloat(rewardAmount)).toFixed(2)})`;
-
+        const orderIdEl = document.getElementById('activeDetailsOrderId');
+        const amountEl = document.getElementById('activeDetailsAmount');
+        const rewardEl = document.getElementById('activeDetailsReward');
         const badgeEl = document.getElementById('activeDetailsStatusBadge');
+        const upiEl = document.getElementById('activeDetailsSellerUpi');
+        const nameEl = document.getElementById('activeDetailsSellerName');
+
+        if (orderIdEl) orderIdEl.innerText = formatOrderId(ord.id);
+        if (amountEl) amountEl.innerText = `₹${parseFloat(ord.amount).toLocaleString('en-IN')}`;
+
+        const rewardVal = parseFloat(ord.snapshotted_reward_amount || ord.reward_amount || (ord.amount * 0.09)).toFixed(2);
+        const totalVal = (parseFloat(ord.amount) + parseFloat(rewardVal)).toFixed(2);
+        if (rewardEl) rewardEl.innerText = `+₹${rewardVal} (Total: ₹${totalVal})`;
+
         if (badgeEl) {
             badgeEl.innerText = ord.status;
-            badgeEl.className = `px-2.5 py-0.5 rounded text-[11px] font-bold ${statusBadges[ord.status] || 'bg-slate-800 text-slate-300'}`;
+            badgeEl.className = `px-2.5 py-0.5 rounded text-[11px] font-bold ${getStatusBadgeClass(ord.status)}`;
         }
 
-        document.getElementById('activeDetailsSellerUpi').innerText = ord.seller_upi_id || '--';
-        document.getElementById('activeDetailsSellerName').innerText = ord.seller_account_holder || 'Platform Peer';
+        const sellerUpi = ord.seller_upi_id || ord.snapshotted_upi_id || ord.seller_upi || '--';
+        const sellerName = ord.seller_account_holder || ord.snapshotted_account_holder || ord.seller_name || 'Platform Peer';
+
+        if (upiEl) upiEl.innerText = sellerUpi;
+        if (nameEl) nameEl.innerText = sellerName;
 
         // Timer setup
         const timerLabel = document.getElementById('activeDetailsTimerLabel');
         const timerCount = document.getElementById('activeDetailsCountdown');
         if (activeOrderTimerInterval) clearInterval(activeOrderTimerInterval);
 
-        let remainingSecs = ord.seconds_remaining > 0 ? ord.seconds_remaining : 0;
+        let remainingSecs = ord.seconds_remaining > 0 ? parseInt(ord.seconds_remaining, 10) : 0;
         if (timerCount) timerCount.innerText = formatSeconds(remainingSecs);
         if (timerLabel) timerLabel.innerText = ord.status === 'Reserved' ? 'Payment SLA' : 'Verification SLA';
 
@@ -463,7 +566,7 @@ async function openActiveOrderStatusModal(orderId) {
                     <button type="button" onclick="cancelOrderFromStatusModal(${ord.id})" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-3 rounded-xl transition text-xs">
                         Cancel Reservation
                     </button>
-                    <button type="button" onclick="reopenActiveOrderPayment(${ord.id}, ${ord.amount}, '${escapeHtml(ord.seller_upi_id || '')}', '${escapeHtml(ord.seller_account_holder || '')}', ${remainingSecs})" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-emerald-600/30 transition text-xs flex items-center justify-center gap-1.5">
+                    <button type="button" onclick="reopenActiveOrderPayment(${ord.id}, ${ord.amount}, '${escapeHtml(sellerUpi)}', '${escapeHtml(sellerName)}', ${remainingSecs})" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-emerald-600/30 transition text-xs flex items-center justify-center gap-1.5">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
                         <span>Reopen Payment Screen</span>
                     </button>
@@ -473,7 +576,7 @@ async function openActiveOrderStatusModal(orderId) {
             if (infoBox) {
                 infoBox.innerHTML = `
                     <p class="font-semibold text-emerald-400">Payment Proof Submitted (UTR: ${escapeHtml(ord.utr_number || 'Under Review')}):</p>
-                    <p class="mt-1">The seller has a 15-minute verification SLA to check their bank account. Once confirmed, ₹${(parseFloat(ord.amount) + parseFloat(rewardAmount)).toLocaleString('en-IN')} will be credited directly to your Available Balance.</p>
+                    <p class="mt-1">The seller has a 15-minute verification SLA to check their bank account. Once confirmed, ₹${totalVal} will be credited directly to your Available Balance.</p>
                 `;
             }
             if (actionsBox) {
@@ -513,7 +616,8 @@ async function openActiveOrderStatusModal(orderId) {
         card.classList.add('scale-100', 'translate-y-0');
 
     } catch (e) {
-        alert('Network error loading active order details.');
+        console.error('Failed to load active order details:', e);
+        alert('Could not load active order details. Please check your Buy history.');
     }
 }
 
@@ -733,7 +837,7 @@ async function loadBuyPageHistory() {
                                 ${row.screenshot_path ? `<a href="/serve_file.php?file=${encodeURIComponent(row.screenshot_path)}" target="_blank" class="text-[11px] text-indigo-400 underline font-sans">View Proof</a>` : ''}
                             </td>
                             <td class="p-3 font-sans">
-                                <span class="px-2 py-0.5 rounded text-[10px] font-bold ${statusBadges[row.status] || 'bg-slate-800 text-slate-400'}">
+                                <span class="px-2 py-0.5 rounded text-[10px] font-bold ${getStatusBadgeClass(row.status)}">
                                     ${row.status}
                                 </span>
                             </td>
