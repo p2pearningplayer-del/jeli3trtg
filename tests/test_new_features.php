@@ -210,6 +210,45 @@ foreach ($sellerTracking as $p) {
 }
 echo "[PASS] Buyer Privacy on Sell Page: Buyer personal details completely hidden; only Order ID exposed\n";
 
+// 9. Admin Evidence Request & Automated Notifications Test (Part 7, Item 3)
+// Create a new dispute for evidence request verification
+$childDispStmt = $pdo->prepare("
+    INSERT INTO child_orders (parent_order_id, seller_id, buyer_id, amount, snapshotted_reward_rate, snapshotted_reward_amount, snapshotted_upi_id, snapshotted_account_holder, status, created_at)
+    VALUES (?, ?, ?, 500, 9.0, 45.0, 'seller@upi', 'Seller Test', 'Disputed', datetime('now'))
+");
+$childDispStmt->execute([$secondSell['parent_order_id'], $seller['id'], $buyer['id']]);
+$newChildDispId = (int)$pdo->lastInsertId();
+
+$dispIns = $pdo->prepare("
+    INSERT INTO disputes (child_order_id, raised_by_user_id, raised_by_role, reason, status, created_at)
+    VALUES (?, ?, 'seller', 'Seller claimed non-receipt of payment', 'pending', datetime('now'))
+");
+$dispIns->execute([$newChildDispId, $seller['id']]);
+$testDispId = (int)$pdo->lastInsertId();
+
+// Admin requests evidence with instructions
+$instructions = 'Please provide bank account mini-statement PDF from 14:00 to 14:30';
+$reqRes = AdminManager::requestAdditionalEvidence($testDispId, 1, $instructions);
+assert($reqRes['success'], "Evidence request should succeed");
+
+// Verify dispute status
+$dCheck = $pdo->query("SELECT * FROM disputes WHERE id = {$testDispId}")->fetch();
+assert($dCheck['status'] === 'under_review', "Dispute status should be under_review");
+assert($dCheck['additional_evidence_requested'] == 1, "additional_evidence_requested should be 1");
+assert(strpos($dCheck['resolution_notes'], $instructions) !== false, "Resolution notes must contain instructions");
+
+// Verify automated notifications triggered for both buyer and seller
+$buyerNotif = $pdo->query("SELECT * FROM notifications WHERE user_id = {$buyer['id']} AND type = 'dispute' ORDER BY id DESC LIMIT 1")->fetch();
+assert(!empty($buyerNotif), "Buyer must receive dispute notification");
+assert(strpos($buyerNotif['message'], $instructions) !== false, "Buyer notification must contain instructions");
+
+$sellerNotif = $pdo->query("SELECT * FROM notifications WHERE user_id = {$seller['id']} AND type = 'dispute' ORDER BY id DESC LIMIT 1")->fetch();
+assert(!empty($sellerNotif), "Seller must receive dispute notification");
+assert(strpos($sellerNotif['message'], $instructions) !== false, "Seller notification must contain instructions");
+
+echo "[PASS] Enhanced Appeal Evidence Request: Automated notifications dispatched to both buyer and seller\n";
+
 echo "\nALL NEW FEATURE TESTS PASSED SUCCESSFULLY!\n";
+
 
 

@@ -611,13 +611,32 @@ class AdminManager {
             return ['success' => false, 'error' => 'Dispute not found.'];
         }
 
+        $childStmt = $pdo->prepare("SELECT id, buyer_id, seller_id, amount FROM child_orders WHERE id = ?");
+        $childStmt->execute([$disp['child_order_id']]);
+        $child = $childStmt->fetch();
+
         $upd = $pdo->prepare("
             UPDATE disputes
             SET additional_evidence_requested = 1, status = 'under_review', resolution_notes = ?
             WHERE id = ?
         ");
-        $note = "Admin requested additional evidence: " . trim($instructions);
+        $cleanInstructions = trim($instructions);
+        $note = "Admin requested additional evidence: " . $cleanInstructions;
         $upd->execute([$note, $disputeId]);
+
+        // Trigger automatic notifications to both parties (Part 7, Item 3)
+        $formattedOrderId = sprintf('#%04d', (int)$disp['child_order_id']);
+        $notifTitle = "Evidence Requested: Order {$formattedOrderId}";
+        $notifBody = "Admin has requested specific evidence for Dispute #{$disputeId}: \"{$cleanInstructions}\". Please open the Appeals Center to upload your photo, video, or bank statement proof.";
+
+        if ($child) {
+            if (!empty($child['buyer_id'])) {
+                Auth::createNotification((int)$child['buyer_id'], $notifTitle, $notifBody, 'dispute', (string)$disputeId);
+            }
+            if (!empty($child['seller_id'])) {
+                Auth::createNotification((int)$child['seller_id'], $notifTitle, $notifBody, 'dispute', (string)$disputeId);
+            }
+        }
 
         self::logAudit(
             $adminId,
@@ -629,7 +648,7 @@ class AdminManager {
             $instructions
         );
 
-        return ['success' => true, 'message' => 'Additional evidence request dispatched to buyer and seller.'];
+        return ['success' => true, 'message' => 'Evidence request dispatched to buyer and seller with instant notifications.'];
     }
 
     /**

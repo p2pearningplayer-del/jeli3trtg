@@ -414,22 +414,6 @@ endif;
                     <span>Platform Target: ₹4,00,000.00</span>
                 </div>
             </div>
-
-            <!-- Clean Transaction History Access (Item 3) -->
-            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
-                <div>
-                    <div class="flex items-center gap-2">
-                        <span class="text-xs uppercase font-bold text-indigo-400 tracking-wider">Wallet Audit</span>
-                        <span class="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-mono">Real-time</span>
-                    </div>
-                    <h3 class="text-base sm:text-lg font-bold text-white mt-0.5">Transaction & Settlement History</h3>
-                    <p class="text-xs text-slate-400">View all completed, expired, and audited token movements without cluttering the screen</p>
-                </div>
-                <button onclick="openHistoryModal()" class="px-5 py-2.5 bg-slate-800 hover:bg-indigo-600 hover:text-white text-slate-200 border border-slate-700 hover:border-indigo-500 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 shadow-sm self-start sm:self-auto">
-                    <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                    <span>History</span>
-                </button>
-            </div>
         </section>
 
         <!-- ========================================== -->
@@ -473,6 +457,26 @@ endif;
                 </div>
                 <div id="buyPoolGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                     <!-- Populated dynamically via JS -->
+                </div>
+            </div>
+
+            <!-- Dedicated My Buy History (Part 7, Item 2) -->
+            <div class="pt-6 border-t border-slate-800 space-y-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs uppercase font-bold text-indigo-400 tracking-wider">Purchase History</span>
+                            <span class="text-[10px] bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-2.5 py-0.5 rounded-full font-mono font-semibold">+9% Rewards</span>
+                        </div>
+                        <h3 class="text-lg font-bold text-white mt-1">My Buy Orders & Rewards</h3>
+                        <p class="text-xs text-slate-400">Past token purchases, reward credits, and settlement statuses</p>
+                    </div>
+                    <button onclick="loadBuyPageHistory()" class="p-2 text-slate-400 hover:text-white bg-slate-900 border border-slate-800 rounded-lg transition" title="Refresh Buy History">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    </button>
+                </div>
+                <div id="buyPageHistoryContainer" class="overflow-x-auto bg-slate-900 border border-slate-800 rounded-2xl">
+                    <div class="text-slate-500 text-center py-6 text-xs">Loading buy history...</div>
                 </div>
             </div>
         </section>
@@ -530,19 +534,37 @@ endif;
                     </div>
                 </div>
 
-                <!-- Seller Dashboard & Order Splitting Overview (FR-014) -->
+                <!-- Seller Dashboard & Order Splitting Overview (FR-014 / Part 7, Item 2) -->
                 <div class="lg:col-span-2 space-y-4">
                     <div class="flex items-center justify-between">
                         <div>
                             <h3 class="text-lg font-bold text-white">Seller Tracking Dashboard</h3>
-                            <p class="text-xs text-slate-400">Parent sell orders, micro-order statuses, and buyer confirmation timers</p>
+                            <p class="text-xs text-slate-400">Current running sell orders and completed listing history</p>
                         </div>
                         <button onclick="loadSellerDashboard()" class="p-2 text-slate-400 hover:text-white bg-slate-900 border border-slate-800 rounded-lg transition" title="Refresh">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                         </button>
                     </div>
 
+                    <!-- Clean Sell Tab Switcher: Running Orders vs Listing History (Part 7, Item 2) -->
+                    <div class="flex border-b border-slate-800 gap-2">
+                        <button onclick="switchSellTab('running')" id="sellTabBtn-running" class="px-4 py-2.5 text-xs font-bold border-b-2 border-indigo-500 text-white transition flex items-center gap-2">
+                            <span>Running Sell Orders</span>
+                            <span id="sellRunningBadge" class="bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-full font-mono text-[10px]">0</span>
+                        </button>
+                        <button onclick="switchSellTab('history')" id="sellTabBtn-history" class="px-4 py-2.5 text-xs font-bold border-b-2 border-transparent text-slate-400 hover:text-white transition flex items-center gap-2">
+                            <span>Listing History</span>
+                            <span id="sellHistoryBadge" class="bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-mono text-[10px]">0</span>
+                        </button>
+                    </div>
+
+                    <!-- 1. Running Sell Orders (Active listings & pending portions) -->
                     <div id="sellerOrdersList" class="space-y-4">
+                        <!-- Populated dynamically via JS -->
+                    </div>
+
+                    <!-- 2. Clean Dedicated Sell History (Completed / Expired listings) -->
+                    <div id="sellerHistoryContainer" class="space-y-4 hidden">
                         <!-- Populated dynamically via JS -->
                     </div>
                 </div>
@@ -939,6 +961,107 @@ endif;
                 <button type="button" onclick="toggleAuthMode()" class="text-indigo-400 font-bold hover:underline ml-1" id="authToggleBtn">
                     Create Account
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 1B. Dynamic Notification for Active Orders (Part 7, Item 1 - Smooth Animated Alert) -->
+    <div id="activeOrderNoticeModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4 transition-all duration-300 opacity-0 pointer-events-none">
+        <div id="activeOrderNoticeCard" class="bg-gradient-to-b from-slate-900 to-slate-950 border border-amber-500/40 rounded-3xl max-w-md w-full p-6 sm:p-7 shadow-2xl relative space-y-4 transform scale-95 translate-y-3 transition-all duration-300">
+            <button onclick="closeActiveOrderNotice()" class="absolute right-4 top-4 text-slate-400 hover:text-white transition">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+            <div class="flex items-center gap-2">
+                <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-bold uppercase tracking-wider">
+                    <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+                    <span>Active Order in Progress</span>
+                </span>
+            </div>
+            <div>
+                <h3 class="text-xl font-black text-white">Order Already Active</h3>
+                <p class="text-xs text-slate-400 mt-1 leading-relaxed" id="activeOrderNoticeMsg">
+                    You have an ongoing buy order in progress. Platform limits one active order at a time to ensure guaranteed liquidity and swift settlements.
+                </p>
+            </div>
+
+            <!-- Compact Active Order Summary Card -->
+            <div class="bg-slate-950 border border-slate-800/80 rounded-2xl p-4 space-y-2.5 text-xs font-mono">
+                <div class="flex justify-between items-center">
+                    <span class="text-slate-500 font-sans">Active Order ID:</span>
+                    <strong class="text-indigo-400 font-bold" id="activeNoticeOrderId">#0000</strong>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="text-slate-500 font-sans">Current Status:</span>
+                    <span class="px-2 py-0.5 rounded font-bold text-[11px] bg-amber-500/10 text-amber-400 border border-amber-500/20" id="activeNoticeStatus">Reserved</span>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="text-slate-500 font-sans">Order Amount:</span>
+                    <strong class="text-white font-bold" id="activeNoticeAmount">₹0.00</strong>
+                </div>
+            </div>
+
+            <!-- Action Buttons: Review Status vs Dismiss (Part 7, Item 1) -->
+            <div class="grid grid-cols-2 gap-3 pt-2">
+                <button type="button" onclick="closeActiveOrderNotice()" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-3 rounded-xl transition text-xs">
+                    Keep Browsing
+                </button>
+                <button type="button" onclick="handleActiveNoticeReview()" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-indigo-600/30 transition text-xs flex items-center justify-center gap-1.5">
+                    <span>View Status</span>
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 1C. Active Order Transparent Details & Reopen Modal (Part 7, Item 1) -->
+    <div id="activeOrderDetailsModal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-4 transition-all duration-300 opacity-0 pointer-events-none">
+        <div id="activeOrderDetailsCard" class="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full p-6 sm:p-7 shadow-2xl relative space-y-4 transform scale-95 translate-y-3 transition-all duration-300">
+            <button onclick="closeActiveOrderDetailsModal()" class="absolute right-4 top-4 text-slate-400 hover:text-white transition">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3 pr-8">
+                <div>
+                    <span class="text-xs uppercase font-bold text-indigo-400 tracking-wider">Transaction Status</span>
+                    <h3 class="text-xl font-bold text-white mt-0.5">Order <span id="activeDetailsOrderId">#0000</span></h3>
+                    <p class="text-xs text-slate-400">Current progress and options for your in-flight transaction</p>
+                </div>
+                <div class="text-right bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 flex-shrink-0" id="activeDetailsTimerBox">
+                    <span class="text-[10px] text-slate-400 uppercase font-semibold block leading-none" id="activeDetailsTimerLabel">Time Left</span>
+                    <span class="text-sm font-black text-amber-400 font-mono" id="activeDetailsCountdown">--:--</span>
+                </div>
+            </div>
+
+            <!-- Status Details Card -->
+            <div class="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-3 text-xs">
+                <div class="flex justify-between items-center">
+                    <span class="text-slate-400">Order Amount:</span>
+                    <span class="text-white font-mono font-bold text-sm" id="activeDetailsAmount">₹0.00</span>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="text-slate-400">Purchase Reward (+9%):</span>
+                    <span class="text-emerald-400 font-mono font-bold" id="activeDetailsReward">+₹0.00</span>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="text-slate-400">Current Order State:</span>
+                    <span class="px-2.5 py-0.5 rounded text-[11px] font-bold" id="activeDetailsStatusBadge">Reserved</span>
+                </div>
+                <div class="pt-2 border-t border-slate-800/80 space-y-1.5">
+                    <span class="text-slate-400 uppercase text-[10px] font-bold tracking-wider block">Seller UPI Details:</span>
+                    <div class="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-xl p-2.5">
+                        <span class="font-mono text-emerald-400 font-bold select-all text-xs" id="activeDetailsSellerUpi">--</span>
+                        <button onclick="copyToClipboard(document.getElementById('activeDetailsSellerUpi').innerText)" class="text-[11px] bg-slate-800 hover:bg-slate-700 px-2.5 py-1 rounded-lg text-slate-300">Copy</button>
+                    </div>
+                    <p class="text-[11px] text-slate-500">Account Holder: <strong class="text-slate-300" id="activeDetailsSellerName">--</strong></p>
+                </div>
+            </div>
+
+            <div id="activeDetailsInfoBox" class="text-xs text-slate-400 leading-relaxed bg-indigo-500/10 border border-indigo-500/20 rounded-xl p-3">
+                <!-- Informative message set dynamically -->
+            </div>
+
+            <!-- Dynamic Action Buttons (Part 7, Item 1) -->
+            <div id="activeDetailsActionButtons" class="grid grid-cols-2 gap-3 pt-1">
+                <!-- Populated dynamically via JS -->
             </div>
         </div>
     </div>

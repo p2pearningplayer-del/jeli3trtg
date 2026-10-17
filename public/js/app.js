@@ -191,7 +191,7 @@ function switchTab(tabId) {
 
     // Trigger tab data load
     if (tabId === 'home') { loadWalletStats(); loadLedger(); }
-    if (tabId === 'buy') { loadBuyPool(); }
+    if (tabId === 'buy') { loadBuyPool(); loadBuyPageHistory(); }
     if (tabId === 'sell') { loadWalletStats(); loadSellerDashboard(); }
     if (tabId === 'appeals') { loadDisputesCenter(); }
     if (tabId === 'refer') loadReferrals();
@@ -320,14 +320,12 @@ async function pickOrder(orderId) {
         });
         const data = await res.json();
         if (data.success) {
-            // Requirement 2: Redirect directly to the payment page showing UPI details immediately
             loadBuyPool();
+            loadBuyPageHistory();
             openProofModal(data.order_id, data.amount, data.seller_upi, data.seller_name, data.seconds_remaining);
         } else {
             if (data.active_order_id) {
-                if (confirm(`${data.error}\n\nWould you like to open your active order (${formatOrderId(data.active_order_id)}) to complete payment now?`)) {
-                    openActiveBuyOrderModal(data.active_order_id);
-                }
+                showActiveOrderNotice(data.active_order_id, data.error);
             } else {
                 alert(data.error || 'Failed to pick order.');
             }
@@ -338,20 +336,224 @@ async function pickOrder(orderId) {
     }
 }
 
-async function openActiveBuyOrderModal(orderId) {
+// -------------------------------------------------------------
+// DYNAMIC NOTIFICATION & TRANSPARENT STATUS SYSTEM (Part 7, Item 1)
+// -------------------------------------------------------------
+
+let currentActiveOrderId = null;
+let activeOrderTimerInterval = null;
+
+async function showActiveOrderNotice(orderId, errorMsg) {
+    currentActiveOrderId = orderId;
+    const modal = document.getElementById('activeOrderNoticeModal');
+    const card = document.getElementById('activeOrderNoticeCard');
+    const orderIdEl = document.getElementById('activeNoticeOrderId');
+    const statusEl = document.getElementById('activeNoticeStatus');
+    const amountEl = document.getElementById('activeNoticeAmount');
+    const msgEl = document.getElementById('activeOrderNoticeMsg');
+
+    if (orderIdEl) orderIdEl.innerText = formatOrderId(orderId);
+    if (msgEl && errorMsg) msgEl.innerText = errorMsg;
+
     try {
         const res = await fetch('/api/buy.php?action=my_purchases');
         const data = await res.json();
-        if (data.success && data.purchases && data.purchases.length > 0) {
-            const ord = data.purchases.find(p => parseInt(p.id, 10) === parseInt(orderId, 10)) || data.purchases[0];
+        if (data.success && data.purchases) {
+            const ord = data.purchases.find(p => parseInt(p.id, 10) === parseInt(orderId, 10));
             if (ord) {
-                openProofModal(ord.id, ord.amount, ord.seller_upi_id, ord.seller_account_holder, ord.seconds_remaining);
-                return;
+                if (statusEl) statusEl.innerText = ord.status;
+                if (amountEl) amountEl.innerText = `₹${parseFloat(ord.amount).toLocaleString('en-IN')}`;
             }
         }
-        alert(`Active order ${formatOrderId(orderId)} not found or already settled.`);
     } catch (e) {
-        alert('Network error retrieving active order details.');
+        // Fallback gracefully
+    }
+
+    if (modal && card) {
+        modal.classList.remove('pointer-events-none', 'opacity-0');
+        modal.classList.add('opacity-100');
+        card.classList.remove('scale-95', 'translate-y-3');
+        card.classList.add('scale-100', 'translate-y-0');
+    }
+}
+
+function closeActiveOrderNotice() {
+    const modal = document.getElementById('activeOrderNoticeModal');
+    const card = document.getElementById('activeOrderNoticeCard');
+    if (modal && card) {
+        modal.classList.remove('opacity-100');
+        modal.classList.add('opacity-0', 'pointer-events-none');
+        card.classList.remove('scale-100', 'translate-y-0');
+        card.classList.add('scale-95', 'translate-y-3');
+    }
+}
+
+function handleActiveNoticeReview() {
+    closeActiveOrderNotice();
+    if (currentActiveOrderId) {
+        openActiveOrderStatusModal(currentActiveOrderId);
+    }
+}
+
+async function openActiveOrderStatusModal(orderId) {
+    const modal = document.getElementById('activeOrderDetailsModal');
+    const card = document.getElementById('activeOrderDetailsCard');
+    if (!modal || !card) return;
+
+    try {
+        const res = await fetch('/api/buy.php?action=my_purchases');
+        const data = await res.json();
+        if (!data.success || !data.purchases || data.purchases.length === 0) {
+            alert(`Active order ${formatOrderId(orderId)} not found or already settled.`);
+            return;
+        }
+
+        const ord = data.purchases.find(p => parseInt(p.id, 10) === parseInt(orderId, 10)) || data.purchases[0];
+        if (!ord) {
+            alert(`Order ${formatOrderId(orderId)} not found.`);
+            return;
+        }
+
+        currentActiveOrderId = ord.id;
+        document.getElementById('activeDetailsOrderId').innerText = formatOrderId(ord.id);
+        document.getElementById('activeDetailsAmount').innerText = `₹${parseFloat(ord.amount).toLocaleString('en-IN')}`;
+        const rewardAmount = parseFloat(ord.snapshotted_reward_amount || (ord.amount * 0.09)).toFixed(2);
+        document.getElementById('activeDetailsReward').innerText = `+₹${rewardAmount} (Total: ₹${(parseFloat(ord.amount) + parseFloat(rewardAmount)).toFixed(2)})`;
+
+        const badgeEl = document.getElementById('activeDetailsStatusBadge');
+        if (badgeEl) {
+            badgeEl.innerText = ord.status;
+            badgeEl.className = `px-2.5 py-0.5 rounded text-[11px] font-bold ${statusBadges[ord.status] || 'bg-slate-800 text-slate-300'}`;
+        }
+
+        document.getElementById('activeDetailsSellerUpi').innerText = ord.seller_upi_id || '--';
+        document.getElementById('activeDetailsSellerName').innerText = ord.seller_account_holder || 'Platform Peer';
+
+        // Timer setup
+        const timerLabel = document.getElementById('activeDetailsTimerLabel');
+        const timerCount = document.getElementById('activeDetailsCountdown');
+        if (activeOrderTimerInterval) clearInterval(activeOrderTimerInterval);
+
+        let remainingSecs = ord.seconds_remaining > 0 ? ord.seconds_remaining : 0;
+        if (timerCount) timerCount.innerText = formatSeconds(remainingSecs);
+        if (timerLabel) timerLabel.innerText = ord.status === 'Reserved' ? 'Payment SLA' : 'Verification SLA';
+
+        activeOrderTimerInterval = setInterval(() => {
+            if (remainingSecs > 0) {
+                remainingSecs--;
+                if (timerCount) timerCount.innerText = formatSeconds(remainingSecs);
+            } else {
+                clearInterval(activeOrderTimerInterval);
+            }
+        }, 1000);
+
+        // Explanatory Info & Dynamic Action Buttons (Part 7, Item 1)
+        const infoBox = document.getElementById('activeDetailsInfoBox');
+        const actionsBox = document.getElementById('activeDetailsActionButtons');
+
+        if (ord.status === 'Reserved') {
+            if (infoBox) {
+                infoBox.innerHTML = `
+                    <p class="font-semibold text-slate-200">Payment Pending:</p>
+                    <p class="mt-1">Transfer exact ₹${parseFloat(ord.amount).toLocaleString('en-IN')} to the seller UPI above using PhonePe, GPay, Paytm, or BHIM. When you have completed the transfer, reopen the payment screen to submit your UTR and screenshot proof.</p>
+                `;
+            }
+            if (actionsBox) {
+                actionsBox.innerHTML = `
+                    <button type="button" onclick="cancelOrderFromStatusModal(${ord.id})" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-3 rounded-xl transition text-xs">
+                        Cancel Reservation
+                    </button>
+                    <button type="button" onclick="reopenActiveOrderPayment(${ord.id}, ${ord.amount}, '${escapeHtml(ord.seller_upi_id || '')}', '${escapeHtml(ord.seller_account_holder || '')}', ${remainingSecs})" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-emerald-600/30 transition text-xs flex items-center justify-center gap-1.5">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                        <span>Reopen Payment Screen</span>
+                    </button>
+                `;
+            }
+        } else if (['Payment Proof Submitted', 'Seller Confirmation Pending'].includes(ord.status)) {
+            if (infoBox) {
+                infoBox.innerHTML = `
+                    <p class="font-semibold text-emerald-400">Payment Proof Submitted (UTR: ${escapeHtml(ord.utr_number || 'Under Review')}):</p>
+                    <p class="mt-1">The seller has a 15-minute verification SLA to check their bank account. Once confirmed, ₹${(parseFloat(ord.amount) + parseFloat(rewardAmount)).toLocaleString('en-IN')} will be credited directly to your Available Balance.</p>
+                `;
+            }
+            if (actionsBox) {
+                actionsBox.innerHTML = `
+                    <button type="button" onclick="closeActiveOrderDetailsModal()" class="w-full col-span-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl transition text-xs">
+                        Dismiss & Wait for Seller
+                    </button>
+                `;
+            }
+        } else if (ord.status === 'Disputed') {
+            if (infoBox) {
+                infoBox.innerHTML = `
+                    <p class="font-semibold text-amber-400">Order Disputed & Under Admin Review:</p>
+                    <p class="mt-1">This transaction is frozen under administrative arbitration. Both parties have evidence submission rights in the Appeals Center.</p>
+                `;
+            }
+            if (actionsBox) {
+                actionsBox.innerHTML = `
+                    <button type="button" onclick="closeActiveOrderDetailsModal(); switchTab('appeals');" class="w-full col-span-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl transition text-xs">
+                        Open Appeals Center
+                    </button>
+                `;
+            }
+        } else {
+            if (actionsBox) {
+                actionsBox.innerHTML = `
+                    <button type="button" onclick="closeActiveOrderDetailsModal()" class="w-full col-span-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-3 rounded-xl transition text-xs">
+                        Close
+                    </button>
+                `;
+            }
+        }
+
+        modal.classList.remove('pointer-events-none', 'opacity-0');
+        modal.classList.add('opacity-100');
+        card.classList.remove('scale-95', 'translate-y-3');
+        card.classList.add('scale-100', 'translate-y-0');
+
+    } catch (e) {
+        alert('Network error loading active order details.');
+    }
+}
+
+function closeActiveOrderDetailsModal() {
+    if (activeOrderTimerInterval) clearInterval(activeOrderTimerInterval);
+    const modal = document.getElementById('activeOrderDetailsModal');
+    const card = document.getElementById('activeOrderDetailsCard');
+    if (modal && card) {
+        modal.classList.remove('opacity-100');
+        modal.classList.add('opacity-0', 'pointer-events-none');
+        card.classList.remove('scale-100', 'translate-y-0');
+        card.classList.add('scale-95', 'translate-y-3');
+    }
+}
+
+function reopenActiveOrderPayment(orderId, amount, upi, name, seconds) {
+    closeActiveOrderDetailsModal();
+    openProofModal(orderId, amount, upi, name, seconds);
+}
+
+async function cancelOrderFromStatusModal(orderId) {
+    if (!confirm(`Cancel order reservation #${orderId}? Tokens will return to the live buy market.`)) return;
+    try {
+        const res = await fetch('/api/buy.php?action=cancel', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ order_id: parseInt(orderId, 10) })
+        });
+        const data = await res.json();
+        if (data.success) {
+            closeActiveOrderDetailsModal();
+            loadBuyPool();
+            loadBuyPageHistory();
+            fetchSession();
+            alert('Reservation cancelled. You can now select any new buy order.');
+        } else {
+            alert(data.error || 'Failed to cancel reservation.');
+        }
+    } catch (e) {
+        alert('Network error cancelling reservation.');
     }
 }
 
@@ -379,12 +581,11 @@ async function requestCustomAllocation() {
         if (data.success) {
             input.value = '';
             loadBuyPool();
+            loadBuyPageHistory();
             openProofModal(data.order_id, data.amount, data.seller_upi, data.seller_name, data.seconds_remaining);
         } else {
             if (data.active_order_id) {
-                if (confirm(`${data.error}\n\nWould you like to open your active order (${formatOrderId(data.active_order_id)}) to complete payment now?`)) {
-                    openActiveBuyOrderModal(data.active_order_id);
-                }
+                showActiveOrderNotice(data.active_order_id, data.error);
             } else {
                 alert(data.error || 'Allocation failed.');
             }
@@ -456,6 +657,97 @@ async function submitSellOrder() {
     }
 }
 
+let currentSellTab = 'running';
+
+function switchSellTab(tab) {
+    currentSellTab = tab;
+    const rBtn = document.getElementById('sellTabBtn-running');
+    const hBtn = document.getElementById('sellTabBtn-history');
+    const rBox = document.getElementById('sellerOrdersList');
+    const hBox = document.getElementById('sellerHistoryContainer');
+
+    if (tab === 'running') {
+        if (rBtn) {
+            rBtn.className = 'px-4 py-2.5 text-xs font-bold border-b-2 border-indigo-500 text-white transition flex items-center gap-2';
+        }
+        if (hBtn) {
+            hBtn.className = 'px-4 py-2.5 text-xs font-bold border-b-2 border-transparent text-slate-400 hover:text-white transition flex items-center gap-2';
+        }
+        if (rBox) rBox.classList.remove('hidden');
+        if (hBox) hBox.classList.add('hidden');
+    } else {
+        if (hBtn) {
+            hBtn.className = 'px-4 py-2.5 text-xs font-bold border-b-2 border-indigo-500 text-white transition flex items-center gap-2';
+        }
+        if (rBtn) {
+            rBtn.className = 'px-4 py-2.5 text-xs font-bold border-b-2 border-transparent text-slate-400 hover:text-white transition flex items-center gap-2';
+        }
+        if (hBox) hBox.classList.remove('hidden');
+        if (rBox) rBox.classList.add('hidden');
+    }
+}
+
+async function loadBuyPageHistory() {
+    if (!currentUser) return;
+    const container = document.getElementById('buyPageHistoryContainer');
+    if (!container) return;
+
+    try {
+        const res = await fetch('/api/wallet.php?action=buy_history');
+        const data = await res.json();
+
+        if (!data.success || !data.buy_history || data.buy_history.length === 0) {
+            container.innerHTML = `
+                <div class="text-center py-8 text-slate-400">
+                    <p class="font-bold text-white text-sm">No Buy History Yet</p>
+                    <p class="text-xs text-slate-500 mt-1">When you purchase tokens, your +9% reward bonus and settlement records will appear here.</p>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = `
+            <table class="w-full text-left text-xs">
+                <thead class="bg-slate-950 text-slate-400 uppercase tracking-wider font-semibold border-b border-slate-800">
+                    <tr>
+                        <th class="p-3">Order ID</th>
+                        <th class="p-3">Purchase</th>
+                        <th class="p-3">Reward (+9%)</th>
+                        <th class="p-3">Total Credit</th>
+                        <th class="p-3">Seller Details</th>
+                        <th class="p-3">UTR / Proof</th>
+                        <th class="p-3">Status</th>
+                        <th class="p-3">Date</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-800/60 font-mono text-slate-300">
+                    ${data.buy_history.map(row => `
+                        <tr class="hover:bg-slate-900/60">
+                            <td class="p-3 text-indigo-400 font-bold">${formatOrderId(row.id)}</td>
+                            <td class="p-3 text-white font-bold">₹${parseFloat(row.amount).toLocaleString('en-IN')}</td>
+                            <td class="p-3 text-emerald-400">+₹${parseFloat(row.reward_amount).toFixed(2)}</td>
+                            <td class="p-3 text-white">₹${parseFloat(row.total_credit).toFixed(2)}</td>
+                            <td class="p-3 font-sans text-slate-300">${escapeHtml(row.seller_name_masked || 'Peer')} <span class="text-slate-500 text-[11px] block font-mono">${escapeHtml(row.snapshotted_upi_id)}</span></td>
+                            <td class="p-3">
+                                ${row.utr_number ? `<span class="text-slate-200 font-mono text-[11px] block">${escapeHtml(row.utr_number)}</span>` : '<span class="text-slate-600">-</span>'}
+                                ${row.screenshot_path ? `<a href="/serve_file.php?file=${encodeURIComponent(row.screenshot_path)}" target="_blank" class="text-[11px] text-indigo-400 underline font-sans">View Proof</a>` : ''}
+                            </td>
+                            <td class="p-3 font-sans">
+                                <span class="px-2 py-0.5 rounded text-[10px] font-bold ${statusBadges[row.status] || 'bg-slate-800 text-slate-400'}">
+                                    ${row.status}
+                                </span>
+                            </td>
+                            <td class="p-3 text-slate-500 text-[11px]">${row.created_at}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+    } catch (e) {
+        console.error('Failed to load buy page history:', e);
+    }
+}
+
 async function loadSellerDashboard(silent = false) {
     if (!currentUser) return;
 
@@ -463,6 +755,7 @@ async function loadSellerDashboard(silent = false) {
         const res = await fetch('/api/sell.php?action=tracking');
         const data = await res.json();
         const list = document.getElementById('sellerOrdersList');
+        const historyList = document.getElementById('sellerHistoryContainer');
         if (!list) return;
 
         if (!data.success || !data.parent_orders || data.parent_orders.length === 0) {
@@ -472,8 +765,50 @@ async function loadSellerDashboard(silent = false) {
                     <p class="text-xs text-slate-500 mt-1">Your listed sell orders and their child portions will appear here.</p>
                 </div>
             `;
+            if (historyList) {
+                historyList.innerHTML = `
+                    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center text-slate-400">
+                        <p class="font-bold text-white">No Listing History</p>
+                        <p class="text-xs text-slate-500 mt-1">Completed, expired, or cancelled listings will appear here.</p>
+                    </div>
+                `;
+            }
             return;
         }
+
+        // Separate running sell orders vs listing history (Part 7, Item 2)
+        const runningParents = [];
+        const historyParents = [];
+
+        data.parent_orders.forEach(parent => {
+            const runningChildren = (parent.children || []).filter(c => 
+                ['Available', 'Reserved', 'Payment Proof Submitted', 'Seller Confirmation Pending', 'Seller Response Timeout', 'Disputed'].includes(c.status)
+            );
+            const historyChildren = (parent.children || []).filter(c => 
+                ['Completed', 'Expired', 'Cancelled', 'Cancelled / Reversed'].includes(c.status)
+            );
+
+            const isParentRunning = (parent.status === 'active' || (parseFloat(parent.remaining_amount) > 0 && !parent.status.includes('cancelled') && parent.status !== 'completed') || runningChildren.length > 0);
+
+            if (isParentRunning) {
+                runningParents.push({
+                    ...parent,
+                    children: runningChildren
+                });
+            }
+            if (!isParentRunning || historyChildren.length > 0) {
+                historyParents.push({
+                    ...parent,
+                    children: historyChildren
+                });
+            }
+        });
+
+        // Update tab badges
+        const rBadge = document.getElementById('sellRunningBadge');
+        const hBadge = document.getElementById('sellHistoryBadge');
+        if (rBadge) rBadge.innerText = runningParents.length;
+        if (hBadge) hBadge.innerText = historyParents.length;
 
         // Scan for pending seller actions to update bottom floating action bar (Part 5, Item 5)
         const pendingActionItems = [];
@@ -507,38 +842,88 @@ async function loadSellerDashboard(silent = false) {
             }
         }
 
-        list.innerHTML = data.parent_orders.map(parent => `
-            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-3">
-                <div class="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-2.5 gap-2">
-                    <div>
-                        <div class="flex items-center gap-2">
-                            <span class="text-xs font-mono font-bold text-indigo-400">Parent ${formatOrderId(parent.id)}</span>
-                            <span class="text-[10px] px-2 py-0.5 rounded uppercase font-bold ${parent.status === 'completed' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-800 text-slate-300'}">${parent.status}</span>
+        // Render 1: Running Sell Orders
+        if (runningParents.length === 0) {
+            list.innerHTML = `
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center text-slate-400">
+                    <svg class="w-12 h-12 mx-auto text-slate-600 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <p class="font-bold text-white text-base">No Running Sell Orders</p>
+                    <p class="text-xs text-slate-500 mt-1">You have no active listings running in the market. Create a sell order on the left to start selling.</p>
+                </div>
+            `;
+        } else {
+            list.innerHTML = runningParents.map(parent => `
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-3">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-2.5 gap-2">
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <span class="text-xs font-mono font-bold text-indigo-400">Parent ${formatOrderId(parent.id)}</span>
+                                <span class="text-[10px] px-2 py-0.5 rounded uppercase font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Active Running</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-0.5">UPI: <span class="font-mono text-slate-200">${escapeHtml(parent.snapshotted_upi_id)}</span></p>
                         </div>
-                        <p class="text-[11px] text-slate-400 mt-0.5">UPI: <span class="font-mono text-slate-200">${escapeHtml(parent.snapshotted_upi_id)}</span></p>
+                        <div class="flex items-center gap-3 sm:gap-4 text-xs font-mono">
+                            <div><span class="text-slate-500 block text-[10px]">Total</span> <strong class="text-white">₹${parseFloat(parent.original_amount).toLocaleString('en-IN')}</strong></div>
+                            <div><span class="text-slate-500 block text-[10px]">Completed</span> <strong class="text-emerald-400">₹${parseFloat(parent.completed_amount).toLocaleString('en-IN')}</strong></div>
+                            <div><span class="text-slate-500 block text-[10px]">Remaining</span> <strong class="text-slate-300">₹${parseFloat(parent.remaining_amount).toLocaleString('en-IN')}</strong></div>
+                            ${(parent.status === 'active' || (parseFloat(parent.remaining_amount) > 0 && !parent.status.includes('cancelled') && parent.status !== 'completed')) ? `
+                                <button onclick="cancelParentSellOrder(${parent.id})" class="ml-1 sm:ml-2 px-2.5 py-1 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/30 rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-sm">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                                    <span>Cancel</span>
+                                </button>
+                            ` : ''}
+                        </div>
                     </div>
-                    <div class="flex items-center gap-3 sm:gap-4 text-xs font-mono">
-                        <div><span class="text-slate-500 block text-[10px]">Total</span> <strong class="text-white">₹${parseFloat(parent.original_amount).toLocaleString('en-IN')}</strong></div>
-                        <div><span class="text-slate-500 block text-[10px]">Completed</span> <strong class="text-emerald-400">₹${parseFloat(parent.completed_amount).toLocaleString('en-IN')}</strong></div>
-                        <div><span class="text-slate-500 block text-[10px]">Remaining</span> <strong class="text-slate-300">₹${parseFloat(parent.remaining_amount).toLocaleString('en-IN')}</strong></div>
-                        ${(parent.status === 'active' || (parseFloat(parent.remaining_amount) > 0 && !parent.status.includes('cancelled') && parent.status !== 'completed')) ? `
-                            <button onclick="cancelParentSellOrder(${parent.id})" class="ml-1 sm:ml-2 px-2.5 py-1 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/30 rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-sm">
-                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-                                <span>Cancel</span>
-                            </button>
-                        ` : ''}
-                    </div>
-                </div>
 
-                <!-- Child portions list -->
-                <div class="space-y-1.5">
-                    <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Micro-Order Portions (${parent.children.length})</span>
-                    <div class="grid grid-cols-1 gap-2">
-                        ${parent.children.map(child => renderSellerChildCard(child)).join('')}
+                    <!-- Child portions list -->
+                    <div class="space-y-1.5">
+                        <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Active Micro-Portions (${parent.children.length})</span>
+                        <div class="grid grid-cols-1 gap-2">
+                            ${parent.children.length > 0 ? parent.children.map(child => renderSellerChildCard(child)).join('') : '<span class="text-xs text-slate-500 italic">All portions resolved or unlisted.</span>'}
+                        </div>
                     </div>
                 </div>
-            </div>
-        `).join('');
+            `).join('');
+        }
+
+        // Render 2: Dedicated Sell Listing History
+        if (historyList) {
+            if (historyParents.length === 0) {
+                historyList.innerHTML = `
+                    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center text-slate-400">
+                        <p class="font-bold text-white text-base">No Completed Listing History</p>
+                        <p class="text-xs text-slate-500 mt-1">Past completed, expired, or cancelled listings will appear here.</p>
+                    </div>
+                `;
+            } else {
+                historyList.innerHTML = historyParents.map(parent => `
+                    <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-3 opacity-90">
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-2.5 gap-2">
+                            <div>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs font-mono font-bold text-indigo-400">Parent ${formatOrderId(parent.id)}</span>
+                                    <span class="text-[10px] px-2 py-0.5 rounded uppercase font-bold ${parent.status === 'completed' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-800 text-slate-400'}">${parent.status}</span>
+                                </div>
+                                <p class="text-[11px] text-slate-500 mt-0.5">Listed: ${parent.created_at || 'Recorded'}</p>
+                            </div>
+                            <div class="flex items-center gap-3 sm:gap-4 text-xs font-mono">
+                                <div><span class="text-slate-500 block text-[10px]">Total</span> <strong class="text-white">₹${parseFloat(parent.original_amount).toLocaleString('en-IN')}</strong></div>
+                                <div><span class="text-slate-500 block text-[10px]">Completed</span> <strong class="text-emerald-400">₹${parseFloat(parent.completed_amount).toLocaleString('en-IN')}</strong></div>
+                                <div><span class="text-slate-500 block text-[10px]">Remaining</span> <strong class="text-slate-400">₹${parseFloat(parent.remaining_amount).toLocaleString('en-IN')}</strong></div>
+                            </div>
+                        </div>
+
+                        <!-- Historical child portions -->
+                        <div class="space-y-1.5">
+                            <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Settled / Expired Portions (${parent.children.length})</span>
+                            <div class="grid grid-cols-1 gap-2">
+                                ${parent.children.map(child => renderSellerChildCard(child)).join('')}
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        }
     } catch (e) {
         console.error('Failed to load seller tracking:', e);
     }
@@ -1430,6 +1815,16 @@ async function loadDisputesCenter(silent = false) {
                         <p class="text-xs text-slate-300 leading-relaxed font-mono whitespace-pre-wrap">${escapeHtml(disp.resolution_notes || 'Case assigned to Admin arbitration desk. Both parties have evidence rights. Tokens remain securely locked in double-entry escrow.')}</p>
                     </div>
 
+                    ${(disp.additional_evidence_requested == 1 || disp.status === 'under_review') ? `
+                        <div class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3.5 flex items-start gap-3">
+                            <span class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping flex-shrink-0 mt-1"></span>
+                            <div>
+                                <span class="text-amber-400 font-bold uppercase tracking-wider text-xs block">Action Required: Admin Requested Evidence</span>
+                                <p class="text-xs text-slate-300 mt-0.5">The administrator has requested evidence before arbitrating this dispute. Please upload your video, photo, or statement proof below.</p>
+                            </div>
+                        </div>
+                    ` : ''}
+
                     ${!isResolved ? `
                         <!-- Upload Additional Evidence / Reply Box -->
                         <div class="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-3">
@@ -1673,11 +2068,14 @@ async function loadAdminDisputes() {
                 ${d.status === 'pending' || d.status === 'under_review' ? `
                     <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-2 border-t border-slate-800">
                         <input type="text" id="dispNotes_${d.id}" placeholder="Mandatory resolution notes for audit trail..." class="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500">
-                        <button onclick="arbitrateDispute(${d.id}, 'force_settle')" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg text-xs uppercase tracking-wider transition">
-                            Force Settle (Buyer)
+                        <button onclick="requestMoreEvidenceAdmin(${d.id})" class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-lg text-xs uppercase tracking-wider transition whitespace-nowrap">
+                            Request Evidence
                         </button>
-                        <button onclick="arbitrateDispute(${d.id}, 'cancel_reverse')" class="px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-bold rounded-lg text-xs uppercase tracking-wider transition">
-                            Cancel & Return (Seller)
+                        <button onclick="arbitrateDispute(${d.id}, 'force_settle')" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg text-xs uppercase tracking-wider transition whitespace-nowrap">
+                            Force Settle
+                        </button>
+                        <button onclick="arbitrateDispute(${d.id}, 'cancel_reverse')" class="px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-bold rounded-lg text-xs uppercase tracking-wider transition whitespace-nowrap">
+                            Cancel & Return
                         </button>
                     </div>
                 ` : `
@@ -1689,6 +2087,28 @@ async function loadAdminDisputes() {
         `).join('');
     } catch (e) {
         console.error('Failed to load admin disputes:', e);
+    }
+}
+
+async function requestMoreEvidenceAdmin(disputeId) {
+    const instructions = prompt(`Enter specific instructions for photo/video/statement evidence needed for Dispute #${disputeId}:`);
+    if (!instructions || !instructions.trim()) return;
+
+    try {
+        const res = await fetch('/api/admin.php?action=request_evidence', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dispute_id: disputeId, instructions: instructions.trim() })
+        });
+        const data = await res.json();
+        if (data.success) {
+            alert(data.message || 'Evidence request dispatched. Both buyer and seller have been notified.');
+            loadAdminDashboard();
+        } else {
+            alert(data.error || 'Failed to dispatch evidence request.');
+        }
+    } catch (e) {
+        alert('Network error requesting evidence.');
     }
 }
 
