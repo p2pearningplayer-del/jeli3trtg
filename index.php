@@ -137,17 +137,33 @@ endif;
             <div class="flex items-center justify-between h-16">
                 <!-- Brand & Value Indicators -->
                 <div class="flex items-center gap-4 sm:gap-6">
-                    <div class="flex items-center gap-2 cursor-pointer" onclick="switchTab('home')">
-                        <div class="h-9 w-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-                            <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 10V3L4 14h7v7l9-11h-7z"/>
-                            </svg>
+                    <div class="flex items-center gap-2.5 cursor-pointer" onclick="switchTab('home')">
+                        <!-- Ultra-Premium Professional Emblem -->
+                        <div class="h-10 w-10 rounded-2xl bg-gradient-to-tr from-indigo-600 via-violet-600 to-emerald-400 p-[1.5px] shadow-lg shadow-indigo-500/25 flex items-center justify-center flex-shrink-0">
+                            <div class="w-full h-full bg-slate-950/90 rounded-[14px] flex items-center justify-center backdrop-blur-sm">
+                                <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M12 2L3.5 7V17L12 22L20.5 17V7L12 2Z" stroke="url(#logoStroke)" stroke-width="2" stroke-linejoin="round"/>
+                                    <path d="M12 6.5L7 9.5V14.5L12 17.5L17 14.5V9.5L12 6.5Z" fill="url(#logoInner)" fill-opacity="0.3" stroke="url(#logoInner)" stroke-width="1.6" stroke-linejoin="round"/>
+                                    <path d="M10 12L12 14L15 10" stroke="#34d399" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                    <defs>
+                                        <linearGradient id="logoStroke" x1="3.5" y1="2" x2="20.5" y2="22" gradientUnits="userSpaceOnUse">
+                                            <stop stop-color="#818cf8"/>
+                                            <stop offset="0.5" stop-color="#a78bfa"/>
+                                            <stop offset="1" stop-color="#34d399"/>
+                                        </linearGradient>
+                                        <linearGradient id="logoInner" x1="7" y1="6.5" x2="17" y2="17.5" gradientUnits="userSpaceOnUse">
+                                            <stop stop-color="#6366f1"/>
+                                            <stop offset="1" stop-color="#10b981"/>
+                                        </linearGradient>
+                                    </defs>
+                                </svg>
+                            </div>
                         </div>
                         <div>
-                            <span class="text-lg font-black tracking-tight text-white flex items-center gap-1.5">
-                                <?= $siteName ?> <span class="text-[10px] uppercase font-bold tracking-widest px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">P2P</span>
+                            <span class="text-xl font-black tracking-tight text-white flex items-center">
+                                <?= $siteName ?>
                             </span>
-                            <span class="text-[10px] text-slate-400 block -mt-1"><?= $siteTagline ?></span>
+                            <span class="text-[10px] text-slate-400 block -mt-0.5"><?= $siteTagline ?></span>
                         </div>
                     </div>
 
@@ -168,12 +184,12 @@ endif;
                 <div class="flex items-center gap-3">
                     <?php if ($currentUser): ?>
                         <!-- Shared Wallet Balance Chip -->
-                        <div class="flex items-center bg-slate-800/80 border border-slate-700/80 rounded-xl p-1 sm:px-3 sm:py-1.5 gap-2 cursor-pointer" onclick="switchTab('home')" title="Shared Available Wallet Balance">
-                            <div class="text-right hidden sm:block">
+                        <div class="flex items-center bg-slate-800/80 border border-slate-700/80 rounded-xl px-2.5 py-1.5 sm:px-3 sm:py-1.5 gap-2 cursor-pointer max-w-[160px] sm:max-w-xs min-w-0" onclick="switchTab('home')" title="Shared Available Wallet Balance">
+                            <div class="text-right hidden sm:block min-w-0">
                                 <span class="text-[10px] text-slate-400 uppercase tracking-wider block font-semibold leading-none">Shared Wallet</span>
-                                <span class="text-sm font-black text-emerald-400 font-mono" id="headerAvailableBalance">₹0.00</span>
+                                <span class="text-xs sm:text-sm font-black text-emerald-400 truncate block font-mono" id="headerAvailableBalance">₹0.00</span>
                             </div>
-                            <svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg>
+                            <svg class="w-5 h-5 text-indigo-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg>
                         </div>
 
                         <!-- Profile Trigger -->
@@ -203,43 +219,11 @@ endif;
                     <?php endif; ?>
                 </div>
             </div>
-
-            <?php if ($currentUser): ?>
-            <!-- PRIMARY NAVIGATION: Home | Buy | Sell | Refer | Profile (Logged In Users Only) -->
-            <div class="flex space-x-1 sm:space-x-2 border-t border-slate-800/80 overflow-x-auto py-2 text-xs sm:text-sm font-semibold scrollbar-none">
-                <button onclick="switchTab('home')" id="tabBtn-home" class="tab-btn px-3.5 py-2 rounded-lg flex items-center gap-2 whitespace-nowrap text-indigo-400 bg-slate-800/90 border border-slate-700">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
-                    <span>Home</span>
-                </button>
-                <button onclick="switchTab('buy')" id="tabBtn-buy" class="tab-btn px-3.5 py-2 rounded-lg flex items-center gap-2 whitespace-nowrap text-slate-400 hover:text-slate-200">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-                    <span>Buy</span>
-                </button>
-                <button onclick="switchTab('sell')" id="tabBtn-sell" class="tab-btn px-3.5 py-2 rounded-lg flex items-center gap-2 whitespace-nowrap text-slate-400 hover:text-slate-200">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 11l5-5m0 0l5 5m-5-5v12"/></svg>
-                    <span>Sell</span>
-                </button>
-                <button onclick="switchTab('refer')" id="tabBtn-refer" class="tab-btn px-3.5 py-2 rounded-lg flex items-center gap-2 whitespace-nowrap text-slate-400 hover:text-slate-200">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
-                    <span>Refer</span>
-                </button>
-                <button onclick="switchTab('profile')" id="tabBtn-profile" class="tab-btn px-3.5 py-2 rounded-lg flex items-center gap-2 whitespace-nowrap text-slate-400 hover:text-slate-200">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
-                    <span>Profile</span>
-                </button>
-                <?php if ($currentUser && ($currentUser['role'] === 'admin' || !empty($currentUser['real_admin_id']))): ?>
-                <button onclick="switchTab('admin')" id="tabBtn-admin" class="tab-btn px-3.5 py-2 rounded-lg flex items-center gap-2 whitespace-nowrap text-amber-400 hover:text-amber-300">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
-                    <span>Admin</span>
-                </button>
-                <?php endif; ?>
-            </div>
-            <?php endif; ?>
         </div>
     </header>
 
-    <!-- Main View Containers -->
-    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    <!-- Main View Containers (with bottom padding for fixed mobile nav) -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24 sm:pb-28">
 
         <?php if (!$currentUser): ?>
         <!-- ========================================== -->
@@ -368,54 +352,27 @@ endif;
         <!-- TAB 1: HOME (Unified Dashboard & Shared Wallet Overview) -->
         <!-- ========================================== -->
         <section id="view-home" class="tab-view space-y-6">
-            <!-- Welcome Banner -->
-            <div class="bg-gradient-to-r from-indigo-950/80 via-slate-900 to-slate-900 border border-indigo-900/40 rounded-2xl p-6 sm:p-8 flex flex-col md:flex-row md:items-center justify-between gap-6 shadow-xl">
-                <div class="space-y-2 max-w-2xl">
-                    <div class="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold uppercase tracking-wider">
-                        <span>Unified P2P Marketplace</span>
-                        <span>&bull;</span>
-                        <span>One Account &bull; Shared Wallet</span>
-                    </div>
-                    <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Buy, Hold & Sell Tokens Seamlessly</h1>
-                    <p class="text-sm text-slate-300">
-                        Buy tokens from peers to receive a <strong>9% purchase reward</strong> directly into your wallet. Use that same wallet balance to list sell orders anytime. All transactions update one centralized ledger.
-                    </p>
-                </div>
-
-                <!-- Quick Action Buttons -->
-                <div class="flex flex-col sm:flex-row items-stretch gap-3 w-full md:w-auto">
-                    <button onclick="switchTab('buy')" class="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-lg shadow-indigo-600/30 transition text-sm flex items-center justify-center gap-2">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-                        <span>Buy Tokens (+9%)</span>
-                    </button>
-                    <button onclick="switchTab('sell')" class="px-6 py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-xl border border-slate-700 transition text-sm flex items-center justify-center gap-2">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 11l5-5m0 0l5 5m-5-5v12"/></svg>
-                        <span>Sell Tokens</span>
-                    </button>
-                </div>
-            </div>
-
             <!-- Shared Wallet Segregated Pools -->
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
-                    <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider block">Available Balance</span>
-                    <p class="text-2xl sm:text-3xl font-black text-emerald-400 font-mono mt-1" id="homeStatAvailable">₹0.00</p>
-                    <span class="text-[11px] text-slate-500 mt-1 block">Ready for transfer or sell listing</span>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 sm:p-5 shadow-sm min-w-0 overflow-hidden flex flex-col justify-between">
+                    <span class="text-[11px] sm:text-xs font-semibold text-slate-400 uppercase tracking-wider block truncate">Available Balance</span>
+                    <p class="text-lg xs:text-xl sm:text-2xl lg:text-3xl font-extrabold text-emerald-400 tracking-tight mt-1 truncate" id="homeStatAvailable" title="₹0.00">₹0.00</p>
+                    <span class="text-[10px] sm:text-[11px] text-slate-500 mt-1 block truncate">Ready for transfer or sell</span>
                 </div>
-                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
-                    <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider block">Reserved Balance</span>
-                    <p class="text-2xl sm:text-3xl font-black text-amber-400 font-mono mt-1" id="homeStatReserved">₹0.00</p>
-                    <span class="text-[11px] text-slate-500 mt-1 block">Locked in active sell orders</span>
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 sm:p-5 shadow-sm min-w-0 overflow-hidden flex flex-col justify-between">
+                    <span class="text-[11px] sm:text-xs font-semibold text-slate-400 uppercase tracking-wider block truncate">Reserved Balance</span>
+                    <p class="text-lg xs:text-xl sm:text-2xl lg:text-3xl font-extrabold text-amber-400 tracking-tight mt-1 truncate" id="homeStatReserved" title="₹0.00">₹0.00</p>
+                    <span class="text-[10px] sm:text-[11px] text-slate-500 mt-1 block truncate">Locked in active sell orders</span>
                 </div>
-                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
-                    <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider block">Total Rewards</span>
-                    <p class="text-2xl sm:text-3xl font-black text-indigo-400 font-mono mt-1" id="homeStatRewards">₹0.00</p>
-                    <span class="text-[11px] text-slate-500 mt-1 block">9% promotional credits earned</span>
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 sm:p-5 shadow-sm min-w-0 overflow-hidden flex flex-col justify-between">
+                    <span class="text-[11px] sm:text-xs font-semibold text-slate-400 uppercase tracking-wider block truncate">Total Rewards</span>
+                    <p class="text-lg xs:text-xl sm:text-2xl lg:text-3xl font-extrabold text-indigo-400 tracking-tight mt-1 truncate" id="homeStatRewards" title="₹0.00">₹0.00</p>
+                    <span class="text-[10px] sm:text-[11px] text-slate-500 mt-1 block truncate">9% promotional credits</span>
                 </div>
-                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
-                    <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider block">Commissions</span>
-                    <p class="text-2xl sm:text-3xl font-black text-violet-400 font-mono mt-1" id="homeStatCommissions">₹0.00</p>
-                    <span class="text-[11px] text-slate-500 mt-1 block">2-tier referral earnings</span>
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 sm:p-5 shadow-sm min-w-0 overflow-hidden flex flex-col justify-between">
+                    <span class="text-[11px] sm:text-xs font-semibold text-slate-400 uppercase tracking-wider block truncate">Commissions</span>
+                    <p class="text-lg xs:text-xl sm:text-2xl lg:text-3xl font-extrabold text-violet-400 tracking-tight mt-1 truncate" id="homeStatCommissions" title="₹0.00">₹0.00</p>
+                    <span class="text-[10px] sm:text-[11px] text-slate-500 mt-1 block truncate">2-tier referral earnings</span>
                 </div>
             </div>
 
@@ -914,24 +871,6 @@ endif;
 
     </main>
 
-    <!-- Footer -->
-    <footer class="bg-slate-900/60 border-t border-slate-800/80 py-6 text-center text-xs text-slate-500">
-        <div class="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-            <div>
-                <span>&copy; <?= date('Y') ?> JeliPay P2P Platform. All rights reserved.</span>
-                <span class="mx-2">&bull;</span>
-                <span class="text-slate-400">Production: https://jelipay.in/</span>
-            </div>
-            <div class="flex items-center gap-4">
-                <a href="/test_qa.php" target="_blank" class="text-indigo-400 hover:text-indigo-300 font-semibold underline">
-                    Live QA Acceptance Report (11/11 Passed)
-                </a>
-                <span>&bull;</span>
-                <span class="font-mono text-[11px] text-slate-400">Server UTC: <?= gmdate('H:i:s') ?></span>
-            </div>
-        </div>
-    </footer>
-
     <!-- ======================================================== -->
     <!-- MODALS & POPUPS -->
     <!-- ======================================================== -->
@@ -962,10 +901,6 @@ endif;
 
                 <!-- Registration-only fields -->
                 <div id="registerFields" class="space-y-4 hidden">
-                    <div>
-                        <label class="text-xs font-semibold text-slate-300 block mb-1">Account Holder Full Name</label>
-                        <input type="text" id="authName" placeholder="Your Name" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:border-indigo-500 focus:outline-none">
-                    </div>
                     <div>
                         <label class="text-xs font-semibold text-slate-300 block mb-1">Referral Code (Optional)</label>
                         <input type="text" id="authReferralCode" value="<?= $refFromQuery ?>" placeholder="JPXXXXXX" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white font-mono uppercase focus:border-indigo-500 focus:outline-none">
@@ -1072,6 +1007,65 @@ endif;
             </form>
         </div>
     </div>
+
+    <?php if ($currentUser): ?>
+    <!-- MOBILE APP BOTTOM NAVIGATION BAR (Fixed at bottom) -->
+    <nav id="mobileBottomNav" class="fixed bottom-0 left-0 right-0 z-50 bg-slate-950/95 backdrop-blur-xl border-t border-slate-800/90 shadow-[0_-8px_30px_rgba(0,0,0,0.6)]">
+        <div class="max-w-md md:max-w-xl mx-auto px-2 sm:px-6">
+            <div class="flex items-center justify-around h-16">
+                <!-- 1. Home -->
+                <button onclick="switchTab('home')" id="tabBtn-home" class="tab-btn flex-1 flex flex-col items-center justify-center py-1.5 transition-all text-indigo-400 group">
+                    <div class="p-1 rounded-xl group-hover:bg-indigo-500/10 transition">
+                        <svg class="w-5 h-5 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+                    </div>
+                    <span class="text-[11px] font-bold mt-0.5 tracking-tight">Home</span>
+                </button>
+
+                <!-- 2. Buy -->
+                <button onclick="switchTab('buy')" id="tabBtn-buy" class="tab-btn flex-1 flex flex-col items-center justify-center py-1.5 transition-all text-slate-400 hover:text-slate-200 group">
+                    <div class="p-1 rounded-xl group-hover:bg-indigo-500/10 transition">
+                        <svg class="w-5 h-5 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                    </div>
+                    <span class="text-[11px] font-bold mt-0.5 tracking-tight">Buy</span>
+                </button>
+
+                <!-- 3. Sell -->
+                <button onclick="switchTab('sell')" id="tabBtn-sell" class="tab-btn flex-1 flex flex-col items-center justify-center py-1.5 transition-all text-slate-400 hover:text-slate-200 group">
+                    <div class="p-1 rounded-xl group-hover:bg-indigo-500/10 transition">
+                        <svg class="w-5 h-5 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 11l5-5m0 0l5 5m-5-5v12"/></svg>
+                    </div>
+                    <span class="text-[11px] font-bold mt-0.5 tracking-tight">Sell</span>
+                </button>
+
+                <!-- 4. Refer -->
+                <button onclick="switchTab('refer')" id="tabBtn-refer" class="tab-btn flex-1 flex flex-col items-center justify-center py-1.5 transition-all text-slate-400 hover:text-slate-200 group">
+                    <div class="p-1 rounded-xl group-hover:bg-indigo-500/10 transition">
+                        <svg class="w-5 h-5 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                    </div>
+                    <span class="text-[11px] font-bold mt-0.5 tracking-tight">Refer</span>
+                </button>
+
+                <!-- 5. Profile -->
+                <button onclick="switchTab('profile')" id="tabBtn-profile" class="tab-btn flex-1 flex flex-col items-center justify-center py-1.5 transition-all text-slate-400 hover:text-slate-200 group">
+                    <div class="p-1 rounded-xl group-hover:bg-indigo-500/10 transition">
+                        <svg class="w-5 h-5 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                    </div>
+                    <span class="text-[11px] font-bold mt-0.5 tracking-tight">Profile</span>
+                </button>
+
+                <?php if ($isAdminUser): ?>
+                <!-- Admin Console -->
+                <button onclick="switchTab('admin')" id="tabBtn-admin" class="tab-btn flex-1 flex flex-col items-center justify-center py-1.5 transition-all text-amber-400 hover:text-amber-300 group">
+                    <div class="p-1 rounded-xl group-hover:bg-amber-500/10 transition">
+                        <svg class="w-5 h-5 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+                    </div>
+                    <span class="text-[11px] font-bold mt-0.5 tracking-tight">Admin</span>
+                </button>
+                <?php endif; ?>
+            </div>
+        </div>
+    </nav>
+    <?php endif; ?>
 
     <!-- JavaScript Controller -->
     <script src="/public/js/app.js"></script>

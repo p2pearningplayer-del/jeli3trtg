@@ -58,7 +58,9 @@ function updateHeaderBalances(wallet) {
     if (!wallet) return;
     const availEl = document.getElementById('headerAvailableBalance');
     if (availEl) {
-        availEl.innerText = `₹${parseFloat(wallet.available_balance).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+        const formatted = `₹${parseFloat(wallet.available_balance).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+        availEl.innerText = formatted;
+        availEl.title = formatted;
     }
 }
 
@@ -98,7 +100,7 @@ function switchTab(tabId) {
 
     document.querySelectorAll('.tab-view').forEach(el => el.classList.add('hidden'));
     document.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.classList.remove('text-indigo-400', 'bg-slate-800/90', 'border', 'border-slate-700');
+        btn.classList.remove('text-indigo-400', 'text-amber-400', 'font-black');
         btn.classList.add('text-slate-400');
     });
 
@@ -108,7 +110,11 @@ function switchTab(tabId) {
     const activeBtn = document.getElementById(`tabBtn-${tabId}`);
     if (activeBtn) {
         activeBtn.classList.remove('text-slate-400');
-        activeBtn.classList.add('text-indigo-400', 'bg-slate-800/90', 'border', 'border-slate-700');
+        if (tabId === 'admin') {
+            activeBtn.classList.add('text-amber-400', 'font-black');
+        } else {
+            activeBtn.classList.add('text-indigo-400', 'font-black');
+        }
     }
 
     // Trigger tab data load
@@ -717,16 +723,28 @@ async function loadWalletStats(silent = false) {
 
         // Home View elements
         const hAvail = document.getElementById('homeStatAvailable');
-        if (hAvail) hAvail.innerText = availFormatted;
+        if (hAvail) {
+            hAvail.innerText = availFormatted;
+            hAvail.title = availFormatted;
+        }
 
         const hResv = document.getElementById('homeStatReserved');
-        if (hResv) hResv.innerText = resvFormatted;
+        if (hResv) {
+            hResv.innerText = resvFormatted;
+            hResv.title = resvFormatted;
+        }
 
         const hRew = document.getElementById('homeStatRewards');
-        if (hRew) hRew.innerText = rewFormatted;
+        if (hRew) {
+            hRew.innerText = rewFormatted;
+            hRew.title = rewFormatted;
+        }
 
         const hComm = document.getElementById('homeStatCommissions');
-        if (hComm) hComm.innerText = commFormatted;
+        if (hComm) {
+            hComm.innerText = commFormatted;
+            hComm.title = commFormatted;
+        }
 
         const hPct = document.getElementById('homeWeeklyProgressPct');
         if (hPct) hPct.innerText = pctFormatted;
@@ -1293,10 +1311,8 @@ async function handleAuthSubmit(e) {
     const payload = { identifier: phone, phone, password };
 
     if (mode === 'register') {
-        const nameEl = document.getElementById('authName');
         const refEl = document.getElementById('authReferralCode');
-        if (nameEl) payload.name = nameEl.value.trim();
-        if (refEl) payload.referral_code = refEl.value.trim();
+        if (refEl && refEl.value.trim()) payload.referral_code = refEl.value.trim();
     }
 
     try {
