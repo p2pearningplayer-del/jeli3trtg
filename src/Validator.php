@@ -98,6 +98,15 @@ class Validator {
     }
 
     /**
+     * Validate UPI ID format (e.g. user@okhdfcbank, 9876543210@paytm)
+     */
+    public static function validateUpiId(?string $upiId): bool {
+        if (!$upiId) return false;
+        $trimmed = trim($upiId);
+        return (bool)preg_match('/^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z0-9.\-_]{2,64}$/', $trimmed);
+    }
+
+    /**
      * Mask Phone number for privacy (FR-019)
      */
     public static function maskPhone(string $phone): string {

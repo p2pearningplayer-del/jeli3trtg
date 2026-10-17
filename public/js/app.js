@@ -18,8 +18,8 @@ async function initApp() {
     await fetchSession();
     const urlParams = new URLSearchParams(window.location.search);
     if (!currentUser) {
-        // Unauthenticated visitor stays on the clean intro landing page
-        if (urlParams.get('action') === 'register') {
+        // Direct to Registration / Create Account page by default when referral link (?ref=...) or ?action=register is clicked
+        if (urlParams.get('action') === 'register' || urlParams.get('ref')) {
             openAuthModal('register');
         } else if (urlParams.get('action') === 'login' || urlParams.get('tab')) {
             openAuthModal('login');
@@ -65,19 +65,17 @@ function updateHeaderBalances(wallet) {
 }
 
 function updateProfilePreviews(user) {
-    const previewEl = document.getElementById('sellProfilePreview');
-    if (previewEl) {
-        if (user.upi_id && user.account_holder_name) {
-            previewEl.innerHTML = `<span class="text-white font-semibold">${escapeHtml(user.account_holder_name)}</span> &bull; <span class="font-mono text-emerald-400">${escapeHtml(user.upi_id)}</span>`;
-        } else {
-            previewEl.innerHTML = `<span class="text-amber-400 font-semibold">Missing UPI info.</span> <button type="button" onclick="switchTab('profile')" class="text-indigo-400 underline ml-1">Configure in Profile</button>`;
-        }
-    }
+    if (!user) return;
 
-    const holderInput = document.getElementById('profHolderName');
-    const upiInput = document.getElementById('profUpiId');
-    if (holderInput && user.account_holder_name) holderInput.value = user.account_holder_name;
-    if (upiInput && user.upi_id) upiInput.value = user.upi_id;
+    // Prefill sell page banking inputs if available and empty
+    const sellHolder = document.getElementById('sellAccountHolderName');
+    const sellUpi = document.getElementById('sellUpiId');
+    if (sellHolder && user.account_holder_name && !sellHolder.value) {
+        sellHolder.value = user.account_holder_name;
+    }
+    if (sellUpi && user.upi_id && !sellUpi.value) {
+        sellUpi.value = user.upi_id;
+    }
 
     const phoneDisplay = document.getElementById('profilePhoneDisplay');
     const refCodeDisplay = document.getElementById('profileRefCodeDisplay');
@@ -151,7 +149,15 @@ async function loadBuyPool(silent = false) {
         const grid = document.getElementById('buyPoolGrid');
         if (!grid) return;
 
-        if (!data.success || !data.orders || data.orders.length === 0) {
+        // Hide user's own sell portions from their Buy feed (prevent self-trading display)
+        const visibleOrders = (data.orders || []).filter(order => {
+            if (currentUser && currentUser.id && order.seller_id) {
+                return parseInt(order.seller_id, 10) !== parseInt(currentUser.id, 10);
+            }
+            return true;
+        });
+
+        if (!data.success || visibleOrders.length === 0) {
             grid.innerHTML = `
                 <div class="col-span-full bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center text-slate-400">
                     <svg class="w-12 h-12 mx-auto text-slate-600 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/></svg>
@@ -162,7 +168,7 @@ async function loadBuyPool(silent = false) {
             return;
         }
 
-        grid.innerHTML = data.orders.map(order => `
+        grid.innerHTML = visibleOrders.map(order => `
             <div class="bg-slate-900 border border-slate-800 hover:border-slate-700/80 rounded-2xl p-5 flex flex-col justify-between transition-all duration-200 shadow-sm">
                 <div class="space-y-3">
                     <div class="flex items-center justify-between">
@@ -291,9 +297,13 @@ async function submitSellOrder() {
     }
 
     const amountInput = document.getElementById('sellAmountInput');
+    const holderInput = document.getElementById('sellAccountHolderName');
+    const upiInput = document.getElementById('sellUpiId');
     const tpinInput = document.getElementById('sellTpinInput');
 
     const amount = parseFloat(amountInput.value);
+    const account_holder_name = holderInput ? holderInput.value.trim() : '';
+    const upi_id = upiInput ? upiInput.value.trim() : '';
     const tpin = tpinInput.value.trim();
 
     if (isNaN(amount) || amount < 100 || amount % 100 !== 0) {
@@ -301,8 +311,18 @@ async function submitSellOrder() {
         return;
     }
 
+    if (!account_holder_name || account_holder_name.length < 2) {
+        alert('Please enter your valid Account Holder Name (minimum 2 characters).');
+        return;
+    }
+
+    if (!upi_id || !upi_id.includes('@')) {
+        alert('Please enter a valid UPI ID (e.g. mobile@upi or username@bank).');
+        return;
+    }
+
     if (!tpin) {
-        alert('Please enter your Selling TPIN to authorize this listing.');
+        alert('Please enter your Secondary TPIN to authorize this listing.');
         return;
     }
 
@@ -310,7 +330,7 @@ async function submitSellOrder() {
         const res = await fetch('/api/sell.php?action=create_order', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ amount, tpin })
+            body: JSON.stringify({ amount, account_holder_name, upi_id, tpin })
         });
         const data = await res.json();
         if (data.success) {

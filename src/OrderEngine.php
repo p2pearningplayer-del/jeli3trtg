@@ -76,7 +76,7 @@ class OrderEngine {
     /**
      * Create a new Parent Sell Order and automatically spawn child micro-orders (FR-011, FR-012, FR-013)
      */
-    public static function createSellOrder(int $sellerId, float $amount, string $tpin): array {
+    public static function createSellOrder(int $sellerId, float $amount, string $tpin, ?string $accountHolderName = null, ?string $upiId = null): array {
         // Step 1: Validate Amount (FR-011)
         $val = Validator::validateSellAmount($amount);
         if (!$val['valid']) {
@@ -92,17 +92,38 @@ class OrderEngine {
 
         $pdo = Database::getConnection();
 
-        // Step 3: Check and Snapshot Seller UPI banking details (FR-013)
-        $userStmt = $pdo->prepare("SELECT upi_id, account_holder_name FROM users WHERE id = ?");
-        $userStmt->execute([$sellerId]);
-        $seller = $userStmt->fetch();
+        // Step 3: Handle Account Holder Name and UPI ID (Sell Flow)
+        if ($accountHolderName !== null || $upiId !== null) {
+            $accountHolderName = trim((string)$accountHolderName);
+            $upiId = trim((string)$upiId);
 
-        if (empty($seller['upi_id']) || empty($seller['account_holder_name'])) {
-            return ['success' => false, 'error' => 'Please set your verified UPI ID and Account Holder Name in Profile Settings before listing tokens.'];
+            if (empty($accountHolderName) || mb_strlen($accountHolderName) < 2) {
+                return ['success' => false, 'error' => 'Please enter a valid Account Holder Name (minimum 2 characters).'];
+            }
+
+            if (!Validator::validateUpiId($upiId)) {
+                return ['success' => false, 'error' => 'Invalid UPI ID format. Example: user@okhdfcbank or 9876543210@paytm.'];
+            }
+
+            // Persist valid banking details to user account for future reference
+            $updateUser = $pdo->prepare("UPDATE users SET account_holder_name = ?, upi_id = ? WHERE id = ?");
+            $updateUser->execute([$accountHolderName, $upiId, $sellerId]);
+
+            $snapUpi = $upiId;
+            $snapHolder = $accountHolderName;
+        } else {
+            // Fallback for existing automated tests or internal calls
+            $userStmt = $pdo->prepare("SELECT upi_id, account_holder_name FROM users WHERE id = ?");
+            $userStmt->execute([$sellerId]);
+            $seller = $userStmt->fetch();
+
+            if (empty($seller['upi_id']) || empty($seller['account_holder_name'])) {
+                return ['success' => false, 'error' => 'Please provide your valid Account Holder Name and UPI ID when listing tokens for sale.'];
+            }
+
+            $snapUpi = $seller['upi_id'];
+            $snapHolder = $seller['account_holder_name'];
         }
-
-        $snapUpi = $seller['upi_id'];
-        $snapHolder = $seller['account_holder_name'];
 
         // Step 4: Fetch active Purchase Reward Rate from platform settings
         $rateStmt = $pdo->prepare("SELECT setting_value FROM platform_settings WHERE setting_key = 'purchase_reward_percent'");

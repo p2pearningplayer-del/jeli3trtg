@@ -18,7 +18,7 @@ $action = $_GET['action'] ?? $_POST['action'] ?? 'stats';
 switch ($action) {
     case 'stats':
         $tree = ReferralEngine::getReferralTree($user['id']);
-        $inviteUrl = APP_URL . '/?ref=' . urlencode($user['referral_code']);
+        $inviteUrl = APP_URL . '/?action=register&ref=' . urlencode($user['referral_code']);
 
         jsonResponse(true, [
             'referral_code' => $user['referral_code'],

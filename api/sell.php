@@ -29,12 +29,14 @@ switch ($action) {
 
         $amount = (float)($input['amount'] ?? 0);
         $tpin = (string)($input['tpin'] ?? '');
+        $accountHolderName = isset($input['account_holder_name']) ? trim((string)$input['account_holder_name']) : null;
+        $upiId = isset($input['upi_id']) ? trim((string)$input['upi_id']) : null;
 
         if (empty($tpin)) {
             jsonError('Selling TPIN is required to authorize token listings.');
         }
 
-        $res = OrderEngine::createSellOrder($user['id'], $amount, $tpin);
+        $res = OrderEngine::createSellOrder($user['id'], $amount, $tpin, $accountHolderName, $upiId);
         if ($res['success']) {
             jsonResponse(true, $res);
         } else {

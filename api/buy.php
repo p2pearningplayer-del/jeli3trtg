@@ -35,7 +35,7 @@ switch ($action) {
             ORDER BY c.amount ASC, c.id ASC
             LIMIT 50
         ");
-        $stmt->execute([$user['id']]);
+        $stmt->execute([(int)$user['id']]);
         $orders = $stmt->fetchAll();
 
         foreach ($orders as &$ord) {
@@ -43,6 +43,7 @@ switch ($action) {
             $ord['reward_amount'] = (float)$ord['snapshotted_reward_amount'];
             $ord['total_credit'] = (float)$ord['total_credit'];
             $ord['reward_rate'] = (float)$ord['snapshotted_reward_rate'];
+            $ord['seller_id'] = (int)$ord['seller_id'];
             $ord['seller_name_masked'] = Validator::maskName($ord['snapshotted_account_holder']);
         }
 

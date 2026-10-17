@@ -526,15 +526,21 @@ endif;
                         </div>
 
                         <div>
-                            <label class="text-xs font-semibold text-slate-300 block mb-1">Selling TPIN (4-6 Digits)</label>
-                            <input type="password" id="sellTpinInput" maxlength="6" placeholder="••••" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white font-mono tracking-widest focus:border-indigo-500 focus:outline-none">
-                            <span class="text-[11px] text-slate-500 mt-1 block">Secondary Transaction PIN required for authorization</span>
+                            <label class="text-xs font-semibold text-slate-300 block mb-1">Account Holder Name</label>
+                            <input type="text" id="sellAccountHolderName" placeholder="Full name as registered in UPI / Bank" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:border-indigo-500 focus:outline-none">
+                            <span class="text-[11px] text-slate-500 mt-1 block">Name shown to buyers making direct UPI transfer</span>
                         </div>
 
-                        <!-- Banking Snapshot Notice (FR-013) -->
-                        <div class="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3 text-xs text-slate-400 space-y-1">
-                            <span class="text-indigo-400 font-bold block">Snapshotted Payout Details:</span>
-                            <div id="sellProfilePreview" class="text-[11px]">Loading verified UPI details...</div>
+                        <div>
+                            <label class="text-xs font-semibold text-slate-300 block mb-1">UPI ID</label>
+                            <input type="text" id="sellUpiId" placeholder="e.g. mobile@upi or username@okaxis" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white font-mono focus:border-indigo-500 focus:outline-none">
+                            <span class="text-[11px] text-slate-500 mt-1 block">Direct UPI payment will be sent to this ID</span>
+                        </div>
+
+                        <div>
+                            <label class="text-xs font-semibold text-slate-300 block mb-1">Secondary</label>
+                            <input type="password" id="sellTpinInput" maxlength="6" placeholder="••••" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white font-mono tracking-widest focus:border-indigo-500 focus:outline-none">
+                            <span class="text-[11px] text-slate-500 mt-1 block">Enter your 4–6 digit T-PIN to authorize</span>
                         </div>
 
                         <button onclick="submitSellOrder()" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-indigo-600/30 transition text-sm">
@@ -623,29 +629,6 @@ endif;
         <section id="view-profile" class="tab-view space-y-6 hidden">
             <!-- Profile Info & Account Security -->
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <!-- Banking Payout Settings -->
-                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-                    <div class="border-b border-slate-800 pb-3">
-                        <span class="text-xs uppercase font-bold text-indigo-400 tracking-wider">UPI Configuration</span>
-                        <h3 class="text-lg font-bold text-white mt-1">Payout Banking Details</h3>
-                        <p class="text-xs text-slate-400">Buyers will transfer funds directly to this verified UPI ID when picking your sell orders</p>
-                    </div>
-
-                    <form onsubmit="handleProfileUpdate(event)" class="space-y-3">
-                        <div>
-                            <label class="text-xs font-semibold text-slate-300 block mb-1">Account Holder Full Name</label>
-                            <input type="text" id="profHolderName" required placeholder="Rohan Sharma" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:border-indigo-500 focus:outline-none">
-                        </div>
-                        <div>
-                            <label class="text-xs font-semibold text-slate-300 block mb-1">UPI ID (e.g. user@okhdfcbank)</label>
-                            <input type="text" id="profUpiId" required placeholder="user@bank" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white font-mono focus:border-indigo-500 focus:outline-none">
-                        </div>
-                        <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition">
-                            Save Payout Details
-                        </button>
-                    </form>
-                </div>
-
                 <!-- Selling TPIN Configuration -->
                 <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
                     <div class="border-b border-slate-800 pb-3">
@@ -664,16 +647,28 @@ endif;
                             Save Selling TPIN
                         </button>
                     </form>
+                </div>
 
-                    <!-- Account Metadata Chip -->
-                    <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs space-y-1">
-                        <div class="flex justify-between text-slate-400">
-                            <span>Phone:</span>
-                            <span class="text-white font-mono" id="profilePhoneDisplay">-</span>
+                <!-- Account Credentials & Identification -->
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+                    <div class="border-b border-slate-800 pb-3">
+                        <span class="text-xs uppercase font-bold text-indigo-400 tracking-wider">Account Overview</span>
+                        <h3 class="text-lg font-bold text-white mt-1">Account & Referral Details</h3>
+                        <p class="text-xs text-slate-400">Your single unified identity for trading tokens, rewards, and commissions</p>
+                    </div>
+
+                    <div class="bg-slate-950 border border-slate-800 rounded-xl p-4 text-xs space-y-3">
+                        <div class="flex justify-between items-center text-slate-400 border-b border-slate-800/80 pb-2">
+                            <span>Phone Number:</span>
+                            <span class="text-white font-mono font-bold" id="profilePhoneDisplay">-</span>
                         </div>
-                        <div class="flex justify-between text-slate-400">
+                        <div class="flex justify-between items-center text-slate-400 border-b border-slate-800/80 pb-2">
                             <span>Referral Code:</span>
                             <span class="text-indigo-400 font-mono font-bold" id="profileRefCodeDisplay">-</span>
+                        </div>
+                        <div class="flex justify-between items-center text-slate-400">
+                            <span>Account Status:</span>
+                            <span class="text-emerald-400 font-bold uppercase text-[11px] bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">Active Verified</span>
                         </div>
                     </div>
                 </div>
