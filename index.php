@@ -61,9 +61,6 @@ if ($isMaintenance && !$isAdminUser):
         </div>
         <h1 class="text-2xl font-black text-white"><?= $siteName ?> is in Maintenance</h1>
         <p class="text-sm text-slate-400"><?= $maintenanceMsg ?></p>
-        <div class="pt-4 border-t border-slate-800">
-            <a href="/admin_login.php" class="text-xs text-amber-400 hover:underline font-semibold">Administrator Access Portal &rarr;</a>
-        </div>
     </div>
 </body>
 </html>
@@ -197,9 +194,6 @@ endif;
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
                         </button>
                     <?php else: ?>
-                        <a href="/admin_login.php" class="text-xs text-amber-400 hover:underline px-2 py-1 font-semibold">
-                            Admin Portal
-                        </a>
                         <button onclick="openAuthModal('login')" class="text-xs sm:text-sm font-semibold text-slate-300 hover:text-white px-3 py-2 transition">
                             Sign In
                         </button>
@@ -210,7 +204,8 @@ endif;
                 </div>
             </div>
 
-            <!-- PRIMARY NAVIGATION: Home | Buy | Sell | Refer | Profile -->
+            <?php if ($currentUser): ?>
+            <!-- PRIMARY NAVIGATION: Home | Buy | Sell | Refer | Profile (Logged In Users Only) -->
             <div class="flex space-x-1 sm:space-x-2 border-t border-slate-800/80 overflow-x-auto py-2 text-xs sm:text-sm font-semibold scrollbar-none">
                 <button onclick="switchTab('home')" id="tabBtn-home" class="tab-btn px-3.5 py-2 rounded-lg flex items-center gap-2 whitespace-nowrap text-indigo-400 bg-slate-800/90 border border-slate-700">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
@@ -239,12 +234,136 @@ endif;
                 </button>
                 <?php endif; ?>
             </div>
+            <?php endif; ?>
         </div>
     </header>
 
     <!-- Main View Containers -->
     <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
 
+        <?php if (!$currentUser): ?>
+        <!-- ========================================== -->
+        <!-- PUBLIC INTRODUCTION LANDING PAGE (Non-Authenticated) -->
+        <!-- ========================================== -->
+        <section class="space-y-12 py-4 sm:py-8">
+            <!-- Hero Introduction -->
+            <div class="relative overflow-hidden bg-gradient-to-b from-slate-900/90 via-slate-900/60 to-slate-950 border border-slate-800/80 rounded-3xl p-8 sm:p-14 text-center shadow-2xl space-y-6">
+                <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs font-bold uppercase tracking-wider">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span>Verified Peer-to-Peer Token Trading Platform</span>
+                </div>
+
+                <h1 class="text-3xl sm:text-5xl lg:text-6xl font-black text-white tracking-tight max-w-4xl mx-auto leading-tight">
+                    Instant Peer-to-Peer Token Marketplace with <span class="bg-gradient-to-r from-indigo-400 via-violet-300 to-emerald-400 bg-clip-text text-transparent">9% Purchase Rewards</span>
+                </h1>
+
+                <p class="text-base sm:text-lg text-slate-300 max-w-2xl mx-auto leading-relaxed">
+                    Buy and sell tokens directly with verified peers across India using direct bank UPI. Enjoy guaranteed 9% purchase rewards, instantaneous settlements, and institutional-grade escrow safety with one unified token wallet.
+                </p>
+
+                <!-- Clear Call-to-Action -->
+                <div class="flex flex-col sm:flex-row items-center justify-center gap-4 pt-2">
+                    <button onclick="openAuthModal('register')" class="w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-black text-base rounded-2xl shadow-xl shadow-indigo-600/30 transition transform hover:-translate-y-0.5 flex items-center justify-center gap-2">
+                        <span>Get Started — Create Free Account</span>
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+                    </button>
+                    <button onclick="openAuthModal('login')" class="w-full sm:w-auto px-8 py-4 bg-slate-800/90 hover:bg-slate-700 text-slate-200 font-bold text-base rounded-2xl border border-slate-700 transition flex items-center justify-center gap-2">
+                        <span>Sign In</span>
+                    </button>
+                </div>
+
+                <!-- Trust Badges -->
+                <div class="pt-6 border-t border-slate-800/80 grid grid-cols-2 sm:grid-cols-4 gap-4 max-w-3xl mx-auto text-left sm:text-center text-xs text-slate-400">
+                    <div class="flex items-center sm:justify-center gap-2">
+                        <svg class="w-4 h-4 text-emerald-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                        <span>1 Token = ₹1.00 Pegged</span>
+                    </div>
+                    <div class="flex items-center sm:justify-center gap-2">
+                        <svg class="w-4 h-4 text-emerald-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                        <span>Direct Bank UPI</span>
+                    </div>
+                    <div class="flex items-center sm:justify-center gap-2">
+                        <svg class="w-4 h-4 text-emerald-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                        <span>Double-Entry Escrow</span>
+                    </div>
+                    <div class="flex items-center sm:justify-center gap-2">
+                        <svg class="w-4 h-4 text-emerald-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                        <span>Unified Wallet</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Key Feature Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 sm:p-8 space-y-3 shadow-lg">
+                    <div class="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center text-xl font-black">
+                        9%
+                    </div>
+                    <h3 class="text-xl font-bold text-white">Instant Purchase Reward</h3>
+                    <p class="text-sm text-slate-400 leading-relaxed">
+                        Every verified token purchase unlocks an immediate 9% promotional reward credited directly to your available balance upon seller settlement.
+                    </p>
+                </div>
+
+                <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 sm:p-8 space-y-3 shadow-lg">
+                    <div class="w-12 h-12 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+                    </div>
+                    <h3 class="text-xl font-bold text-white">Direct UPI Payouts</h3>
+                    <p class="text-sm text-slate-400 leading-relaxed">
+                        Settlements happen directly between buyers and sellers via any Indian UPI app — Google Pay, PhonePe, Paytm, or BHIM. Zero deposit or withdrawal deductions.
+                    </p>
+                </div>
+
+                <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 sm:p-8 space-y-3 shadow-lg">
+                    <div class="w-12 h-12 rounded-xl bg-violet-500/10 border border-violet-500/20 text-violet-400 flex items-center justify-center">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+                    </div>
+                    <h3 class="text-xl font-bold text-white">Escrow-Locked Protection</h3>
+                    <p class="text-sm text-slate-400 leading-relaxed">
+                        Seller tokens are locked in verified double-entry platform escrow during trade execution, ensuring complete dispute arbitration and payment safety.
+                    </p>
+                </div>
+            </div>
+
+            <!-- How It Works Walkthrough -->
+            <div class="bg-slate-900/40 border border-slate-800/80 rounded-3xl p-8 sm:p-10 space-y-8">
+                <div class="text-center space-y-2">
+                    <span class="text-xs font-bold uppercase tracking-widest text-indigo-400">Simple 3-Step Process</span>
+                    <h2 class="text-2xl sm:text-3xl font-black text-white">How Trading Works</h2>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 relative">
+                    <div class="bg-slate-950/60 border border-slate-800 rounded-2xl p-6 space-y-3">
+                        <span class="text-xs font-black font-mono text-indigo-400 bg-indigo-500/10 px-2.5 py-1 rounded-lg border border-indigo-500/20">01</span>
+                        <h4 class="text-base font-bold text-white">Create Account</h4>
+                        <p class="text-xs text-slate-400 leading-relaxed">Sign up in seconds with your phone number and secure password. No complex KYC required.</p>
+                    </div>
+                    <div class="bg-slate-950/60 border border-slate-800 rounded-2xl p-6 space-y-3">
+                        <span class="text-xs font-black font-mono text-indigo-400 bg-indigo-500/10 px-2.5 py-1 rounded-lg border border-indigo-500/20">02</span>
+                        <h4 class="text-base font-bold text-white">Pick Order & Pay via UPI</h4>
+                        <p class="text-xs text-slate-400 leading-relaxed">Choose an available peer order, transfer directly to the seller's UPI, and submit your UTR reference.</p>
+                    </div>
+                    <div class="bg-slate-950/60 border border-slate-800 rounded-2xl p-6 space-y-3">
+                        <span class="text-xs font-black font-mono text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-500/20">03</span>
+                        <h4 class="text-base font-bold text-white">Earn +9% & Resell Anytime</h4>
+                        <p class="text-xs text-slate-400 leading-relaxed">Tokens plus your 9% bonus arrive in your unified wallet, ready to hold or list for sell to other peers.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bottom Call to Action Banner -->
+            <div class="bg-gradient-to-r from-indigo-900/60 via-slate-900 to-violet-900/60 border border-indigo-800/40 rounded-3xl p-8 sm:p-12 text-center space-y-4 shadow-xl">
+                <h3 class="text-2xl sm:text-3xl font-black text-white">Ready to start trading tokens?</h3>
+                <p class="text-sm text-slate-300 max-w-xl mx-auto">Create your account now and get immediate access to verified peer listings with guaranteed 9% purchase rewards.</p>
+                <div class="pt-2">
+                    <button onclick="openAuthModal('register')" class="px-8 py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-lg shadow-indigo-600/30 transition text-sm">
+                        Get Started Free
+                    </button>
+                </div>
+            </div>
+        </section>
+        <?php else: ?>
         <!-- ========================================== -->
         <!-- TAB 1: HOME (Unified Dashboard & Shared Wallet Overview) -->
         <!-- ========================================== -->
@@ -791,6 +910,7 @@ endif;
             </div>
         </section>
         <?php endif; ?>
+        <?php endif; ?>
 
     </main>
 
@@ -831,8 +951,8 @@ endif;
                 <input type="hidden" id="authMode" value="login">
 
                 <div>
-                    <label class="text-xs font-semibold text-slate-300 block mb-1">Phone Number or User ID</label>
-                    <input type="text" id="authPhone" required placeholder="9876543210 or DEMOUSER001" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white font-mono focus:border-indigo-500 focus:outline-none">
+                    <label class="text-xs font-semibold text-slate-300 block mb-1">Phone Number</label>
+                    <input type="tel" id="authPhone" required placeholder="Enter 10-digit mobile number" maxlength="10" pattern="[0-9]{10}" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white font-mono focus:border-indigo-500 focus:outline-none">
                 </div>
 
                 <div>
@@ -845,10 +965,6 @@ endif;
                     <div>
                         <label class="text-xs font-semibold text-slate-300 block mb-1">Account Holder Full Name</label>
                         <input type="text" id="authName" placeholder="Your Name" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:border-indigo-500 focus:outline-none">
-                    </div>
-                    <div>
-                        <label class="text-xs font-semibold text-slate-300 block mb-1">UPI ID (For Receiving Payments)</label>
-                        <input type="text" id="authUpi" placeholder="yourname@bank" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white font-mono focus:border-indigo-500 focus:outline-none">
                     </div>
                     <div>
                         <label class="text-xs font-semibold text-slate-300 block mb-1">Referral Code (Optional)</label>
@@ -868,21 +984,6 @@ endif;
                 <button type="button" onclick="toggleAuthMode()" class="text-indigo-400 font-bold hover:underline ml-1" id="authToggleBtn">
                     Create Account
                 </button>
-            </div>
-
-            <!-- Demo Accounts Helper (Requirement 9) -->
-            <div class="mt-4 pt-4 border-t border-slate-800 space-y-2">
-                <span class="text-[11px] font-bold uppercase tracking-wider text-slate-500 block text-center">Demo Accounts (For Evaluation & Testing)</span>
-                <div class="grid grid-cols-2 gap-2 text-left">
-                    <button type="button" onclick="fillDemoUserCredentials()" class="p-2.5 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 transition">
-                        <span class="text-xs font-bold text-emerald-400 block font-mono">DEMOUSER001</span>
-                        <span class="text-[10px] text-slate-400 block">User &bull; ₹10k Test Bal</span>
-                    </button>
-                    <a href="/admin_login.php" class="p-2.5 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 transition block">
-                        <span class="text-xs font-bold text-amber-400 block font-mono">DEMOADMIN001</span>
-                        <span class="text-[10px] text-slate-400 block">Admin Portal &rarr;</span>
-                    </a>
-                </div>
             </div>
         </div>
     </div>

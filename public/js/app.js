@@ -17,6 +17,15 @@ document.addEventListener('DOMContentLoaded', () => {
 async function initApp() {
     await fetchSession();
     const urlParams = new URLSearchParams(window.location.search);
+    if (!currentUser) {
+        // Unauthenticated visitor stays on the clean intro landing page
+        if (urlParams.get('action') === 'register') {
+            openAuthModal('register');
+        } else if (urlParams.get('action') === 'login' || urlParams.get('tab')) {
+            openAuthModal('login');
+        }
+        return;
+    }
     const tabParam = urlParams.get('tab');
     if (tabParam) {
         switchTab(tabParam);
@@ -75,6 +84,11 @@ function updateProfilePreviews(user) {
 }
 
 function switchTab(tabId) {
+    if (!currentUser) {
+        openAuthModal('login');
+        return;
+    }
+
     // Aliases for smooth compatibility
     if (tabId === 'orders') tabId = 'buy';
     if (tabId === 'wallet') tabId = 'home';
@@ -1269,14 +1283,6 @@ function toggleAuthMode() {
     openAuthModal(cur === 'login' ? 'register' : 'login');
 }
 
-function fillDemoUserCredentials() {
-    openAuthModal('login');
-    const phoneEl = document.getElementById('authPhone');
-    const passEl = document.getElementById('authPassword');
-    if (phoneEl) phoneEl.value = 'DEMOUSER001';
-    if (passEl) passEl.value = 'DemoUser@123';
-}
-
 async function handleAuthSubmit(e) {
     e.preventDefault();
     const mode = document.getElementById('authMode').value;
@@ -1287,9 +1293,10 @@ async function handleAuthSubmit(e) {
     const payload = { identifier: phone, phone, password };
 
     if (mode === 'register') {
-        payload.name = document.getElementById('authName').value.trim();
-        payload.upi_id = document.getElementById('authUpi').value.trim();
-        payload.referral_code = document.getElementById('authReferralCode').value.trim();
+        const nameEl = document.getElementById('authName');
+        const refEl = document.getElementById('authReferralCode');
+        if (nameEl) payload.name = nameEl.value.trim();
+        if (refEl) payload.referral_code = refEl.value.trim();
     }
 
     try {

@@ -56,7 +56,7 @@ if ($currentUser && ($currentUser['role'] === 'admin' || !empty($currentUser['re
                     <label class="text-xs font-bold uppercase tracking-wider text-slate-300 block mb-1.5">
                         Admin ID / Email / Phone
                     </label>
-                    <input type="text" id="adminIdentifier" required placeholder="DEMOADMIN001 or demoadmin@jelipay.in"
+                    <input type="text" id="adminIdentifier" required placeholder="Admin ID, Email, or Phone"
                            class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white focus:border-amber-500 focus:outline-none transition">
                 </div>
 
@@ -77,19 +77,6 @@ if ($currentUser && ($currentUser['role'] === 'admin' || !empty($currentUser['re
                     <span>Authenticate Session</span>
                 </button>
             </form>
-
-            <!-- Quick Demo Credentials Helper for Evaluators -->
-            <div class="pt-4 border-t border-slate-800/80 space-y-2">
-                <span class="text-[11px] font-bold uppercase tracking-wider text-slate-400 block text-center">Development Demo Shortcut</span>
-                <button type="button" onclick="fillDemoAdminCredentials()"
-                        class="w-full bg-slate-950 hover:bg-slate-800/80 border border-slate-800 rounded-xl p-2.5 text-xs text-left transition flex items-center justify-between">
-                    <div>
-                        <span class="font-bold text-amber-400 block font-mono">DEMOADMIN001 &bull; Super Admin</span>
-                        <span class="text-[10px] text-slate-500 font-mono">demoadmin@jelipay.in / DemoAdmin@123</span>
-                    </div>
-                    <span class="text-[10px] font-bold px-2 py-1 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">Auto-fill</span>
-                </button>
-            </div>
         </div>
 
         <!-- Back to marketplace -->
@@ -101,11 +88,6 @@ if ($currentUser && ($currentUser['role'] === 'admin' || !empty($currentUser['re
     </div>
 
     <script>
-        function fillDemoAdminCredentials() {
-            document.getElementById('adminIdentifier').value = 'demoadmin@jelipay.in';
-            document.getElementById('adminPassword').value = 'DemoAdmin@123';
-        }
-
         async function handleAdminLogin(e) {
             e.preventDefault();
             const identifier = document.getElementById('adminIdentifier').value.trim();
