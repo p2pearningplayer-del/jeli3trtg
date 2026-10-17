@@ -397,13 +397,15 @@ class OrderEngine {
                 $newParentStatus = ($completedAmount > 0) ? 'partially_cancelled' : 'cancelled';
             }
 
+            $newRemaining = max(0.0, round((float)$parent['remaining_amount'] - $refundAmount, 2));
+
             $updParent = $pdo->prepare("
                 UPDATE parent_sell_orders
-                SET remaining_amount = max(0, remaining_amount - ?),
+                SET remaining_amount = ?,
                     status = ?
                 WHERE id = ?
             ");
-            $updParent->execute([$refundAmount, $newParentStatus, $parentOrderId]);
+            $updParent->execute([$newRemaining, $newParentStatus, $parentOrderId]);
 
             $pdo->commit();
 
@@ -451,12 +453,17 @@ class OrderEngine {
             Wallet::releaseReserved($sellerId, $amount, (string)$childOrderId, "Seller manually cancelled sell portion #{$childOrderId}");
 
             // Update parent remaining amount
+            $pStmt = $pdo->prepare("SELECT remaining_amount, completed_amount FROM parent_sell_orders WHERE id = ?");
+            $pStmt->execute([$parentOrderId]);
+            $parentRow = $pStmt->fetch();
+            $newRemaining = max(0.0, round(((float)($parentRow['remaining_amount'] ?? 0)) - $amount, 2));
+
             $updParent = $pdo->prepare("
                 UPDATE parent_sell_orders
-                SET remaining_amount = max(0, remaining_amount - ?)
+                SET remaining_amount = ?
                 WHERE id = ?
             ");
-            $updParent->execute([$amount, $parentOrderId]);
+            $updParent->execute([$newRemaining, $parentOrderId]);
 
             // Check if any in-flight or available child orders remain for parent
             $activeChk = $pdo->prepare("
@@ -466,9 +473,7 @@ class OrderEngine {
             ");
             $activeChk->execute([$parentOrderId]);
             if ((int)$activeChk->fetchColumn() === 0) {
-                $pStmt = $pdo->prepare("SELECT completed_amount FROM parent_sell_orders WHERE id = ?");
-                $pStmt->execute([$parentOrderId]);
-                $compAmt = (float)$pStmt->fetchColumn();
+                $compAmt = (float)($parentRow['completed_amount'] ?? 0);
                 $pStatus = ($compAmt > 0) ? 'partially_cancelled' : 'cancelled';
                 $pdo->prepare("UPDATE parent_sell_orders SET status = ? WHERE id = ?")->execute([$pStatus, $parentOrderId]);
             }
