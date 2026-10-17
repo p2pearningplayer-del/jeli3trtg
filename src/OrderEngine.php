@@ -328,10 +328,9 @@ class OrderEngine {
 
         foreach ($parents as &$parent) {
             $childStmt = $pdo->prepare("
-                SELECT c.*, u.phone as buyer_phone, u.account_holder_name as buyer_name,
+                SELECT c.*,
                        p.utr_number, p.screenshot_path, p.created_at as proof_uploaded_at
                 FROM child_orders c
-                LEFT JOIN users u ON c.buyer_id = u.id
                 LEFT JOIN payment_proofs p ON c.id = p.child_order_id
                 WHERE c.parent_order_id = ?
                 ORDER BY c.id ASC
@@ -340,9 +339,11 @@ class OrderEngine {
             $children = $childStmt->fetchAll();
 
             foreach ($children as &$child) {
-                if (!empty($child['buyer_phone'])) {
-                    $child['buyer_phone_masked'] = Validator::maskPhone($child['buyer_phone']);
-                }
+                $child['formatted_id'] = sprintf('#%04d', (int)$child['id']);
+                // Strict Buyer Privacy (Part 6): Completely hide buyer name and phone
+                unset($child['buyer_phone']);
+                unset($child['buyer_name']);
+                unset($child['buyer_phone_masked']);
             }
             $parent['children'] = $children;
         }

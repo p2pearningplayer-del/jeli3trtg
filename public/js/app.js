@@ -622,9 +622,9 @@ function renderSellerChildCard(child) {
                 </div>
             </div>
 
-            ${child.buyer_phone_masked ? `
-                <div class="text-[11px] text-slate-400 mt-1 flex justify-between">
-                    <span>Buyer: <strong>${escapeHtml(child.buyer_name || 'Buyer')} (${escapeHtml(child.buyer_phone_masked)})</strong></span>
+            ${(child.buyer_id || !['Available', 'Cancelled'].includes(child.status)) ? `
+                <div class="text-[11px] text-slate-400 mt-1 flex items-center justify-between">
+                    <span>Buyer: <strong class="text-indigo-400 font-mono">Order ${formatOrderId(child.id)}</strong></span>
                     ${child.utr_number ? `<span>UTR: <strong class="text-slate-200 font-mono">${escapeHtml(child.utr_number)}</strong></span>` : ''}
                 </div>
             ` : ''}
@@ -1289,7 +1289,7 @@ async function loadSellHistory() {
                         <th class="p-3">Portion</th>
                         <th class="p-3">Parent Listing</th>
                         <th class="p-3">Amount</th>
-                        <th class="p-3">Buyer</th>
+                        <th class="p-3">Buyer Order</th>
                         <th class="p-3">UTR / Receipt</th>
                         <th class="p-3">Status</th>
                         <th class="p-3">Date</th>
@@ -1301,7 +1301,7 @@ async function loadSellHistory() {
                             <td class="p-3 text-indigo-400 font-bold">${formatOrderId(row.id)}</td>
                             <td class="p-3 text-slate-400">Parent ${formatOrderId(row.parent_order_id)}</td>
                             <td class="p-3 text-white font-bold">₹${parseFloat(row.amount).toLocaleString('en-IN')}</td>
-                            <td class="p-3 font-sans text-slate-300">${escapeHtml(row.buyer_phone_masked || 'Unmatched')}</td>
+                            <td class="p-3 font-mono text-indigo-300">${row.status !== 'Available' ? formatOrderId(row.id) : '<span class="text-slate-500 font-sans">Unsold</span>'}</td>
                             <td class="p-3">
                                 ${row.utr_number ? `<span class="text-slate-200 font-mono text-[11px] block">${escapeHtml(row.utr_number)}</span>` : '<span class="text-slate-600">-</span>'}
                                 ${row.screenshot_path ? `<a href="/serve_file.php?file=${encodeURIComponent(row.screenshot_path)}" target="_blank" class="text-[11px] text-indigo-400 underline font-sans">View Proof</a>` : ''}

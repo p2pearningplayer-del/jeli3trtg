@@ -43,8 +43,13 @@ switch ($action) {
             $disp['amount'] = (float)$disp['amount'];
             $disp['user_role'] = ((int)$user['id'] === (int)$disp['seller_id']) ? 'seller' : 'buyer';
             $disp['is_initiator'] = ((int)$user['id'] === (int)$disp['raised_by_user_id']);
-            if (!empty($disp['buyer_name'])) {
-                $disp['buyer_name_masked'] = Validator::maskName($disp['buyer_name']);
+            if ($disp['user_role'] === 'seller') {
+                // Buyer Privacy (Part 6): Seller only sees Order ID, never buyer personal details
+                unset($disp['buyer_name'], $disp['buyer_phone'], $disp['buyer_name_masked'], $disp['buyer_phone_masked']);
+            } else {
+                if (!empty($disp['buyer_name'])) {
+                    $disp['buyer_name_masked'] = Validator::maskName($disp['buyer_name']);
+                }
             }
             if (!empty($disp['seller_name'])) {
                 $disp['seller_name_masked'] = Validator::maskName($disp['seller_name']);

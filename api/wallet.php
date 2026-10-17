@@ -66,13 +66,11 @@ switch ($action) {
     case 'sell_history':
         $pdo = Database::getConnection();
         $stmt = $pdo->prepare("
-            SELECT c.id, c.parent_order_id, c.amount, c.status, c.created_at, c.picked_at,
+            SELECT c.id, c.parent_order_id, c.buyer_id, c.amount, c.status, c.created_at, c.picked_at,
                    c.snapshotted_upi_id,
-                   p.utr_number, p.screenshot_path, p.created_at as payment_submitted_at,
-                   u.account_holder_name as buyer_name, u.phone as buyer_phone
+                   p.utr_number, p.screenshot_path, p.created_at as payment_submitted_at
             FROM child_orders c
             LEFT JOIN payment_proofs p ON c.id = p.child_order_id
-            LEFT JOIN users u ON c.buyer_id = u.id
             WHERE c.seller_id = ?
             ORDER BY c.id DESC
             LIMIT 100
@@ -83,12 +81,7 @@ switch ($action) {
             $p['formatted_id'] = sprintf('#%04d', (int)$p['id']);
             $p['parent_formatted_id'] = sprintf('#%04d', (int)$p['parent_order_id']);
             $p['amount'] = (float)$p['amount'];
-            if (!empty($p['buyer_name'])) {
-                $p['buyer_name_masked'] = Validator::maskName($p['buyer_name']);
-            }
-            if (!empty($p['buyer_phone'])) {
-                $p['buyer_phone_masked'] = Validator::maskPhone($p['buyer_phone']);
-            }
+            // Buyer privacy (Part 6): Only Order ID is exposed to seller, zero personal info
         }
 
         $pStmt = $pdo->prepare("

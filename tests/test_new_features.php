@@ -184,12 +184,11 @@ $buyerOrders = $buyHistoryStmt->fetchAll();
 assert(count($buyerOrders) > 0, "Buyer should have at least 1 buy history record");
 assert(!empty($buyerOrders[0]['seller_name']), "Buy history should include seller name");
 
-// Check seller's sell history entries
+// Check seller's sell history entries (Strict privacy: buyer details omitted)
 $sellHistoryStmt = $pdo->prepare("
-    SELECT c.id, c.parent_order_id, c.amount, c.status, p.utr_number, u.phone as buyer_phone
+    SELECT c.id, c.parent_order_id, c.amount, c.status, p.utr_number
     FROM child_orders c
     LEFT JOIN payment_proofs p ON c.id = p.child_order_id
-    LEFT JOIN users u ON c.buyer_id = u.id
     WHERE c.seller_id = ?
     ORDER BY c.id DESC
 ");
@@ -198,5 +197,19 @@ $sellerOrders = $sellHistoryStmt->fetchAll();
 assert(count($sellerOrders) > 0, "Seller should have sell history records");
 echo "[PASS] Separation of Transaction History: Buy History & Sell History queries verified\n";
 
+// 8. Buyer Privacy on Sell Page Test (Part 6, Item 1)
+$sellerTracking = OrderEngine::getSellerTrackingData($seller['id']);
+assert(!empty($sellerTracking), "Seller should have tracking data");
+foreach ($sellerTracking as $p) {
+    foreach ($p['children'] as $ch) {
+        assert(!isset($ch['buyer_phone']), "Seller must NEVER receive buyer_phone");
+        assert(!isset($ch['buyer_name']), "Seller must NEVER receive buyer_name");
+        assert(!isset($ch['buyer_phone_masked']), "Seller must NEVER receive buyer_phone_masked");
+        assert(!empty($ch['formatted_id']), "Child order must provide formatted_id");
+    }
+}
+echo "[PASS] Buyer Privacy on Sell Page: Buyer personal details completely hidden; only Order ID exposed\n";
+
 echo "\nALL NEW FEATURE TESTS PASSED SUCCESSFULLY!\n";
+
 
