@@ -210,6 +210,19 @@ class SchemaInstaller {
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         );
+
+        CREATE TABLE IF NOT EXISTS support_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            phone TEXT NOT NULL,
+            username TEXT,
+            message TEXT,
+            status TEXT NOT NULL DEFAULT 'pending',
+            assigned_admin_id INTEGER,
+            notes TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
         ";
 
         $pdo->exec($schema);
@@ -273,6 +286,45 @@ class SchemaInstaller {
                 // Column likely already exists
             }
         }
+
+        // Support requests table migration (Part 8, Item 3)
+        try {
+            if ($driver === 'sqlite') {
+                $pdo->exec("
+                    CREATE TABLE IF NOT EXISTS support_requests (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER,
+                        phone TEXT NOT NULL,
+                        username TEXT,
+                        message TEXT,
+                        status TEXT NOT NULL DEFAULT 'pending',
+                        assigned_admin_id INTEGER,
+                        notes TEXT,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                    );
+                ");
+            } else {
+                $pdo->exec("
+                    CREATE TABLE IF NOT EXISTS `support_requests` (
+                        `id` INT AUTO_INCREMENT PRIMARY KEY,
+                        `user_id` INT NULL,
+                        `phone` VARCHAR(20) NOT NULL,
+                        `username` VARCHAR(100) NULL,
+                        `message` TEXT NULL,
+                        `status` VARCHAR(20) NOT NULL DEFAULT 'pending',
+                        `assigned_admin_id` INT NULL,
+                        `notes` TEXT NULL,
+                        `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        INDEX `idx_support_user` (`user_id`),
+                        INDEX `idx_support_status` (`status`)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                ");
+            }
+        } catch (Exception $e) {
+            // Table creation handled
+        }
     }
 
     public static function seedPlatformSettings(PDO $pdo): void {
@@ -301,7 +353,8 @@ class SchemaInstaller {
             ['privacy_policy', 'Your privacy is paramount. Personal contact details and phone numbers are masked across public trade order pools.', 'Platform privacy policy statement'],
             ['support_contact_info', 'support@jelipay.in', 'Official administrative support contact details'],
             ['approved_upi_config', 'jelipay@upi', 'Approved default UPI gateway reference'],
-            ['reward_eligible_types', 'ALL', 'Eligible transaction types for reward calculation']
+            ['reward_eligible_types', 'ALL', 'Eligible transaction types for reward calculation'],
+            ['telegram_support_url', 'https://t.me/jelipay_support', 'Official Telegram Support Channel URL']
         ];
 
         $stmt = $pdo->prepare("SELECT setting_key FROM platform_settings WHERE setting_key = ?");

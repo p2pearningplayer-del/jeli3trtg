@@ -414,13 +414,61 @@ endif;
                     <span>Platform Target: ₹4,00,000.00</span>
                 </div>
             </div>
+
+            <!-- Home Active In-Flight Buy Order Banner (Part 8, Item 4) -->
+            <div id="homeActiveOrderBanner" class="hidden bg-gradient-to-r from-indigo-950/80 via-slate-900 to-indigo-950/80 border border-indigo-500/30 rounded-2xl p-5 shadow-xl transition-all duration-300">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div class="flex items-start sm:items-center gap-3.5">
+                        <div class="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center flex-shrink-0 animate-pulse">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                        </div>
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <span class="text-xs uppercase font-bold text-indigo-400 tracking-wider">Buy Order in Progress</span>
+                                <span id="homeActiveOrderStatusBadge" class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">Reserved</span>
+                                <span id="homeActiveOrderTimerBadge" class="text-[11px] font-mono font-bold text-amber-300 bg-slate-950 px-2 py-0.5 rounded-lg border border-slate-800">--:--</span>
+                            </div>
+                            <h4 class="text-base font-bold text-white mt-0.5">Order <span id="homeActiveOrderId">#0000</span> &bull; <span id="homeActiveOrderAmount" class="font-mono text-emerald-400">₹0.00</span></h4>
+                            <p id="homeActiveOrderSubtext" class="text-xs text-slate-400">SLA Timer running. Complete payment to secure tokens and +9% reward bonus.</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2.5 sm:w-auto w-full">
+                        <button type="button" id="homeActiveOrderCancelBtn" onclick="cancelOrderFromHomeBanner()" class="flex-1 sm:flex-none px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl transition">
+                            Cancel
+                        </button>
+                        <button type="button" onclick="handleHomeActiveOrderView()" class="flex-1 sm:flex-none px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-600/30 transition flex items-center justify-center gap-1.5 whitespace-nowrap">
+                            <span>View Status</span>
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
         </section>
 
         <!-- ========================================== -->
         <!-- TAB 2: BUY (Buy Pool, Custom Match & Purchases) -->
         <!-- ========================================== -->
         <section id="view-buy" class="tab-view space-y-6 hidden">
-            <!-- Custom Buy Allocation (Item 2 - Moved to Top) -->
+            <!-- Dedicated My Buy History - Compact Top Placement (Part 8, Item 1) -->
+            <div id="buyPageHistorySection" class="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-3 shadow-md">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs uppercase font-bold text-indigo-400 tracking-wider">Purchase History</span>
+                            <span class="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2.5 py-0.5 rounded-full font-mono font-semibold">+9% Rewards</span>
+                        </div>
+                        <h3 class="text-base sm:text-lg font-bold text-white mt-0.5">My Buy Orders & Rewards</h3>
+                    </div>
+                    <button onclick="loadBuyPageHistory()" class="p-2 text-slate-400 hover:text-white bg-slate-950 border border-slate-800 rounded-lg transition" title="Refresh Buy History">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    </button>
+                </div>
+                <div id="buyPageHistoryContainer" class="overflow-x-auto max-h-72 overflow-y-auto bg-slate-950 border border-slate-800/80 rounded-xl">
+                    <div class="text-slate-500 text-center py-6 text-xs">Loading buy history...</div>
+                </div>
+            </div>
+
+            <!-- Custom Buy Allocation (Item 2) -->
             <div class="bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-lg">
                 <div class="flex flex-col md:flex-row md:items-center justify-between gap-5">
                     <div class="space-y-1">
@@ -443,10 +491,8 @@ endif;
                 </div>
             </div>
 
-
-
             <!-- Live Market Buy Pool Listing (FR-006) -->
-            <div class="pt-4 border-t border-slate-800">
+            <div class="pt-2 border-t border-slate-800">
                 <div class="flex items-center justify-between mb-4">
                     <div>
                         <h3 class="text-lg font-bold text-white">List of Tokens</h3>
@@ -457,26 +503,6 @@ endif;
                 </div>
                 <div id="buyPoolGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                     <!-- Populated dynamically via JS -->
-                </div>
-            </div>
-
-            <!-- Dedicated My Buy History (Part 7, Item 2) -->
-            <div class="pt-6 border-t border-slate-800 space-y-4">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <div class="flex items-center gap-2">
-                            <span class="text-xs uppercase font-bold text-indigo-400 tracking-wider">Purchase History</span>
-                            <span class="text-[10px] bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-2.5 py-0.5 rounded-full font-mono font-semibold">+9% Rewards</span>
-                        </div>
-                        <h3 class="text-lg font-bold text-white mt-1">My Buy Orders & Rewards</h3>
-                        <p class="text-xs text-slate-400">Past token purchases, reward credits, and settlement statuses</p>
-                    </div>
-                    <button onclick="loadBuyPageHistory()" class="p-2 text-slate-400 hover:text-white bg-slate-900 border border-slate-800 rounded-lg transition" title="Refresh Buy History">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-                    </button>
-                </div>
-                <div id="buyPageHistoryContainer" class="overflow-x-auto bg-slate-900 border border-slate-800 rounded-2xl">
-                    <div class="text-slate-500 text-center py-6 text-xs">Loading buy history...</div>
                 </div>
             </div>
         </section>
@@ -743,6 +769,45 @@ endif;
                     <span>Check</span>
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                 </button>
+            </div>
+
+            <!-- Customer Support & Helpdesk Hub (Part 8, Item 3) -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 space-y-4 shadow-sm">
+                <div class="border-b border-slate-800 pb-3 flex items-center justify-between">
+                    <div>
+                        <span class="text-xs uppercase font-bold text-indigo-400 tracking-wider">Help & Assistance</span>
+                        <h3 class="text-lg font-bold text-white mt-0.5">Customer Support & Live Desk</h3>
+                        <p class="text-xs text-slate-400">Direct assistance for payments, escrow arbitration, or account inquiries</p>
+                    </div>
+                    <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse hidden sm:block" title="Support Online"></span>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    <a href="https://t.me/jelipay_support" target="_blank" rel="noopener noreferrer" class="bg-[#229ED9]/15 hover:bg-[#229ED9]/25 text-[#229ED9] border border-[#229ED9]/30 rounded-xl p-3.5 flex items-center justify-between transition group">
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 rounded-lg bg-[#229ED9]/20 flex items-center justify-center">
+                                <svg class="w-4 h-4 fill-current" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.52 2.77-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/></svg>
+                            </div>
+                            <div>
+                                <h4 class="text-xs font-bold text-white">Telegram Support</h4>
+                                <p class="text-[10px] text-slate-400">Join official channel & alerts</p>
+                            </div>
+                        </div>
+                        <span class="text-xs font-bold text-slate-400 group-hover:text-white">&rarr;</span>
+                    </a>
+
+                    <button type="button" onclick="openLiveChatModal()" class="bg-emerald-600/15 hover:bg-emerald-600/25 text-emerald-400 border border-emerald-500/30 rounded-xl p-3.5 flex items-center justify-between transition group text-left">
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+                            </div>
+                            <div>
+                                <h4 class="text-xs font-bold text-white">Live Chat Support</h4>
+                                <p class="text-[10px] text-slate-400">Transmit phone to assign agent</p>
+                            </div>
+                        </div>
+                        <span class="text-xs font-bold text-slate-400 group-hover:text-white">&rarr;</span>
+                    </button>
+                </div>
             </div>
 
             <!-- Clean Logout Button at Very Bottom (Item 7) -->
@@ -1373,6 +1438,94 @@ endif;
         </div>
     </div>
     <?php endif; ?>
+
+    <!-- ========================================== -->
+    <!-- FLOATING INTEGRATED SUPPORT WIDGET (Part 8, Item 3) -->
+    <!-- ========================================== -->
+    <div id="floatingSupportContainer" class="fixed bottom-20 sm:bottom-6 right-4 sm:right-6 z-40 flex flex-col items-end">
+        <!-- Expanded Support Popover / Action Menu -->
+        <div id="supportActionMenu" class="hidden mb-3 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-4 w-72 sm:w-80 space-y-3 transform scale-95 transition-all duration-200">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                <div class="flex items-center gap-2">
+                    <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <h4 class="text-xs font-bold text-white uppercase tracking-wider">Official 24/7 Support</h4>
+                </div>
+                <button type="button" onclick="toggleSupportMenu()" class="text-slate-400 hover:text-white transition">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <p class="text-[11px] text-slate-400 leading-relaxed">Need help with payments, disputes, or account setup? Connect directly with our official support team:</p>
+            <div class="space-y-2 pt-1">
+                <!-- Telegram Support Button -->
+                <a id="supportTelegramLink" href="https://t.me/jelipay_support" target="_blank" rel="noopener noreferrer" class="w-full bg-[#229ED9]/15 hover:bg-[#229ED9]/25 text-[#229ED9] border border-[#229ED9]/30 rounded-xl px-3.5 py-2.5 text-xs font-bold flex items-center justify-between transition group">
+                    <div class="flex items-center gap-2.5">
+                        <svg class="w-4 h-4 fill-current flex-shrink-0" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.52 2.77-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/></svg>
+                        <span>Telegram Support</span>
+                    </div>
+                    <span class="text-[10px] text-slate-400 group-hover:text-white transition">Join Channel &rarr;</span>
+                </a>
+
+                <!-- Live Chat Button -->
+                <button type="button" onclick="openLiveChatModal()" class="w-full bg-emerald-600/15 hover:bg-emerald-600/25 text-emerald-400 border border-emerald-500/30 rounded-xl px-3.5 py-2.5 text-xs font-bold flex items-center justify-between transition group">
+                    <div class="flex items-center gap-2.5">
+                        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+                        <span>Live Chat</span>
+                    </div>
+                    <span class="text-[10px] text-slate-400 group-hover:text-white transition">Assign Agent &rarr;</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Floating Action Button -->
+        <button type="button" onclick="toggleSupportMenu()" class="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-bold px-4 py-3 rounded-full shadow-2xl shadow-indigo-600/40 border border-indigo-400/30 transition transform hover:scale-105" title="Customer Support">
+            <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+            <span class="text-xs tracking-wider">Support</span>
+        </button>
+    </div>
+
+    <!-- Live Chat Support Request Modal (Part 8, Item 3) -->
+    <div id="liveChatModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 shadow-2xl relative space-y-4">
+            <button onclick="closeLiveChatModal()" class="absolute right-4 top-4 text-slate-400 hover:text-white transition">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+            <div class="flex items-center gap-3 border-b border-slate-800 pb-3 pr-8">
+                <div class="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center flex-shrink-0">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+                </div>
+                <div>
+                    <span class="text-xs uppercase font-bold text-emerald-400 tracking-wider">Live Agent Assistance</span>
+                    <h3 class="text-lg font-bold text-white mt-0.5">Request Support Agent</h3>
+                </div>
+            </div>
+            <p class="text-xs text-slate-400 leading-relaxed">
+                Transmitting your phone number assigns an available support agent directly to your account to assist with trades, payments, or escrow arbitration.
+            </p>
+            <form onsubmit="event.preventDefault(); submitLiveChatRequest(); return false;" class="space-y-3 pt-1">
+                <div>
+                    <label class="text-xs font-semibold text-slate-300 block mb-1">Your Registered Phone Number</label>
+                    <div class="flex items-center bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5">
+                        <span class="text-slate-400 text-xs font-bold mr-2">+91</span>
+                        <input type="tel" id="liveChatPhoneInput" required maxlength="10" placeholder="9876543210" class="w-full bg-transparent text-sm text-white font-mono focus:outline-none">
+                    </div>
+                </div>
+                <div>
+                    <label class="text-xs font-semibold text-slate-300 block mb-1">Brief Description of Issue (Optional)</label>
+                    <textarea id="liveChatMessageInput" rows="2" placeholder="e.g. Need assistance with order #0003 payment verification" class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white focus:border-indigo-500 focus:outline-none"></textarea>
+                </div>
+                <div id="liveChatStatus" class="text-xs font-semibold hidden"></div>
+                <div class="grid grid-cols-2 gap-3 pt-2">
+                    <button type="button" onclick="closeLiveChatModal()" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2.5 rounded-xl transition text-xs">
+                        Cancel
+                    </button>
+                    <button type="submit" id="liveChatSubmitBtn" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl shadow-lg shadow-emerald-600/30 transition text-xs flex items-center justify-center gap-1.5">
+                        <span>Transmit & Assign</span>
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <!-- JavaScript Controller with Cache Busting -->
     <script src="/public/js/app.js?v=<?= file_exists(__DIR__ . '/public/js/app.js') ? filemtime(__DIR__ . '/public/js/app.js') : time() ?>"></script>

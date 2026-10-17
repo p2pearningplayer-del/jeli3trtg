@@ -413,34 +413,77 @@ class StateMachine {
 
             $amount = (float)$order['amount'];
 
-            // Requirement 3: Buyer timeout keeps seller's listing active and automatically relists for sale (re-sell)
-            // Adjust parent order reserved_amount and remaining_amount back to available/unpicked state
-            $parentUpd = $pdo->prepare("
-                UPDATE parent_sell_orders
-                SET reserved_amount = reserved_amount - ?,
-                    remaining_amount = remaining_amount + ?
-                WHERE id = ?
-            ");
-            $parentUpd->execute([$amount, $amount, $order['parent_order_id']]);
+            // Check parent order state (Part 8, Item 2)
+            $parentStmt = $pdo->prepare("SELECT id, status FROM parent_sell_orders WHERE id = ?");
+            $parentStmt->execute([$order['parent_order_id']]);
+            $parentOrder = $parentStmt->fetch();
 
-            // Re-list portion as Available in buy pool
-            $relist = $pdo->prepare("
-                INSERT INTO child_orders (
-                    parent_order_id, seller_id, buyer_id, amount, snapshotted_reward_rate,
-                    snapshotted_reward_amount, snapshotted_upi_id, snapshotted_account_holder,
-                    status, created_at
-                ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, 'Available', ?)
-            ");
-            $relist->execute([
-                $order['parent_order_id'],
-                $order['seller_id'],
-                $amount,
-                $order['snapshotted_reward_rate'],
-                $order['snapshotted_reward_amount'],
-                $order['snapshotted_upi_id'],
-                $order['snapshotted_account_holder'],
-                $nowUtc
-            ]);
+            if ($parentOrder && $parentOrder['status'] === 'active') {
+                // Buyer timeout keeps seller's listing active and automatically relists for sale (re-sell)
+                $parentUpd = $pdo->prepare("
+                    UPDATE parent_sell_orders
+                    SET reserved_amount = reserved_amount - ?,
+                        remaining_amount = remaining_amount + ?
+                    WHERE id = ?
+                ");
+                $parentUpd->execute([$amount, $amount, $order['parent_order_id']]);
+
+                // Re-list portion as Available in buy pool for other buyers to purchase
+                $relist = $pdo->prepare("
+                    INSERT INTO child_orders (
+                        parent_order_id, seller_id, buyer_id, amount, snapshotted_reward_rate,
+                        snapshotted_reward_amount, snapshotted_upi_id, snapshotted_account_holder,
+                        status, created_at
+                    ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, 'Available', ?)
+                ");
+                $relist->execute([
+                    $order['parent_order_id'],
+                    $order['seller_id'],
+                    $amount,
+                    $order['snapshotted_reward_rate'],
+                    $order['snapshotted_reward_amount'],
+                    $order['snapshotted_upi_id'],
+                    $order['snapshotted_account_holder'],
+                    $nowUtc
+                ]);
+
+                // Notify seller that tokens returned to active sell queue
+                Auth::createNotification(
+                    (int)$order['seller_id'],
+                    'Order Expired & Relisted',
+                    sprintf('Order #%04d (₹%s) timed out. Tokens have been automatically placed back into the live sell queue.', (int)$order['id'], number_format($amount, 2)),
+                    'order',
+                    (int)$order['id']
+                );
+            } else {
+                // If parent sell order was cancelled, immediately release tokens back to seller's available balance
+                $relStmt = $pdo->prepare("
+                    UPDATE wallets
+                    SET reserved_balance = MAX(0, reserved_balance - ?),
+                        available_balance = available_balance + ?
+                    WHERE user_id = ?
+                ");
+                $relStmt->execute([$amount, $amount, $order['seller_id']]);
+
+                Auth::createNotification(
+                    (int)$order['seller_id'],
+                    'Order Expired & Refunded',
+                    sprintf('Order #%04d (₹%s) timed out. Unsold tokens have been returned to your Available Balance.', (int)$order['id'], number_format($amount, 2)),
+                    'order',
+                    (int)$order['id']
+                );
+            }
+
+            // Notify buyer about timeout cancellation
+            if (!empty($order['buyer_id'])) {
+                Auth::createNotification(
+                    (int)$order['buyer_id'],
+                    'Reservation Expired',
+                    sprintf('Your reservation for Order #%04d (₹%s) expired and was automatically cancelled.', (int)$order['id'], number_format($amount, 2)),
+                    'order',
+                    (int)$order['id']
+                );
+            }
 
             $pdo->commit();
             return true;

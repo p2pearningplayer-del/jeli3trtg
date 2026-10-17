@@ -7,6 +7,7 @@ require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../src/Auth.php';
 require_once __DIR__ . '/../src/Wallet.php';
 require_once __DIR__ . '/../src/Ledger.php';
+require_once __DIR__ . '/../src/Validator.php';
 require_once __DIR__ . '/../src/StateMachine.php';
 require_once __DIR__ . '/response.php';
 
@@ -53,9 +54,11 @@ switch ($action) {
         foreach ($orders as &$ord) {
             $ord['formatted_id'] = sprintf('#%04d', (int)$ord['id']);
             $ord['amount'] = (float)$ord['amount'];
-            $ord['reward_amount'] = (float)$ord['snapshotted_reward_amount'];
+            $ord['reward_amount'] = (float)($ord['snapshotted_reward_amount'] ?? ($ord['amount'] * 0.09));
             $ord['total_credit'] = round($ord['amount'] + $ord['reward_amount'], 2);
-            $ord['seller_name_masked'] = Validator::maskName($ord['seller_name'] ?: $ord['snapshotted_account_holder']);
+            $sellerRawName = !empty($ord['seller_name']) ? $ord['seller_name'] : (!empty($ord['snapshotted_account_holder']) ? $ord['snapshotted_account_holder'] : 'Platform Peer');
+            $ord['seller_name_masked'] = Validator::maskName($sellerRawName);
+            $ord['seller_upi_id'] = $ord['snapshotted_upi_id'] ?? '';
             if (!empty($ord['seller_phone'])) {
                 $ord['seller_phone_masked'] = Validator::maskPhone($ord['seller_phone']);
             }

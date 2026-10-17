@@ -75,6 +75,7 @@ async function initApp() {
 
     loadNotifications();
     checkPendingSellerConfirmations();
+    syncHomeActiveOrder();
 
     const tabParam = urlParams.get('tab');
     if (tabParam) {
@@ -212,7 +213,7 @@ function switchTab(tabId) {
     }
 
     // Trigger tab data load
-    if (tabId === 'home') { loadWalletStats(); loadLedger(); }
+    if (tabId === 'home') { loadWalletStats(); loadLedger(); syncHomeActiveOrder(); }
     if (tabId === 'buy') { loadBuyPool(); loadBuyPageHistory(); }
     if (tabId === 'sell') { loadWalletStats(); loadSellerDashboard(); }
     if (tabId === 'appeals') { loadDisputesCenter(); }
@@ -225,8 +226,8 @@ function periodicSync() {
     if (!currentUser) return;
     loadNotifications();
     checkPendingSellerConfirmations();
-    if (currentTab === 'home') { loadWalletStats(true); }
-    if (currentTab === 'buy') { loadBuyPool(true); }
+    if (currentTab === 'home') { loadWalletStats(true); syncHomeActiveOrder(true); }
+    if (currentTab === 'buy') { loadBuyPool(true); loadBuyPageHistory(true); }
     if (currentTab === 'sell') { loadSellerDashboard(true); loadWalletStats(true); }
     if (currentTab === 'appeals') { loadDisputesCenter(true); }
     if (currentTab === 'refer') loadReferrals();
@@ -344,10 +345,12 @@ async function pickOrder(orderId) {
         if (data.success) {
             loadBuyPool();
             loadBuyPageHistory();
+            syncHomeActiveOrder();
             openProofModal(data.order_id, data.amount, data.seller_upi, data.seller_name, data.seconds_remaining);
         } else {
             if (data.active_order_id) {
                 showActiveOrderNotice(data.active_order_id, data.error);
+                syncHomeActiveOrder();
             } else {
                 alert(data.error || 'Failed to pick order.');
             }
@@ -651,6 +654,7 @@ async function cancelOrderFromStatusModal(orderId) {
             closeActiveOrderDetailsModal();
             loadBuyPool();
             loadBuyPageHistory();
+            syncHomeActiveOrder();
             fetchSession();
             alert('Reservation cancelled. You can now select any new buy order.');
         } else {
@@ -658,6 +662,236 @@ async function cancelOrderFromStatusModal(orderId) {
         }
     } catch (e) {
         alert('Network error cancelling reservation.');
+    }
+}
+
+// -------------------------------------------------------------
+// HOME DASHBOARD ACTIVE ORDER SYSTEM (Part 8, Item 4)
+// -------------------------------------------------------------
+
+let currentHomeActiveOrderId = null;
+let homeActiveOrderTimerInterval = null;
+
+async function syncHomeActiveOrder(silent = false) {
+    if (!currentUser) return;
+    const banner = document.getElementById('homeActiveOrderBanner');
+    if (!banner) return;
+
+    try {
+        const res = await fetch('/api/buy.php?action=active_order');
+        if (!res.ok) {
+            banner.classList.add('hidden');
+            return;
+        }
+        const data = await res.json();
+
+        if (data.success && data.has_active && data.order) {
+            const ord = data.order;
+            currentHomeActiveOrderId = ord.id;
+
+            const idEl = document.getElementById('homeActiveOrderId');
+            const amtEl = document.getElementById('homeActiveOrderAmount');
+            const badgeEl = document.getElementById('homeActiveOrderStatusBadge');
+            const timerEl = document.getElementById('homeActiveOrderTimerBadge');
+            const subtextEl = document.getElementById('homeActiveOrderSubtext');
+            const cancelBtn = document.getElementById('homeActiveOrderCancelBtn');
+
+            if (idEl) idEl.innerText = formatOrderId(ord.id);
+            if (amtEl) amtEl.innerText = `₹${parseFloat(ord.amount).toLocaleString('en-IN')}`;
+
+            if (badgeEl) {
+                badgeEl.innerText = ord.status;
+                badgeEl.className = `px-2 py-0.5 rounded text-[10px] font-bold ${getStatusBadgeClass(ord.status)}`;
+            }
+
+            if (cancelBtn) {
+                if (ord.status === 'Reserved') {
+                    cancelBtn.classList.remove('hidden');
+                } else {
+                    cancelBtn.classList.add('hidden');
+                }
+            }
+
+            if (subtextEl) {
+                if (ord.status === 'Reserved') {
+                    subtextEl.innerText = `Transfer exact ₹${parseFloat(ord.amount).toLocaleString('en-IN')} to seller UPI (${ord.seller_upi_id || ''}) and submit proof before timer expires.`;
+                } else if (['Payment Proof Submitted', 'Seller Confirmation Pending'].includes(ord.status)) {
+                    subtextEl.innerText = `Payment proof submitted (UTR: ${ord.utr_number || 'Under Review'}). Seller is verifying bank receipt.`;
+                } else if (ord.status === 'Disputed') {
+                    subtextEl.innerText = `Order under admin arbitration. Open Appeals Center to view dispute evidence.`;
+                } else {
+                    subtextEl.innerText = `Order status: ${ord.status}. Click View Status to check details.`;
+                }
+            }
+
+            if (homeActiveOrderTimerInterval) clearInterval(homeActiveOrderTimerInterval);
+            let remaining = ord.seconds_remaining > 0 ? parseInt(ord.seconds_remaining, 10) : 0;
+            if (timerEl) {
+                timerEl.innerText = formatSeconds(remaining);
+                if (remaining <= 60 && remaining > 0) {
+                    timerEl.className = 'text-[11px] font-mono font-bold text-red-400 bg-red-950/60 px-2 py-0.5 rounded-lg border border-red-800 animate-pulse';
+                } else {
+                    timerEl.className = 'text-[11px] font-mono font-bold text-amber-300 bg-slate-950 px-2 py-0.5 rounded-lg border border-slate-800';
+                }
+            }
+
+            homeActiveOrderTimerInterval = setInterval(() => {
+                if (remaining > 0) {
+                    remaining--;
+                    if (timerEl) {
+                        timerEl.innerText = formatSeconds(remaining);
+                        if (remaining <= 60) {
+                            timerEl.className = 'text-[11px] font-mono font-bold text-red-400 bg-red-950/60 px-2 py-0.5 rounded-lg border border-red-800 animate-pulse';
+                        }
+                    }
+                } else {
+                    clearInterval(homeActiveOrderTimerInterval);
+                    if (ord.status === 'Reserved') {
+                        if (timerEl) timerEl.innerText = '00:00 (Expired)';
+                        setTimeout(() => {
+                            syncHomeActiveOrder(true);
+                            loadBuyPool(true);
+                            loadBuyPageHistory(true);
+                        }, 1000);
+                    }
+                }
+            }, 1000);
+
+            banner.classList.remove('hidden');
+        } else {
+            currentHomeActiveOrderId = null;
+            if (homeActiveOrderTimerInterval) clearInterval(homeActiveOrderTimerInterval);
+            banner.classList.add('hidden');
+        }
+    } catch (e) {
+        if (!silent) console.warn('Could not sync home active order:', e);
+    }
+}
+
+function handleHomeActiveOrderView() {
+    if (currentHomeActiveOrderId) {
+        openActiveOrderStatusModal(currentHomeActiveOrderId);
+    } else {
+        openActiveOrderStatusModal();
+    }
+}
+
+async function cancelOrderFromHomeBanner() {
+    if (!currentHomeActiveOrderId) return;
+    if (!confirm(`Are you sure you want to cancel order reservation #${currentHomeActiveOrderId}? Tokens will immediately return to the live sell queue.`)) return;
+
+    try {
+        const res = await fetch('/api/buy.php?action=cancel', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ order_id: currentHomeActiveOrderId })
+        });
+        const data = await res.json();
+        if (data.success) {
+            alert('Reservation cancelled. Tokens have returned to the live sell queue.');
+            syncHomeActiveOrder();
+            loadBuyPool();
+            loadBuyPageHistory();
+            loadWalletStats();
+        } else {
+            alert(data.error || 'Failed to cancel reservation.');
+        }
+    } catch (e) {
+        alert('Network error while cancelling order.');
+    }
+}
+
+// -------------------------------------------------------------
+// INTEGRATED SUPPORT & LIVE CHAT (Part 8, Item 3)
+// -------------------------------------------------------------
+
+let supportMenuOpen = false;
+
+function toggleSupportMenu() {
+    const menu = document.getElementById('supportActionMenu');
+    if (!menu) return;
+    supportMenuOpen = !supportMenuOpen;
+    if (supportMenuOpen) {
+        menu.classList.remove('hidden');
+    } else {
+        menu.classList.add('hidden');
+    }
+}
+
+function openLiveChatModal() {
+    if (supportMenuOpen) toggleSupportMenu();
+    const modal = document.getElementById('liveChatModal');
+    const phoneInput = document.getElementById('liveChatPhoneInput');
+    const statusDiv = document.getElementById('liveChatStatus');
+    if (statusDiv) {
+        statusDiv.className = 'text-xs font-semibold hidden';
+        statusDiv.innerText = '';
+    }
+    if (phoneInput && currentUser && currentUser.phone) {
+        phoneInput.value = currentUser.phone;
+    }
+    if (modal) modal.classList.remove('hidden');
+}
+
+function closeLiveChatModal() {
+    const modal = document.getElementById('liveChatModal');
+    if (modal) modal.classList.add('hidden');
+}
+
+async function submitLiveChatRequest() {
+    const phoneInput = document.getElementById('liveChatPhoneInput');
+    const msgInput = document.getElementById('liveChatMessageInput');
+    const statusDiv = document.getElementById('liveChatStatus');
+    const submitBtn = document.getElementById('liveChatSubmitBtn');
+
+    const phone = phoneInput ? phoneInput.value.trim() : '';
+    const message = msgInput ? msgInput.value.trim() : '';
+
+    if (!phone || phone.length < 10) {
+        if (statusDiv) {
+            statusDiv.className = 'text-xs font-semibold text-red-400 block p-2.5 bg-red-500/10 rounded-xl border border-red-500/20';
+            statusDiv.innerText = 'Please enter a valid 10-digit mobile phone number.';
+        }
+        return;
+    }
+
+    if (submitBtn) submitBtn.disabled = true;
+    if (statusDiv) {
+        statusDiv.className = 'text-xs font-semibold text-slate-300 block p-2 bg-slate-800 rounded-xl';
+        statusDiv.innerText = 'Transmitting phone number to admin support queue...';
+    }
+
+    try {
+        const res = await fetch('/api/support.php?action=live_chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phone, message })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            if (statusDiv) {
+                statusDiv.className = 'text-xs font-semibold text-emerald-400 block p-3 bg-emerald-500/10 rounded-xl border border-emerald-500/20';
+                statusDiv.innerText = `Request transmitted! An agent has been assigned to +91 ${phone} and will connect with you shortly.`;
+            }
+            if (msgInput) msgInput.value = '';
+            setTimeout(() => {
+                closeLiveChatModal();
+                loadNotifications();
+            }, 2500);
+        } else {
+            if (statusDiv) {
+                statusDiv.className = 'text-xs font-semibold text-red-400 block p-2.5 bg-red-500/10 rounded-xl border border-red-500/20';
+                statusDiv.innerText = data.error || 'Failed to submit live chat request.';
+            }
+        }
+    } catch (e) {
+        if (statusDiv) {
+            statusDiv.className = 'text-xs font-semibold text-red-400 block p-2.5 bg-red-500/10 rounded-xl border border-red-500/20';
+            statusDiv.innerText = 'Network error requesting live chat.';
+        }
+    } finally {
+        if (submitBtn) submitBtn.disabled = false;
     }
 }
 
@@ -686,10 +920,12 @@ async function requestCustomAllocation() {
             input.value = '';
             loadBuyPool();
             loadBuyPageHistory();
+            syncHomeActiveOrder();
             openProofModal(data.order_id, data.amount, data.seller_upi, data.seller_name, data.seconds_remaining);
         } else {
             if (data.active_order_id) {
                 showActiveOrderNotice(data.active_order_id, data.error);
+                syncHomeActiveOrder();
             } else {
                 alert(data.error || 'Allocation failed.');
             }
@@ -791,10 +1027,14 @@ function switchSellTab(tab) {
     }
 }
 
-async function loadBuyPageHistory() {
+async function loadBuyPageHistory(silent = false) {
     if (!currentUser) return;
     const container = document.getElementById('buyPageHistoryContainer');
     if (!container) return;
+
+    if (!silent && container.innerHTML.trim() === '') {
+        container.innerHTML = '<div class="text-slate-500 text-center py-6 text-xs">Loading buy history...</div>';
+    }
 
     try {
         const res = await fetch('/api/wallet.php?action=buy_history');
@@ -802,46 +1042,49 @@ async function loadBuyPageHistory() {
 
         if (!data.success || !data.buy_history || data.buy_history.length === 0) {
             container.innerHTML = `
-                <div class="text-center py-8 text-slate-400">
-                    <p class="font-bold text-white text-sm">No Buy History Yet</p>
-                    <p class="text-xs text-slate-500 mt-1">When you purchase tokens, your +9% reward bonus and settlement records will appear here.</p>
+                <div class="text-center py-6 text-slate-400">
+                    <p class="font-bold text-white text-xs">No Buy History Yet</p>
+                    <p class="text-[11px] text-slate-500 mt-1">When you purchase tokens, your settlements and +9% reward bonus will appear here.</p>
                 </div>
             `;
             return;
         }
 
         container.innerHTML = `
-            <table class="w-full text-left text-xs">
-                <thead class="bg-slate-950 text-slate-400 uppercase tracking-wider font-semibold border-b border-slate-800">
+            <table class="w-full text-left text-xs whitespace-nowrap">
+                <thead class="bg-slate-950 text-slate-400 uppercase tracking-wider font-semibold border-b border-slate-800 sticky top-0 z-10">
                     <tr>
-                        <th class="p-3">Order ID</th>
-                        <th class="p-3">Purchase</th>
-                        <th class="p-3">Reward (+9%)</th>
-                        <th class="p-3">Total Credit</th>
-                        <th class="p-3">Seller Details</th>
-                        <th class="p-3">UTR / Proof</th>
-                        <th class="p-3">Status</th>
-                        <th class="p-3">Date</th>
+                        <th class="p-2.5 sm:p-3">Order ID</th>
+                        <th class="p-2.5 sm:p-3">Purchase</th>
+                        <th class="p-2.5 sm:p-3">Reward (+9%)</th>
+                        <th class="p-2.5 sm:p-3">Total Credit</th>
+                        <th class="p-2.5 sm:p-3">Seller Details</th>
+                        <th class="p-2.5 sm:p-3">UTR / Proof</th>
+                        <th class="p-2.5 sm:p-3">Status</th>
+                        <th class="p-2.5 sm:p-3">Date</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-800/60 font-mono text-slate-300">
                     ${data.buy_history.map(row => `
-                        <tr class="hover:bg-slate-900/60">
-                            <td class="p-3 text-indigo-400 font-bold">${formatOrderId(row.id)}</td>
-                            <td class="p-3 text-white font-bold">₹${parseFloat(row.amount).toLocaleString('en-IN')}</td>
-                            <td class="p-3 text-emerald-400">+₹${parseFloat(row.reward_amount).toFixed(2)}</td>
-                            <td class="p-3 text-white">₹${parseFloat(row.total_credit).toFixed(2)}</td>
-                            <td class="p-3 font-sans text-slate-300">${escapeHtml(row.seller_name_masked || 'Peer')} <span class="text-slate-500 text-[11px] block font-mono">${escapeHtml(row.snapshotted_upi_id)}</span></td>
-                            <td class="p-3">
-                                ${row.utr_number ? `<span class="text-slate-200 font-mono text-[11px] block">${escapeHtml(row.utr_number)}</span>` : '<span class="text-slate-600">-</span>'}
-                                ${row.screenshot_path ? `<a href="/serve_file.php?file=${encodeURIComponent(row.screenshot_path)}" target="_blank" class="text-[11px] text-indigo-400 underline font-sans">View Proof</a>` : ''}
+                        <tr class="hover:bg-slate-900/60 transition">
+                            <td class="p-2.5 sm:p-3 text-indigo-400 font-bold">${formatOrderId(row.id)}</td>
+                            <td class="p-2.5 sm:p-3 text-white font-bold">₹${parseFloat(row.amount).toLocaleString('en-IN')}</td>
+                            <td class="p-2.5 sm:p-3 text-emerald-400 font-bold">+₹${parseFloat(row.reward_amount).toFixed(2)}</td>
+                            <td class="p-2.5 sm:p-3 text-white font-bold">₹${parseFloat(row.total_credit).toFixed(2)}</td>
+                            <td class="p-2.5 sm:p-3 font-sans text-slate-300">
+                                <span>${escapeHtml(row.seller_name_masked || 'Peer')}</span>
+                                <span class="text-slate-500 text-[11px] block font-mono select-all">${escapeHtml(row.snapshotted_upi_id || row.seller_upi_id || '')}</span>
                             </td>
-                            <td class="p-3 font-sans">
-                                <span class="px-2 py-0.5 rounded text-[10px] font-bold ${getStatusBadgeClass(row.status)}">
+                            <td class="p-2.5 sm:p-3">
+                                ${row.utr_number ? `<span class="text-slate-200 font-mono text-[11px] block font-bold">${escapeHtml(row.utr_number)}</span>` : '<span class="text-slate-600">-</span>'}
+                                ${row.screenshot_path ? `<a href="/serve_file.php?file=${encodeURIComponent(row.screenshot_path)}" target="_blank" class="text-[11px] text-indigo-400 hover:text-indigo-300 underline font-sans">View Proof</a>` : ''}
+                            </td>
+                            <td class="p-2.5 sm:p-3 font-sans">
+                                <span class="px-2.5 py-0.5 rounded text-[10px] font-bold ${getStatusBadgeClass(row.status)}">
                                     ${row.status}
                                 </span>
                             </td>
-                            <td class="p-3 text-slate-500 text-[11px]">${row.created_at}</td>
+                            <td class="p-2.5 sm:p-3 text-slate-500 text-[11px] font-sans">${row.created_at}</td>
                         </tr>
                     `).join('')}
                 </tbody>
@@ -849,6 +1092,14 @@ async function loadBuyPageHistory() {
         `;
     } catch (e) {
         console.error('Failed to load buy page history:', e);
+        if (!silent) {
+            container.innerHTML = `
+                <div class="text-center py-6 text-slate-400">
+                    <p class="font-bold text-white text-xs">Could not load purchase history</p>
+                    <button onclick="loadBuyPageHistory()" class="mt-2 text-indigo-400 hover:text-indigo-300 text-xs font-semibold underline">Click to Retry</button>
+                </div>
+            `;
+        }
     }
 }
 
@@ -1356,6 +1607,8 @@ async function cancelCurrentReservation() {
             closeProofModal();
             loadMyPurchases();
             loadBuyPool();
+            loadBuyPageHistory();
+            syncHomeActiveOrder();
             fetchSession();
         } else {
             alert(data.error || 'Failed to cancel reservation.');
@@ -1425,6 +1678,8 @@ async function handleProofSubmit(e) {
             alert('Payment proof submitted successfully! The seller has been notified for verification.');
             closeProofModal();
             loadMyPurchases();
+            loadBuyPageHistory();
+            syncHomeActiveOrder();
         } else {
             errEl.innerText = data.error || 'Submission failed.';
             errEl.classList.remove('hidden');
@@ -2466,6 +2721,13 @@ function updateLiveCountdowns() {
         proofModalSeconds--;
         const el = document.getElementById('proofModalCountdown');
         if (el) el.innerText = formatSeconds(proofModalSeconds);
+        if (proofModalSeconds === 0) {
+            closeProofModal();
+            alert('Payment deadline expired. The reservation has been automatically cancelled and tokens returned to the live sell queue.');
+            loadBuyPool(true);
+            loadBuyPageHistory(true);
+            syncHomeActiveOrder(true);
+        }
     }
 }
 
