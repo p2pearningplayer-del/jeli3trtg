@@ -1396,7 +1396,10 @@ async function handleProfileUpdate(e) {
 }
 
 async function handleTpinUpdate(e) {
-    e.preventDefault();
+    if (e) {
+        if (e.preventDefault) e.preventDefault();
+        if (e.stopPropagation) e.stopPropagation();
+    }
     const tpinInput = document.getElementById('profNewTpin');
     const tpin = tpinInput ? tpinInput.value.trim() : '';
 
@@ -1405,24 +1408,30 @@ async function handleTpinUpdate(e) {
         return;
     }
 
+    let data;
     try {
         const res = await fetch('/api/auth.php?action=set_tpin', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ tpin })
         });
-        const data = await res.json();
-        if (data.success) {
-            alert('Selling TPIN configured successfully! You can now authorize sell listings.');
-            if (tpinInput) tpinInput.value = '';
-            closeProfileModal();
-            fetchSession();
-        } else {
-            alert(data.error || 'Failed to configure TPIN.');
+        data = await res.json();
+    } catch (netErr) {
+        console.error('Network error configuring TPIN:', netErr);
+        alert('Network error configuring TPIN. Please check your connection and retry.');
+        return;
+    }
+
+    if (data && data.success) {
+        if (tpinInput) tpinInput.value = '';
+        alert('Selling TPIN configured successfully! You can now authorize sell listings.');
+        try {
+            await fetchSession();
+        } catch (syncErr) {
+            console.warn('Session refresh after TPIN update skipped:', syncErr);
         }
-    } catch (e) {
-        console.error('Error configuring TPIN:', e);
-        alert('Network error configuring TPIN.');
+    } else {
+        alert((data && data.error) ? data.error : 'Failed to configure TPIN.');
     }
 }
 

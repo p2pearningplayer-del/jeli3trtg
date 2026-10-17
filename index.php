@@ -637,13 +637,13 @@ endif;
                         <p class="text-xs text-slate-400">Secondary 4–6 digit PIN required to authorize every sell order listing</p>
                     </div>
 
-                    <form onsubmit="handleTpinUpdate(event)" class="space-y-3">
+                    <form onsubmit="event.preventDefault(); handleTpinUpdate(event); return false;" class="space-y-3">
                         <div>
                             <label class="text-xs font-semibold text-slate-300 block mb-1">Set New Selling TPIN (4-6 Digits)</label>
                             <input type="password" id="profNewTpin" required maxlength="6" placeholder="••••" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white font-mono tracking-widest focus:border-amber-500 focus:outline-none">
                             <span class="text-[11px] text-slate-500 mt-1 block">Bcrypt hashed. Never stored in plaintext.</span>
                         </div>
-                        <button type="submit" class="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition">
+                        <button type="button" onclick="handleTpinUpdate(event)" class="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition">
                             Save Selling TPIN
                         </button>
                     </form>
@@ -1062,7 +1062,7 @@ endif;
     </nav>
     <?php endif; ?>
 
-    <!-- JavaScript Controller -->
-    <script src="/public/js/app.js"></script>
+    <!-- JavaScript Controller with Cache Busting -->
+    <script src="/public/js/app.js?v=<?= file_exists(__DIR__ . '/public/js/app.js') ? filemtime(__DIR__ . '/public/js/app.js') : time() ?>"></script>
 </body>
 </html>
