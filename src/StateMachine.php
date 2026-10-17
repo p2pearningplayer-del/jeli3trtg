@@ -78,6 +78,54 @@ class StateMachine {
     }
 
     /**
+     * Buyer cancels active reservation before payment proof submission (Requirement 4)
+     */
+    public static function cancelReservation(int $childOrderId, int $buyerId): array {
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare("SELECT * FROM child_orders WHERE id = ? AND buyer_id = ? AND status = 'Reserved'");
+        $stmt->execute([$childOrderId, $buyerId]);
+        $order = $stmt->fetch();
+
+        if (!$order) {
+            return ['success' => false, 'error' => 'Active reservation not found or order already submitted.'];
+        }
+
+        $pdo->beginTransaction();
+        try {
+            $upd = $pdo->prepare("
+                UPDATE child_orders
+                SET status = 'Available',
+                    buyer_id = NULL,
+                    picked_at = NULL,
+                    payment_deadline = NULL
+                WHERE id = ? AND status = 'Reserved'
+            ");
+            $upd->execute([$childOrderId]);
+
+            if ($upd->rowCount() === 0) {
+                $pdo->rollBack();
+                return ['success' => false, 'error' => 'Order is no longer reserved.'];
+            }
+
+            // Adjust parent order reserved/remaining amount back
+            $amount = (float)$order['amount'];
+            $parentUpd = $pdo->prepare("
+                UPDATE parent_sell_orders
+                SET reserved_amount = reserved_amount - ?,
+                    remaining_amount = remaining_amount + ?
+                WHERE id = ?
+            ");
+            $parentUpd->execute([$amount, $amount, $order['parent_order_id']]);
+
+            $pdo->commit();
+            return ['success' => true, 'message' => 'Reservation cancelled. Tokens returned to buy pool.'];
+        } catch (Exception $e) {
+            $pdo->rollBack();
+            return ['success' => false, 'error' => 'Failed to cancel reservation: ' . $e->getMessage()];
+        }
+    }
+
+    /**
      * Buyer submits UPI payment proof within 10-minute window (FR-009)
      */
     public static function submitPaymentProof(int $childOrderId, int $buyerId, string $utr, string $screenshotPath, ?string $notes = null): array {
@@ -406,15 +454,45 @@ class StateMachine {
             }
         }
 
-        // 2. Transition seller verification timeout past 15 minutes (FR-017)
+        // 2. Transition seller verification timeout past 15 minutes to Appeal state (Requirement 4 & 5)
         $timeoutStmt = $pdo->prepare("
-            UPDATE child_orders
-            SET status = 'Seller Response Timeout'
+            SELECT id, seller_id, buyer_id, amount
+            FROM child_orders
             WHERE status IN ('Payment Proof Submitted', 'Seller Confirmation Pending')
               AND verification_deadline < ?
         ");
         $timeoutStmt->execute([$nowUtc]);
-        $timeoutCount = $timeoutStmt->rowCount();
+        $timeouts = $timeoutStmt->fetchAll();
+
+        foreach ($timeouts as $to) {
+            $childOrderId = (int)$to['id'];
+            $sellerId = (int)$to['seller_id'];
+            $buyerId = (int)$to['buyer_id'];
+
+            // Automatically transition to Disputed / Appeal state
+            $upd = $pdo->prepare("UPDATE child_orders SET status = 'Disputed' WHERE id = ?");
+            $upd->execute([$childOrderId]);
+
+            // Auto-create arbitration dispute if not already exists
+            $dispChk = $pdo->prepare("SELECT id FROM disputes WHERE child_order_id = ?");
+            $dispChk->execute([$childOrderId]);
+            if (!$dispChk->fetch()) {
+                $insDisp = $pdo->prepare("
+                    INSERT INTO disputes (child_order_id, raised_by_user_id, raised_by_role, reason, status, created_at)
+                    VALUES (?, ?, 'buyer', 'Auto-escalated to arbitration: Seller did not confirm receipt within 15-minute verification SLA.', 'pending', ?)
+                ");
+                $insDisp->execute([$childOrderId, $buyerId, $nowUtc]);
+            }
+
+            // Deduct Health Score from seller for delayed confirmation (-10 points)
+            Auth::adjustHealthScore($sellerId, -10, "Delayed confirmation past 15-minute SLA on Order #{$childOrderId}");
+
+            // Dispatch notifications to both parties
+            Auth::createNotification($sellerId, 'Order Escalated to Appeal', "Order #{$childOrderId} exceeded the 15-minute verification window and has transitioned to Appeal arbitration. 10 points deducted from your Health Score.", 'warning', (string)$childOrderId);
+            Auth::createNotification($buyerId, 'Order Escalated to Appeal', "Seller did not confirm Order #{$childOrderId} within 15 minutes. It has been escalated to Admin Arbitration.", 'info', (string)$childOrderId);
+
+            $timeoutCount++;
+        }
 
         return [
             'expired_buyer_reservations' => $expiredCount,

@@ -108,6 +108,62 @@ switch ($action) {
         }
         break;
 
+    case 'change_password':
+        $user = Auth::getCurrentUser();
+        if (!$user) jsonError('Not authenticated.', 401);
+        if ($user['is_impersonating']) {
+            jsonError('Password changes are disabled in Admin Support Mode.', 403);
+        }
+
+        $currentPassword = (string)($input['current_password'] ?? '');
+        $newPassword = (string)($input['new_password'] ?? '');
+
+        if (empty($currentPassword) || empty($newPassword)) {
+            jsonError('Current password and new password are both required.');
+        }
+
+        $res = Auth::changePassword($user['id'], $currentPassword, $newPassword);
+        if ($res['success']) {
+            jsonResponse(true, ['message' => $res['message']]);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
+    case 'notifications':
+        $user = Auth::getCurrentUser();
+        if (!$user) jsonError('Not authenticated.', 401);
+
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare("
+            SELECT id, title, message, type, is_read, reference_id, created_at
+            FROM notifications
+            WHERE user_id = ?
+            ORDER BY id DESC
+            LIMIT 25
+        ");
+        $stmt->execute([$user['id']]);
+        $list = $stmt->fetchAll();
+
+        $unreadStmt = $pdo->prepare("SELECT COUNT(*) FROM notifications WHERE user_id = ? AND is_read = 0");
+        $unreadStmt->execute([$user['id']]);
+        $unreadCount = (int)$unreadStmt->fetchColumn();
+
+        jsonResponse(true, [
+            'notifications' => $list,
+            'unread_count' => $unreadCount
+        ]);
+        break;
+
+    case 'mark_notifications_read':
+        $user = Auth::getCurrentUser();
+        if (!$user) jsonError('Not authenticated.', 401);
+
+        $pdo = Database::getConnection();
+        $pdo->prepare("UPDATE notifications SET is_read = 1 WHERE user_id = ?")->execute([$user['id']]);
+        jsonResponse(true, ['message' => 'Notifications marked as read.']);
+        break;
+
     case 'exit_impersonation':
         require_once __DIR__ . '/../src/AdminManager.php';
         AdminManager::exitImpersonation();

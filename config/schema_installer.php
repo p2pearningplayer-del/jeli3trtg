@@ -60,6 +60,7 @@ class SchemaInstaller {
             referred_by_id INTEGER,
             upi_id TEXT,
             account_holder_name TEXT,
+            health_score INTEGER NOT NULL DEFAULT 100,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (referred_by_id) REFERENCES users(id) ON DELETE SET NULL
@@ -223,7 +224,8 @@ class SchemaInstaller {
             'admin_role' => 'TEXT',
             'is_demo' => 'INTEGER NOT NULL DEFAULT 0',
             'is_flagged' => 'INTEGER NOT NULL DEFAULT 0',
-            'flag_reason' => 'TEXT'
+            'flag_reason' => 'TEXT',
+            'health_score' => 'INTEGER NOT NULL DEFAULT 100'
         ];
 
         $dispCols = [
@@ -238,7 +240,8 @@ class SchemaInstaller {
                 'admin_role' => "ENUM('super_admin', 'order_manager', 'dispute_manager') DEFAULT NULL",
                 'is_demo' => 'TINYINT(1) NOT NULL DEFAULT 0',
                 'is_flagged' => 'TINYINT(1) NOT NULL DEFAULT 0',
-                'flag_reason' => 'VARCHAR(255) DEFAULT NULL'
+                'flag_reason' => 'VARCHAR(255) DEFAULT NULL',
+                'health_score' => 'INT NOT NULL DEFAULT 100'
             ];
             $dispCols = [
                 'additional_evidence_requested' => 'TINYINT(1) NOT NULL DEFAULT 0',

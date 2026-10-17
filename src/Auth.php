@@ -132,7 +132,8 @@ class Auth {
                 'referral_code' => $user['referral_code'],
                 'has_tpin' => !empty($user['tpin_hash']),
                 'upi_id' => $user['upi_id'],
-                'account_holder_name' => $user['account_holder_name']
+                'account_holder_name' => $user['account_holder_name'],
+                'health_score' => (int)($user['health_score'] ?? 100)
             ]
         ];
     }
@@ -280,6 +281,7 @@ class Auth {
         $stmt = $pdo->prepare("
             SELECT id, phone, email, role, admin_role, is_demo, is_flagged, flag_reason,
                    account_status, referral_code, referred_by_id, upi_id, account_holder_name,
+                   health_score,
                    (tpin_hash IS NOT NULL AND tpin_hash != '') AS has_tpin
             FROM users
             WHERE id = ?
@@ -292,9 +294,84 @@ class Auth {
             return null;
         }
 
+        $user['health_score'] = (int)($user['health_score'] ?? 100);
         $user['is_impersonating'] = !empty($_SESSION['is_impersonating']);
         $user['real_admin_id'] = $_SESSION['real_admin_id'] ?? null;
         return $user;
+    }
+
+    /**
+     * Change user password (Requirement 7)
+     */
+    public static function changePassword(int $userId, string $currentPassword, string $newPassword): array {
+        if (strlen($newPassword) < 6) {
+            return ['success' => false, 'error' => 'New password must be at least 6 characters.'];
+        }
+
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare("SELECT password_hash FROM users WHERE id = ?");
+        $stmt->execute([$userId]);
+        $user = $stmt->fetch();
+
+        if (!$user || !password_verify($currentPassword, $user['password_hash'])) {
+            return ['success' => false, 'error' => 'Current password is incorrect.'];
+        }
+
+        $newHash = password_hash($newPassword, PASSWORD_BCRYPT);
+        $upd = $pdo->prepare("UPDATE users SET password_hash = ? WHERE id = ?");
+        $upd->execute([$newHash, $userId]);
+
+        self::createNotification($userId, 'Security Alert', 'Your account login password was successfully updated.', 'info');
+
+        return ['success' => true, 'message' => 'Login password updated successfully.'];
+    }
+
+    /**
+     * Adjust user Health / Credit Score and auto-ban if score drops to <= 50 (Requirement 5)
+     */
+    public static function adjustHealthScore(int $userId, int $delta, string $reason): array {
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare("SELECT health_score, account_status FROM users WHERE id = ?");
+        $stmt->execute([$userId]);
+        $user = $stmt->fetch();
+        if (!$user) return ['success' => false, 'error' => 'User not found.'];
+
+        $curScore = (int)($user['health_score'] ?? 100);
+        $newScore = max(0, min(100, $curScore + $delta));
+        $newStatus = ($newScore <= 50) ? 'suspended' : $user['account_status'];
+
+        $upd = $pdo->prepare("UPDATE users SET health_score = ?, account_status = ? WHERE id = ?");
+        $upd->execute([$newScore, $newStatus, $userId]);
+
+        $title = ($delta < 0) ? 'Health Score Deducted' : 'Health Score Updated';
+        $msg = "Your Health Score was changed by {$delta} points ({$newScore}/100). Reason: {$reason}.";
+        if ($newScore <= 50) {
+            $msg .= " WARNING: Your account was automatically suspended because your Health Score dropped to 50 or below.";
+        }
+        self::createNotification($userId, $title, $msg, ($delta < 0 ? 'warning' : 'info'));
+
+        return [
+            'success' => true,
+            'old_score' => $curScore,
+            'new_score' => $newScore,
+            'is_banned' => ($newScore <= 50)
+        ];
+    }
+
+    /**
+     * Dispatch an in-app notification (Requirement 6)
+     */
+    public static function createNotification(int $userId, string $title, string $message, string $type = 'info', ?string $refId = null): void {
+        try {
+            $pdo = Database::getConnection();
+            $stmt = $pdo->prepare("
+                INSERT INTO notifications (user_id, title, message, type, reference_id, is_read, created_at)
+                VALUES (?, ?, ?, ?, ?, 0, ?)
+            ");
+            $stmt->execute([$userId, $title, $message, $type, $refId, gmdate('Y-m-d H:i:s')]);
+        } catch (Exception $e) {
+            // Non-blocking notification write
+        }
     }
 
     /**

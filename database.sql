@@ -35,6 +35,7 @@ CREATE TABLE `users` (
   `referred_by_id` INT DEFAULT NULL,
   `upi_id` VARCHAR(100) DEFAULT NULL,
   `account_holder_name` VARCHAR(100) DEFAULT NULL,
+  `health_score` INT NOT NULL DEFAULT 100,
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX `idx_users_phone` (`phone`),

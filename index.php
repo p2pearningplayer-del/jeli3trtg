@@ -192,10 +192,27 @@ endif;
                             <svg class="w-5 h-5 text-indigo-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg>
                         </div>
 
-                        <!-- Profile Trigger -->
-                        <button onclick="switchTab('profile')" class="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl border border-slate-700 transition" title="Profile">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
-                        </button>
+                        <!-- Notification Bell Button & Popover -->
+                        <div class="relative">
+                            <button id="notificationBellBtn" onclick="toggleNotifications()" class="relative p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl border border-slate-700 transition" title="Notifications">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+                                <span id="notifBadge" class="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full h-4 w-4 flex items-center justify-center hidden">0</span>
+                            </button>
+
+                            <!-- Notifications Dropdown Popover -->
+                            <div id="notificationsPopover" class="hidden absolute right-0 mt-2 w-80 sm:w-96 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-4 z-50 space-y-3">
+                                <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                                    <h4 class="text-sm font-bold text-white flex items-center gap-2">
+                                        Notifications
+                                        <span id="notifUnreadCountText" class="text-[10px] bg-indigo-500/20 text-indigo-400 px-1.5 py-0.5 rounded-full font-semibold">0 new</span>
+                                    </h4>
+                                    <button onclick="markNotificationsRead()" class="text-[11px] text-slate-400 hover:text-indigo-400 transition">Mark all read</button>
+                                </div>
+                                <div id="notificationsList" class="max-h-72 overflow-y-auto space-y-2 text-xs">
+                                    <div class="text-slate-500 text-center py-4">No notifications</div>
+                                </div>
+                            </div>
+                        </div>
 
                         <?php if ($isAdminUser): ?>
                         <!-- Dedicated Admin Console Link -->
@@ -204,11 +221,6 @@ endif;
                             <span class="hidden md:inline">Admin Console</span>
                         </a>
                         <?php endif; ?>
-
-                        <!-- Logout -->
-                        <button onclick="logout()" class="p-2 bg-slate-800 hover:bg-red-500/20 text-slate-400 hover:text-red-400 rounded-xl border border-slate-700 transition" title="Logout">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
-                        </button>
                     <?php else: ?>
                         <button onclick="openAuthModal('login')" class="text-xs sm:text-sm font-semibold text-slate-300 hover:text-white px-3 py-2 transition">
                             Sign In
@@ -397,35 +409,20 @@ endif;
                 </div>
             </div>
 
-            <!-- Unified Transaction History (Centralized Wallet Ledger) -->
-            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <h3 class="text-lg font-bold text-white">Unified Wallet Transaction History</h3>
-                        <p class="text-xs text-slate-400">All token movements (purchases, rewards, reserves, settlements, referrals) in one ledger</p>
+            <!-- Clean Transaction History Access (Item 3) -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
+                <div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs uppercase font-bold text-indigo-400 tracking-wider">Wallet Audit</span>
+                        <span class="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-mono">Real-time</span>
                     </div>
-                    <button onclick="loadLedger()" class="p-2 text-slate-400 hover:text-white bg-slate-950 border border-slate-800 rounded-lg transition" title="Refresh">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-                    </button>
+                    <h3 class="text-base sm:text-lg font-bold text-white mt-0.5">Transaction & Settlement History</h3>
+                    <p class="text-xs text-slate-400">View all completed, expired, and audited token movements without cluttering the screen</p>
                 </div>
-
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left text-xs">
-                        <thead class="bg-slate-950 text-slate-400 uppercase tracking-wider font-semibold border-b border-slate-800">
-                            <tr>
-                                <th class="p-3">Ledger ID</th>
-                                <th class="p-3">Action Type</th>
-                                <th class="p-3">Amount</th>
-                                <th class="p-3">Balance Progression</th>
-                                <th class="p-3">Reference / Order ID</th>
-                                <th class="p-3">Timestamp (UTC)</th>
-                            </tr>
-                        </thead>
-                        <tbody id="homeLedgerTableBody" class="divide-y divide-slate-800/60 font-mono text-slate-300">
-                            <!-- Populated dynamically via JS -->
-                        </tbody>
-                    </table>
-                </div>
+                <button onclick="openHistoryModal()" class="px-5 py-2.5 bg-slate-800 hover:bg-indigo-600 hover:text-white text-slate-200 border border-slate-700 hover:border-indigo-500 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 shadow-sm self-start sm:self-auto">
+                    <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <span>History</span>
+                </button>
             </div>
         </section>
 
@@ -433,36 +430,26 @@ endif;
         <!-- TAB 2: BUY (Buy Pool, Custom Match & Purchases) -->
         <!-- ========================================== -->
         <section id="view-buy" class="tab-view space-y-6 hidden">
-            <!-- Buy Hero Banner -->
-            <div class="bg-gradient-to-r from-indigo-950/70 via-slate-900 to-slate-900 border border-indigo-900/40 rounded-2xl p-6 sm:p-8 flex flex-col md:flex-row md:items-center justify-between gap-6 shadow-xl">
-                <div class="space-y-2 max-w-xl">
-                    <div class="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold uppercase tracking-wider">
-                        <span>✨ Active Promotion</span>
-                        <span>&bull;</span>
-                        <span>9% Instant Credit Reward</span>
-                    </div>
-                    <h2 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Purchase Peer-to-Peer Tokens</h2>
-                    <p class="text-sm text-slate-400">
-                        Select an available token portion or specify a custom buy amount. Complete direct manual UPI transfer within the 10-minute deadline to receive your tokens plus a 9% purchase reward.
-                    </p>
-                    <div class="flex items-center gap-2 pt-1 text-[11px] text-indigo-400 font-semibold">
-                        <svg class="w-4 h-4 text-emerald-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                        <span>Unified Account: Buy tokens, earn 9% rewards, and sell available tokens anytime. Self-trading is strictly prohibited.</span>
-                    </div>
-                </div>
-                <!-- Custom Buy Allocation Widget (FR-008) -->
-                <div class="bg-slate-950/80 border border-slate-800 rounded-xl p-5 w-full md:w-80 space-y-3">
-                    <span class="text-xs uppercase font-bold text-slate-300 tracking-wider block">Custom Buy Allocation</span>
-                    <div>
-                        <label class="text-[11px] text-slate-400 block mb-1">Enter Custom Amount (Multiples of ₹100)</label>
-                        <div class="relative">
-                            <span class="absolute left-3 top-2.5 text-slate-400 font-bold">₹</span>
-                            <input type="number" id="customBuyAmount" step="100" min="100" placeholder="5000" class="w-full bg-slate-900 border border-slate-700 rounded-lg pl-8 pr-3 py-2 text-sm text-white font-mono focus:border-indigo-500 focus:outline-none">
+            <!-- Custom Buy Allocation (Item 2 - Moved to Top) -->
+            <div class="bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-lg">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-5">
+                    <div class="space-y-1">
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs uppercase font-bold text-indigo-400 tracking-wider">Custom Buy</span>
+                            <span class="text-[11px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2.5 py-0.5 rounded-full font-semibold">+9% Instant Reward</span>
                         </div>
+                        <h2 class="text-lg sm:text-xl font-bold text-white">Allocate Custom Token Amount</h2>
+                        <p class="text-xs text-slate-400">Enter purchase amount in multiples of ₹100. System automatically splits or matches available sell portions.</p>
                     </div>
-                    <button onclick="requestCustomAllocation()" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 rounded-lg text-xs uppercase tracking-wider transition shadow-md shadow-indigo-600/30">
-                        Match & Allocate
-                    </button>
+                    <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:w-auto w-full">
+                        <div class="relative flex-1 sm:w-56">
+                            <span class="absolute left-3 top-2.5 text-slate-400 font-bold">₹</span>
+                            <input type="number" id="customBuyAmount" step="100" min="100" placeholder="5000" class="w-full bg-slate-950 border border-slate-700 rounded-xl pl-8 pr-3 py-2.5 text-sm text-white font-mono focus:border-indigo-500 focus:outline-none">
+                        </div>
+                        <button onclick="requestCustomAllocation()" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-6 py-2.5 rounded-xl text-xs uppercase tracking-wider transition shadow-md shadow-indigo-600/30 whitespace-nowrap">
+                            Match & Allocate
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -514,8 +501,14 @@ endif;
                     </div>
 
                     <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs flex justify-between items-center">
-                        <span class="text-slate-400">Available to Sell:</span>
-                        <span class="text-emerald-400 font-mono font-bold text-sm" id="sellFormAvailableBalance">₹0.00</span>
+                        <div class="flex items-center gap-1.5">
+                            <span class="text-slate-400">Health:</span>
+                            <span class="text-emerald-400 font-mono font-bold text-xs bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20" id="sellHealthScoreBadge">100 / 100</span>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-slate-400">Available:</span>
+                            <span class="text-emerald-400 font-mono font-bold text-sm ml-1" id="sellFormAvailableBalance">₹0.00</span>
+                        </div>
                     </div>
 
                     <div class="space-y-3">
@@ -633,17 +626,17 @@ endif;
                 <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
                     <div class="border-b border-slate-800 pb-3">
                         <span class="text-xs uppercase font-bold text-amber-400 tracking-wider">Security Protection</span>
-                        <h3 class="text-lg font-bold text-white mt-1">Selling Transaction PIN (TPIN)</h3>
+                        <h3 class="text-lg font-bold text-white mt-1" id="profileTpinHeader">Selling Transaction PIN (TPIN)</h3>
                         <p class="text-xs text-slate-400">Secondary 4–6 digit PIN required to authorize every sell order listing</p>
                     </div>
 
                     <form onsubmit="event.preventDefault(); handleTpinUpdate(event); return false;" class="space-y-3">
                         <div>
-                            <label class="text-xs font-semibold text-slate-300 block mb-1">Set New Selling TPIN (4-6 Digits)</label>
+                            <label class="text-xs font-semibold text-slate-300 block mb-1" id="profileTpinLabel">Set New Selling TPIN (4-6 Digits)</label>
                             <input type="password" id="profNewTpin" required maxlength="6" placeholder="••••" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white font-mono tracking-widest focus:border-amber-500 focus:outline-none">
                             <span class="text-[11px] text-slate-500 mt-1 block">Bcrypt hashed. Never stored in plaintext.</span>
                         </div>
-                        <button type="button" onclick="handleTpinUpdate(event)" class="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition">
+                        <button type="button" onclick="handleTpinUpdate(event)" id="profileTpinBtn" class="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition">
                             Save Selling TPIN
                         </button>
                     </form>
@@ -666,44 +659,62 @@ endif;
                             <span>Referral Code:</span>
                             <span class="text-indigo-400 font-mono font-bold" id="profileRefCodeDisplay">-</span>
                         </div>
+                        <div class="flex justify-between items-center text-slate-400 border-b border-slate-800/80 pb-2">
+                            <span>Health Score:</span>
+                            <span class="font-mono font-bold text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" id="profileHealthScoreDisplay">100 / 100</span>
+                        </div>
                         <div class="flex justify-between items-center text-slate-400">
                             <span>Account Status:</span>
-                            <span class="text-emerald-400 font-bold uppercase text-[11px] bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">Active Verified</span>
+                            <span class="text-emerald-400 font-bold uppercase text-[11px] bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20" id="profileStatusDisplay">Active Verified</span>
                         </div>
                     </div>
                 </div>
+
+                <!-- Change Password Configuration (Item 7) -->
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 md:col-span-2">
+                    <div class="border-b border-slate-800 pb-3">
+                        <span class="text-xs uppercase font-bold text-indigo-400 tracking-wider">Security Credentials</span>
+                        <h3 class="text-lg font-bold text-white mt-1">Change Account Password</h3>
+                        <p class="text-xs text-slate-400">Update your sign-in password to keep your unified wallet secure</p>
+                    </div>
+
+                    <form onsubmit="event.preventDefault(); handlePasswordChange(event); return false;" class="max-w-xl space-y-3">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                                <label class="text-xs font-semibold text-slate-300 block mb-1">Current Password</label>
+                                <input type="password" id="currentPasswordInput" required placeholder="••••••••" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:border-indigo-500 focus:outline-none">
+                            </div>
+                            <div>
+                                <label class="text-xs font-semibold text-slate-300 block mb-1">New Password (Min 6 chars)</label>
+                                <input type="password" id="newPasswordInput" required minlength="6" placeholder="••••••••" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:border-indigo-500 focus:outline-none">
+                            </div>
+                        </div>
+                        <div id="changePasswordStatus" class="text-xs font-semibold hidden"></div>
+                        <button type="submit" id="changePasswordBtn" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-6 py-2.5 rounded-xl text-xs uppercase tracking-wider transition shadow-md shadow-indigo-600/30">
+                            Update Password
+                        </button>
+                    </form>
+                </div>
             </div>
 
-            <!-- Complete Unified Ledger Audit Log -->
-            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <h3 class="text-lg font-bold text-white">Complete Wallet Audit History</h3>
-                        <p class="text-xs text-slate-400">Immutable, append-only record of every token credit, debit, reward, and settlement</p>
-                    </div>
-                    <button onclick="loadLedger()" class="p-2 text-slate-400 hover:text-white bg-slate-950 border border-slate-800 rounded-lg transition" title="Refresh Ledger">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-                    </button>
+            <!-- Transaction History Card with Check Link (Item 7) -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 flex items-center justify-between shadow-sm">
+                <div>
+                    <h3 class="text-base font-bold text-white">Complete Wallet Audit History</h3>
+                    <p class="text-xs text-slate-400">Review all historical credits, debits, orders, and settlements</p>
                 </div>
+                <button onclick="openHistoryModal()" class="text-indigo-400 hover:text-indigo-300 text-sm font-bold flex items-center gap-1.5 hover:underline px-3 py-1.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 transition">
+                    <span>Check</span>
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                </button>
+            </div>
 
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left text-xs">
-                        <thead class="bg-slate-950 text-slate-400 uppercase tracking-wider font-semibold border-b border-slate-800">
-                            <tr>
-                                <th class="p-3">ID</th>
-                                <th class="p-3">Type</th>
-                                <th class="p-3">Amount</th>
-                                <th class="p-3">Previous Balance</th>
-                                <th class="p-3">New Balance</th>
-                                <th class="p-3">Order / Reference</th>
-                                <th class="p-3">Timestamp (UTC)</th>
-                            </tr>
-                        </thead>
-                        <tbody id="profileLedgerTableBody" class="divide-y divide-slate-800/60 font-mono text-slate-300">
-                            <!-- Populated dynamically via JS -->
-                        </tbody>
-                    </table>
-                </div>
+            <!-- Clean Logout Button at Very Bottom (Item 7) -->
+            <div class="pt-2">
+                <button onclick="logout()" class="w-full bg-slate-900 hover:bg-red-500/20 text-red-400 hover:text-red-300 border border-slate-800 hover:border-red-500/40 font-bold py-3.5 rounded-2xl transition flex items-center justify-center gap-2 text-sm shadow-md">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+                    <span>Sign Out of Account</span>
+                </button>
             </div>
         </section>
 
@@ -918,16 +929,23 @@ endif;
         </div>
     </div>
 
-    <!-- 2. Payment Proof Submission Modal (FR-009) -->
+    <!-- 2. Payment Proof Submission Modal (FR-009 / Item 4) -->
     <div id="proofModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
-        <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl relative space-y-4">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl relative space-y-4">
             <button onclick="closeProofModal()" class="absolute right-4 top-4 text-slate-400 hover:text-white">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
             </button>
-            <div>
-                <span class="text-xs uppercase font-bold text-indigo-400 tracking-wider">Step 2 of 2</span>
-                <h3 class="text-xl font-bold text-white mt-1">Submit UPI Payment Proof</h3>
-                <p class="text-xs text-slate-400 mt-1">Order #<span id="proofModalOrderId"></span> &bull; Amount: <span id="proofModalAmount" class="font-bold text-white font-mono"></span></p>
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3 pr-8">
+                <div>
+                    <span class="text-xs uppercase font-bold text-indigo-400 tracking-wider">Step 2 of 2</span>
+                    <h3 class="text-xl font-bold text-white mt-0.5">Submit UPI Payment Proof</h3>
+                    <p class="text-xs text-slate-400">Order #<span id="proofModalOrderId"></span> &bull; Amount: <span id="proofModalAmount" class="font-bold text-white font-mono"></span></p>
+                </div>
+                <!-- 10-Minute Side Timer (Item 4) -->
+                <div class="text-right bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 flex-shrink-0">
+                    <span class="text-[10px] text-slate-400 uppercase font-semibold block leading-none">Time Left</span>
+                    <span class="text-sm font-black text-amber-400 font-mono" id="proofModalCountdown">10:00</span>
+                </div>
             </div>
 
             <!-- Seller Payment Target Box -->
@@ -953,21 +971,87 @@ endif;
                 </div>
 
                 <div>
-                    <label class="text-xs font-semibold text-slate-300 block mb-1">Payment Screenshot Proof</label>
-                    <input type="file" id="proofFileInput" accept="image/*" required onchange="handleFileUpload(this, 'proof')" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-600 file:text-white hover:file:bg-indigo-500">
-                    <span id="uploadStatusText" class="text-[11px] text-slate-500 mt-1 block">Upload clear screenshot showing UTR and success status</span>
+                    <label class="text-xs font-semibold text-slate-300 block mb-1">Payment Screenshot Proof (Select One or Multiple Files)</label>
+                    <input type="file" id="proofFileInput" accept="image/*,.pdf" multiple required onchange="handleFileUpload(this, 'proof')" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-600 file:text-white hover:file:bg-indigo-500">
+                    <span id="uploadStatusText" class="text-[11px] text-slate-500 mt-1 block">Select clear screenshots showing UTR and success status</span>
                 </div>
 
                 <div id="proofError" class="text-xs text-red-400 font-semibold hidden"></div>
 
-                <button type="submit" id="proofSubmitBtn" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-emerald-600/30 transition text-sm">
-                    Confirm & Send Proof to Seller
-                </button>
+                <!-- Two Distinct Action Buttons (Item 4) -->
+                <div class="grid grid-cols-2 gap-3 pt-2">
+                    <button type="button" onclick="cancelCurrentReservation()" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-3 rounded-xl transition text-sm">
+                        Cancel
+                    </button>
+                    <button type="submit" id="proofSubmitBtn" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-emerald-600/30 transition text-sm flex items-center justify-center text-center">
+                        Submit and Send Proof to Seller
+                    </button>
+                </div>
             </form>
         </div>
     </div>
 
-    <!-- 3. Dispute Appeal Modal (FR-016) -->
+    <!-- 3. Seller Confirmation Pop-up Modal ("Confirmation Please" - Item 1) -->
+    <div id="confirmationModal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-slate-900 border border-amber-500/40 rounded-3xl max-w-lg w-full p-6 sm:p-7 shadow-2xl relative space-y-5">
+            <div class="flex items-start justify-between border-b border-slate-800 pb-4">
+                <div class="flex items-center gap-3">
+                    <div class="h-10 w-10 rounded-2xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 flex-shrink-0">
+                        <svg class="w-6 h-6 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                    </div>
+                    <div>
+                        <h3 class="text-xl font-black text-white">Confirmation Please</h3>
+                        <p class="text-xs text-amber-300">Buyer has uploaded payment proof</p>
+                    </div>
+                </div>
+                <!-- 15-minute Seller Verification Timer (Item 1) -->
+                <div class="text-right bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 flex-shrink-0">
+                    <span class="text-[10px] text-slate-400 uppercase font-semibold block leading-none">Time Left</span>
+                    <span class="text-sm font-black text-amber-400 font-mono" id="confirmModalTimer">15:00</span>
+                </div>
+            </div>
+
+            <!-- Order Details -->
+            <div class="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-3 text-xs">
+                <div class="flex justify-between items-center text-slate-400">
+                    <span>Order Portion:</span>
+                    <span class="text-white font-mono font-bold" id="confirmModalOrderId">#--</span>
+                </div>
+                <div class="flex justify-between items-center text-slate-400">
+                    <span>Amount Received (₹):</span>
+                    <span class="text-emerald-400 font-mono font-black text-base" id="confirmModalAmount">₹0.00</span>
+                </div>
+                <div class="flex justify-between items-center text-slate-400">
+                    <span>Submitted UTR:</span>
+                    <span class="text-white font-mono font-bold select-all bg-slate-900 px-2 py-0.5 rounded border border-slate-800" id="confirmModalUtr">--</span>
+                </div>
+                <div class="flex flex-col gap-1 text-slate-400 pt-2 border-t border-slate-800">
+                    <span>Buyer Proof Screenshots:</span>
+                    <div id="confirmModalProofsContainer" class="flex gap-2 flex-wrap pt-1">
+                        <!-- Populated dynamically via JS -->
+                    </div>
+                </div>
+            </div>
+
+            <div class="text-[11px] text-slate-400 leading-relaxed bg-indigo-500/10 border border-indigo-500/20 rounded-xl p-3">
+                ⚠️ <strong class="text-slate-200">Important:</strong> Check your bank account or UPI statement directly. If credited, click 'Receipt'. If payment is not received, click 'Appeal' to upload bank statements or video proof.
+            </div>
+
+            <!-- Action Buttons: Receipt vs Appeal (Item 1) -->
+            <div class="grid grid-cols-2 gap-3 pt-1">
+                <button type="button" onclick="handleConfirmationAppeal()" class="w-full bg-red-600/90 hover:bg-red-500 text-white font-bold py-3 rounded-xl transition text-sm flex items-center justify-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                    <span>Appeal</span>
+                </button>
+                <button type="button" onclick="handleConfirmationReceipt()" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-emerald-600/30 transition text-sm flex items-center justify-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                    <span>Receipt</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 4. Dispute Appeal Modal (FR-016 / Item 1 - Video, Statements, PDF Proofs) -->
     <div id="appealModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
         <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl relative space-y-4">
             <button onclick="closeAppealModal()" class="absolute right-4 top-4 text-slate-400 hover:text-white">
@@ -976,7 +1060,7 @@ endif;
             <div>
                 <span class="text-xs uppercase font-bold text-red-400 tracking-wider">Dispute Filing</span>
                 <h3 class="text-xl font-bold text-white mt-1">Payment Not Received</h3>
-                <p class="text-xs text-slate-400 mt-1">Order #<span id="appealOrderId"></span> &bull; Appeal triggers permanent freeze and escalates to Admin Console</p>
+                <p class="text-xs text-slate-400 mt-1">Order #<span id="appealOrderId"></span> &bull; Upload statement, video, or PDF proof for Admin arbitration</p>
             </div>
 
             <form id="appealForm" onsubmit="handleAppealSubmit(event)" class="space-y-4">
@@ -989,9 +1073,9 @@ endif;
                 </div>
 
                 <div>
-                    <label class="text-xs font-semibold text-slate-300 block mb-1">Bank Statement / Screenshot Evidence (Optional)</label>
-                    <input type="file" id="appealFileInput" accept="image/*" onchange="handleFileUpload(this, 'evidence')" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-red-600 file:text-white hover:file:bg-red-500">
-                    <span id="appealUploadStatusText" class="text-[11px] text-slate-500 mt-1 block">Attach recent bank passbook/statement excerpt</span>
+                    <label class="text-xs font-semibold text-slate-300 block mb-1">Bank Statement / Video / PDF Evidence (Optional)</label>
+                    <input type="file" id="appealFileInput" accept="image/*,video/*,.pdf" onchange="handleFileUpload(this, 'evidence')" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-red-600 file:text-white hover:file:bg-red-500">
+                    <span id="appealUploadStatusText" class="text-[11px] text-slate-500 mt-1 block">Attach recent bank statement, video recording, or PDF proof</span>
                 </div>
 
                 <div id="appealError" class="text-xs text-red-400 font-semibold hidden"></div>
@@ -1000,6 +1084,44 @@ endif;
                     Freeze Order & Escalate to Admin
                 </button>
             </form>
+        </div>
+    </div>
+
+    <!-- 5. Dedicated Transaction History Modal (Item 3 & 7) -->
+    <div id="historyModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-4xl w-full p-6 sm:p-8 shadow-2xl relative space-y-4 max-h-[90vh] flex flex-col">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-4">
+                <div>
+                    <h3 class="text-xl font-bold text-white">Wallet Transaction History</h3>
+                    <p class="text-xs text-slate-400">All token movements, purchases, rewards, reserves, and settlements</p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="loadLedger()" class="p-2 text-slate-400 hover:text-white bg-slate-950 border border-slate-800 rounded-xl transition" title="Refresh">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    </button>
+                    <button onclick="closeHistoryModal()" class="p-2 text-slate-400 hover:text-white bg-slate-950 border border-slate-800 rounded-xl transition">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                </div>
+            </div>
+
+            <div class="overflow-y-auto flex-1">
+                <table class="w-full text-left text-xs">
+                    <thead class="bg-slate-950 text-slate-400 uppercase tracking-wider font-semibold border-b border-slate-800 sticky top-0">
+                        <tr>
+                            <th class="p-3">ID</th>
+                            <th class="p-3">Type</th>
+                            <th class="p-3">Amount</th>
+                            <th class="p-3">Balance Progression</th>
+                            <th class="p-3">Order / Reference</th>
+                            <th class="p-3">Timestamp (UTC)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="modalLedgerTableBody" class="divide-y divide-slate-800/60 font-mono text-slate-300">
+                        <!-- Populated dynamically via JS -->
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 

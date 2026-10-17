@@ -69,6 +69,24 @@ switch ($action) {
         }
         break;
 
+    case 'cancel':
+        if ($user['is_impersonating']) {
+            jsonError('Order cancellation is disabled in Admin Support Mode.', 403);
+        }
+
+        $orderId = (int)($input['order_id'] ?? 0);
+        if ($orderId <= 0) {
+            jsonError('Invalid order ID.');
+        }
+
+        $res = StateMachine::cancelReservation($orderId, $user['id']);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
     case 'custom_allocation':
         if ($user['is_impersonating']) {
             jsonError('Order allocation is disabled in Admin Support Mode.', 403);

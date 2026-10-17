@@ -7,6 +7,10 @@
 let currentUser = null;
 let currentTab = 'home';
 let activeTimers = {};
+let pendingConfirmOrderId = null;
+let pendingConfirmSeconds = 0;
+let proofModalSeconds = 0;
+let notificationsOpen = false;
 
 document.addEventListener('DOMContentLoaded', () => {
     initApp();
@@ -26,6 +30,10 @@ async function initApp() {
         }
         return;
     }
+
+    loadNotifications();
+    checkPendingSellerConfirmations();
+
     const tabParam = urlParams.get('tab');
     if (tabParam) {
         switchTab(tabParam);
@@ -81,6 +89,52 @@ function updateProfilePreviews(user) {
     const refCodeDisplay = document.getElementById('profileRefCodeDisplay');
     if (phoneDisplay && user.phone) phoneDisplay.innerText = user.phone;
     if (refCodeDisplay && user.referral_code) refCodeDisplay.innerText = user.referral_code;
+
+    // User Health Score System (Item 5)
+    const healthScore = (user.health_score !== undefined && user.health_score !== null) ? parseInt(user.health_score, 10) : 100;
+    const isHealthy = healthScore > 50;
+    const badgeText = `${healthScore} / 100`;
+
+    const sellBadge = document.getElementById('sellHealthScoreBadge');
+    if (sellBadge) {
+        sellBadge.innerText = badgeText;
+        sellBadge.className = isHealthy 
+            ? "text-emerald-400 font-mono font-bold text-xs bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20"
+            : "text-red-400 font-mono font-bold text-xs bg-red-500/10 px-2 py-0.5 rounded-full border border-red-500/20";
+    }
+
+    const profBadge = document.getElementById('profileHealthScoreDisplay');
+    if (profBadge) {
+        profBadge.innerText = badgeText;
+        profBadge.className = isHealthy 
+            ? "font-mono font-bold text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+            : "font-mono font-bold text-xs px-2.5 py-0.5 rounded-full bg-red-500/10 text-red-400 border border-red-500/20";
+    }
+
+    const statusDisplay = document.getElementById('profileStatusDisplay');
+    if (statusDisplay && user.account_status) {
+        if (user.account_status === 'suspended') {
+            statusDisplay.innerText = 'Suspended';
+            statusDisplay.className = 'text-red-400 font-bold uppercase text-[11px] bg-red-500/10 px-2 py-0.5 rounded-full border border-red-500/20';
+        } else {
+            statusDisplay.innerText = 'Active Verified';
+            statusDisplay.className = 'text-emerald-400 font-bold uppercase text-[11px] bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20';
+        }
+    }
+
+    // Dynamic T-PIN Configuration Text (Item 7)
+    const tpinHeader = document.getElementById('profileTpinHeader');
+    const tpinLabel = document.getElementById('profileTpinLabel');
+    const tpinBtn = document.getElementById('profileTpinBtn');
+    if (user.has_tpin) {
+        if (tpinHeader) tpinHeader.innerText = "Change Selling TPIN (TPIN)";
+        if (tpinLabel) tpinLabel.innerText = "Change Selling TPIN (4-6 Digits)";
+        if (tpinBtn) tpinBtn.innerText = "Change Selling TPIN";
+    } else {
+        if (tpinHeader) tpinHeader.innerText = "Selling Transaction PIN (TPIN)";
+        if (tpinLabel) tpinLabel.innerText = "Set New Selling TPIN (4-6 Digits)";
+        if (tpinBtn) tpinBtn.innerText = "Save Selling TPIN";
+    }
 }
 
 function switchTab(tabId) {
@@ -126,6 +180,8 @@ function switchTab(tabId) {
 
 function periodicSync() {
     if (!currentUser) return;
+    loadNotifications();
+    checkPendingSellerConfirmations();
     if (currentTab === 'home') { loadWalletStats(true); }
     if (currentTab === 'buy') { loadBuyPool(true); loadMyPurchases(true); }
     if (currentTab === 'sell') { loadSellerDashboard(true); loadWalletStats(true); }
@@ -557,16 +613,30 @@ async function loadMyPurchases(silent = false) {
                                         ${formatSeconds(p.seconds_remaining)}
                                     </span>
                                 </div>
-                                <button onclick="openProofModal(${p.id}, ${p.amount}, '${escapeHtml(p.snapshotted_upi_id)}', '${escapeHtml(p.snapshotted_account_holder)}')" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition shadow-md shadow-emerald-600/30">
+                                <button onclick="openProofModal(${p.id}, ${p.amount}, '${escapeHtml(p.snapshotted_upi_id)}', '${escapeHtml(p.snapshotted_account_holder)}', ${p.seconds_remaining || 600})" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition shadow-md shadow-emerald-600/30">
                                     Submit UPI Proof
                                 </button>
                             ` : (p.status === 'Seller Confirmation Pending' ? `
-                                <div class="text-right">
-                                    <span class="text-slate-400 text-[11px] block">Seller SLA Verification:</span>
-                                    <span class="text-sm font-bold font-mono text-indigo-400" id="timer_order_${p.id}">
-                                        ${formatSeconds(p.seconds_remaining)}
-                                    </span>
-                                    ${p.utr_number ? `<span class="text-[11px] text-slate-500 block mt-1 font-mono">UTR: ${escapeHtml(p.utr_number)}</span>` : ''}
+                                <div class="text-right space-y-1">
+                                    <div class="flex items-center gap-1.5 sm:justify-end text-xs font-bold text-indigo-400">
+                                        <span class="inline-block w-2 h-2 rounded-full bg-indigo-400 animate-ping"></span>
+                                        <span>Already Verified / Verifying</span>
+                                    </div>
+                                    <div class="text-[11px] text-slate-400">
+                                        Seller SLA: <span class="font-mono font-bold text-indigo-300 ml-1" id="timer_order_${p.id}">${formatSeconds(p.seconds_remaining)}</span>
+                                    </div>
+                                    <p class="text-[10px] text-slate-500 max-w-xs sm:text-right">
+                                        Auto-escalates to Appeal/Dispute if seller does not verify within 15 mins.
+                                    </p>
+                                    ${p.utr_number ? `<span class="text-[11px] text-slate-400 block font-mono">UTR: ${escapeHtml(p.utr_number)}</span>` : ''}
+                                </div>
+                            ` : (p.status === 'Disputed' ? `
+                                <div class="text-right space-y-1">
+                                    <div class="text-red-400 font-bold text-xs flex items-center gap-1 sm:justify-end">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                                        <span>Under Appeal / Arbitration</span>
+                                    </div>
+                                    <p class="text-[10px] text-slate-400 max-w-xs sm:text-right">Escalated to Admin Console. Tokens safely locked in escrow.</p>
                                 </div>
                             ` : (p.status === 'Completed' ? `
                                 <div class="text-emerald-400 font-bold text-xs flex items-center gap-1">
@@ -575,7 +645,7 @@ async function loadMyPurchases(silent = false) {
                                 </div>
                             ` : `
                                 <span class="text-slate-500 text-xs">Status: ${p.status}</span>
-                            `))}
+                            `)))}
                         </div>
                     </div>
                 </div>
@@ -586,7 +656,7 @@ async function loadMyPurchases(silent = false) {
     }
 }
 
-function openProofModal(orderId, amount, sellerUpi, sellerName) {
+function openProofModal(orderId, amount, sellerUpi, sellerName, secondsRemaining = 600) {
     document.getElementById('proofModalOrderId').innerText = orderId;
     document.getElementById('proofOrderIdInput').value = orderId;
     document.getElementById('proofModalAmount').innerText = `₹${parseFloat(amount).toLocaleString('en-IN')}`;
@@ -594,8 +664,15 @@ function openProofModal(orderId, amount, sellerUpi, sellerName) {
     document.getElementById('proofModalSellerName').innerText = sellerName;
     document.getElementById('proofUtrInput').value = '';
     document.getElementById('proofScreenshotPath').value = '';
-    document.getElementById('uploadStatusText').innerText = 'Upload clear screenshot showing UTR and success status';
+    const fileInput = document.getElementById('proofFileInput');
+    if (fileInput) fileInput.value = '';
+    document.getElementById('uploadStatusText').innerText = 'Select clear screenshots showing UTR and success status';
     document.getElementById('proofError').classList.add('hidden');
+
+    proofModalSeconds = secondsRemaining > 0 ? secondsRemaining : 600;
+    const cd = document.getElementById('proofModalCountdown');
+    if (cd) cd.innerText = formatSeconds(proofModalSeconds);
+
     document.getElementById('proofModal').classList.remove('hidden');
 }
 
@@ -603,16 +680,48 @@ function closeProofModal() {
     document.getElementById('proofModal').classList.add('hidden');
 }
 
+async function cancelCurrentReservation() {
+    const orderId = document.getElementById('proofOrderIdInput').value;
+    if (!orderId) {
+        closeProofModal();
+        return;
+    }
+    if (!confirm(`Are you sure you want to cancel order reservation #${orderId}? Tokens will be released back to the market pool.`)) {
+        return;
+    }
+    try {
+        const res = await fetch('/api/buy.php?action=cancel', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ order_id: parseInt(orderId, 10) })
+        });
+        const data = await res.json();
+        if (data.success) {
+            alert('Reservation cancelled. The order portion is back in the market pool.');
+            closeProofModal();
+            loadMyPurchases();
+            loadBuyPool();
+            fetchSession();
+        } else {
+            alert(data.error || 'Failed to cancel reservation.');
+        }
+    } catch (e) {
+        alert('Network error cancelling reservation.');
+    }
+}
+
 async function handleFileUpload(fileInput, type) {
-    const file = fileInput.files[0];
-    if (!file) return;
+    if (!fileInput.files || fileInput.files.length === 0) return;
 
     const formData = new FormData();
-    formData.append('file', file);
+    for (let i = 0; i < fileInput.files.length; i++) {
+        formData.append('files[]', fileInput.files[i]);
+    }
+    formData.append('file', fileInput.files[0]);
     formData.append('type', type);
 
     const statusEl = (type === 'evidence') ? document.getElementById('appealUploadStatusText') : document.getElementById('uploadStatusText');
-    if (statusEl) statusEl.innerHTML = '<span class="text-indigo-400 font-semibold">Uploading encrypted file...</span>';
+    if (statusEl) statusEl.innerHTML = `<span class="text-indigo-400 font-semibold">Uploading ${fileInput.files.length} encrypted file(s)...</span>`;
 
     try {
         const res = await fetch('/api/uploads.php', {
@@ -621,12 +730,13 @@ async function handleFileUpload(fileInput, type) {
         });
         const data = await res.json();
         if (data.success) {
+            const finalPath = data.file_path || (data.file_paths ? data.file_paths.join(',') : '');
             if (type === 'evidence') {
-                document.getElementById('appealEvidencePath').value = data.file_path;
+                document.getElementById('appealEvidencePath').value = finalPath;
             } else {
-                document.getElementById('proofScreenshotPath').value = data.file_path;
+                document.getElementById('proofScreenshotPath').value = finalPath;
             }
-            if (statusEl) statusEl.innerHTML = '<span class="text-emerald-400 font-semibold">✓ Upload completed</span>';
+            if (statusEl) statusEl.innerHTML = `<span class="text-emerald-400 font-semibold">✓ ${fileInput.files.length} file(s) uploaded successfully</span>`;
         } else {
             alert(data.error || 'Upload failed.');
             if (statusEl) statusEl.innerText = 'Upload failed. Please try again.';
@@ -801,6 +911,7 @@ async function loadLedger() {
         const data = await res.json();
         const homeBody = document.getElementById('homeLedgerTableBody');
         const profileBody = document.getElementById('profileLedgerTableBody');
+        const modalBody = document.getElementById('modalLedgerTableBody');
         const fallbackBody = document.getElementById('ledgerTableBody');
 
         if (!data.success || !data.ledger || data.ledger.length === 0) {
@@ -808,6 +919,7 @@ async function loadLedger() {
             const emptyRowProfile = `<tr><td colspan="7" class="p-6 text-center text-slate-500 font-sans">No wallet audit records found.</td></tr>`;
             if (homeBody) homeBody.innerHTML = emptyRowHome;
             if (profileBody) profileBody.innerHTML = emptyRowProfile;
+            if (modalBody) modalBody.innerHTML = emptyRowHome;
             if (fallbackBody) fallbackBody.innerHTML = emptyRowHome;
             return;
         }
@@ -860,10 +972,22 @@ async function loadLedger() {
 
         if (homeBody) homeBody.innerHTML = homeHtml;
         if (profileBody) profileBody.innerHTML = profileHtml;
+        if (modalBody) modalBody.innerHTML = homeHtml;
         if (fallbackBody) fallbackBody.innerHTML = homeHtml;
     } catch (e) {
         console.error('Failed to load ledger:', e);
     }
+}
+
+function openHistoryModal() {
+    const modal = document.getElementById('historyModal');
+    if (modal) modal.classList.remove('hidden');
+    loadLedger();
+}
+
+function closeHistoryModal() {
+    const modal = document.getElementById('historyModal');
+    if (modal) modal.classList.add('hidden');
 }
 
 // -------------------------------------------------------------
@@ -1267,6 +1391,18 @@ function updateLiveCountdowns() {
             if (el) el.innerText = '00:00 (Expired)';
         }
     }
+
+    // Modal Specific Live Countdowns (Item 1 & Item 4)
+    if (pendingConfirmSeconds > 0) {
+        pendingConfirmSeconds--;
+        const el = document.getElementById('confirmModalTimer');
+        if (el) el.innerText = formatSeconds(pendingConfirmSeconds);
+    }
+    if (proofModalSeconds > 0) {
+        proofModalSeconds--;
+        const el = document.getElementById('proofModalCountdown');
+        if (el) el.innerText = formatSeconds(proofModalSeconds);
+    }
 }
 
 function formatSeconds(secs) {
@@ -1448,4 +1584,237 @@ function escapeHtml(str) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
+}
+
+// -------------------------------------------------------------
+// CHANGE PASSWORD HANDLER (Item 7)
+// -------------------------------------------------------------
+
+async function handlePasswordChange(e) {
+    if (e && e.preventDefault) e.preventDefault();
+
+    const curInput = document.getElementById('currentPasswordInput');
+    const newInput = document.getElementById('newPasswordInput');
+    const statusEl = document.getElementById('changePasswordStatus');
+    const submitBtn = document.getElementById('changePasswordBtn');
+
+    const current_password = curInput ? curInput.value : '';
+    const new_password = newInput ? newInput.value : '';
+
+    if (!current_password || !new_password) {
+        if (statusEl) {
+            statusEl.innerText = 'Both current and new passwords are required.';
+            statusEl.className = 'text-xs font-semibold text-red-400 block';
+            statusEl.classList.remove('hidden');
+        }
+        return;
+    }
+    if (new_password.length < 6) {
+        if (statusEl) {
+            statusEl.innerText = 'New password must be at least 6 characters long.';
+            statusEl.className = 'text-xs font-semibold text-red-400 block';
+            statusEl.classList.remove('hidden');
+        }
+        return;
+    }
+
+    if (submitBtn) submitBtn.disabled = true;
+    if (statusEl) {
+        statusEl.innerText = 'Updating password...';
+        statusEl.className = 'text-xs font-semibold text-slate-400 block';
+        statusEl.classList.remove('hidden');
+    }
+
+    try {
+        const res = await fetch('/api/auth.php?action=change_password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ current_password, new_password })
+        });
+        const data = await res.json();
+        if (data.success) {
+            if (statusEl) {
+                statusEl.innerText = 'Password updated successfully!';
+                statusEl.className = 'text-xs font-semibold text-emerald-400 block';
+                statusEl.classList.remove('hidden');
+            }
+            if (curInput) curInput.value = '';
+            if (newInput) newInput.value = '';
+            alert('Account password updated successfully!');
+        } else {
+            if (statusEl) {
+                statusEl.innerText = data.error || 'Failed to update password.';
+                statusEl.className = 'text-xs font-semibold text-red-400 block';
+                statusEl.classList.remove('hidden');
+            }
+        }
+    } catch (e) {
+        if (statusEl) {
+            statusEl.innerText = 'Network error changing password.';
+            statusEl.className = 'text-xs font-semibold text-red-400 block';
+            statusEl.classList.remove('hidden');
+        }
+    } finally {
+        if (submitBtn) submitBtn.disabled = false;
+    }
+}
+
+// -------------------------------------------------------------
+// SELLER CONFIRMATION POPUP SYSTEM ("Confirmation Please" - Item 1)
+// -------------------------------------------------------------
+
+async function checkPendingSellerConfirmations() {
+    if (!currentUser) return;
+    try {
+        const res = await fetch('/api/sell.php?action=tracking');
+        const data = await res.json();
+        if (!data.success || !data.parent_orders) return;
+
+        let targetChild = null;
+        for (const parent of data.parent_orders) {
+            for (const child of (parent.children || [])) {
+                if (['Seller Confirmation Pending', 'Payment Proof Submitted'].includes(child.status)) {
+                    targetChild = child;
+                    break;
+                }
+            }
+            if (targetChild) break;
+        }
+
+        const modal = document.getElementById('confirmationModal');
+        if (!modal) return;
+
+        if (targetChild) {
+            pendingConfirmOrderId = targetChild.id;
+            pendingConfirmSeconds = targetChild.seconds_remaining > 0 ? targetChild.seconds_remaining : 900;
+
+            const orderIdEl = document.getElementById('confirmModalOrderId');
+            const amountEl = document.getElementById('confirmModalAmount');
+            const utrEl = document.getElementById('confirmModalUtr');
+            const proofsContainer = document.getElementById('confirmModalProofsContainer');
+            const timerEl = document.getElementById('confirmModalTimer');
+
+            if (orderIdEl) orderIdEl.innerText = `#${targetChild.id}`;
+            if (amountEl) amountEl.innerText = `₹${parseFloat(targetChild.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+            if (utrEl) utrEl.innerText = targetChild.utr_number || 'N/A';
+            if (timerEl) timerEl.innerText = formatSeconds(pendingConfirmSeconds);
+
+            if (proofsContainer) {
+                if (targetChild.screenshot_path) {
+                    const paths = targetChild.screenshot_path.split(',').map(s => s.trim()).filter(Boolean);
+                    proofsContainer.innerHTML = paths.map((path, idx) => `
+                        <a href="/serve_file.php?file=${encodeURIComponent(path)}" target="_blank" class="px-2.5 py-1 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/30 rounded-lg text-xs font-semibold flex items-center gap-1 transition">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                            <span>Proof #${idx + 1}</span>
+                        </a>
+                    `).join('');
+                } else {
+                    proofsContainer.innerHTML = '<span class="text-slate-500 text-xs">No screenshot path provided</span>';
+                }
+            }
+
+            modal.classList.remove('hidden');
+        } else {
+            if (pendingConfirmOrderId) {
+                modal.classList.add('hidden');
+                pendingConfirmOrderId = null;
+            }
+        }
+    } catch (e) {
+        console.warn('Error checking pending seller confirmations:', e);
+    }
+}
+
+async function handleConfirmationReceipt() {
+    if (!pendingConfirmOrderId) return;
+    const orderId = pendingConfirmOrderId;
+    const modal = document.getElementById('confirmationModal');
+    if (modal) modal.classList.add('hidden');
+    await confirmPayment(orderId);
+}
+
+function handleConfirmationAppeal() {
+    if (!pendingConfirmOrderId) return;
+    const orderId = pendingConfirmOrderId;
+    const modal = document.getElementById('confirmationModal');
+    if (modal) modal.classList.add('hidden');
+    openAppealModal(orderId);
+}
+
+// -------------------------------------------------------------
+// NOTIFICATIONS SYSTEM (Item 6)
+// -------------------------------------------------------------
+
+function toggleNotifications() {
+    const pop = document.getElementById('notificationsPopover');
+    if (!pop) return;
+    notificationsOpen = !notificationsOpen;
+    if (notificationsOpen) {
+        pop.classList.remove('hidden');
+        loadNotifications();
+    } else {
+        pop.classList.add('hidden');
+    }
+}
+
+document.addEventListener('click', (e) => {
+    const pop = document.getElementById('notificationsPopover');
+    const btn = document.getElementById('notificationBellBtn');
+    if (notificationsOpen && pop && btn && !pop.contains(e.target) && !btn.contains(e.target)) {
+        pop.classList.add('hidden');
+        notificationsOpen = false;
+    }
+});
+
+async function loadNotifications() {
+    if (!currentUser) return;
+    try {
+        const res = await fetch('/api/auth.php?action=notifications');
+        const data = await res.json();
+        if (!data.success) return;
+
+        const badge = document.getElementById('notifBadge');
+        const countText = document.getElementById('notifUnreadCountText');
+        const list = document.getElementById('notificationsList');
+
+        const unreadCount = data.unread_count || 0;
+        if (badge) {
+            badge.innerText = unreadCount > 9 ? '9+' : unreadCount;
+            if (unreadCount > 0) {
+                badge.classList.remove('hidden');
+            } else {
+                badge.classList.add('hidden');
+            }
+        }
+        if (countText) {
+            countText.innerText = `${unreadCount} new`;
+        }
+
+        if (list) {
+            if (!data.notifications || data.notifications.length === 0) {
+                list.innerHTML = '<div class="text-slate-500 text-center py-4">No notifications yet</div>';
+            } else {
+                list.innerHTML = data.notifications.map(n => `
+                    <div class="p-2.5 rounded-xl ${n.is_read ? 'bg-slate-950/60' : 'bg-indigo-950/40 border border-indigo-500/30'} space-y-1">
+                        <div class="flex items-center justify-between">
+                            <span class="font-bold text-white text-xs">${escapeHtml(n.title)}</span>
+                            <span class="text-[10px] text-slate-500">${n.created_at ? n.created_at.slice(11, 16) : ''}</span>
+                        </div>
+                        <p class="text-[11px] text-slate-300 leading-tight">${escapeHtml(n.message)}</p>
+                    </div>
+                `).join('');
+            }
+        }
+    } catch (e) {
+        console.warn('Failed to load notifications:', e);
+    }
+}
+
+async function markNotificationsRead() {
+    try {
+        await fetch('/api/auth.php?action=mark_notifications_read', { method: 'POST' });
+        loadNotifications();
+    } catch (e) {
+        console.warn('Failed to mark notifications read:', e);
+    }
 }
