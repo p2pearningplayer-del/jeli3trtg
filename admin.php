@@ -120,6 +120,10 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                     <span>Audit Logs</span>
                 </button>
+                <button onclick="switchAdminTab('admins')" id="adminNav-admins" class="admin-nav-item px-3.5 py-2 rounded-lg flex items-center gap-1.5 whitespace-nowrap text-slate-400 hover:text-white">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                    <span>Admins & Teams</span>
+                </button>
             </div>
         </div>
     </header>
@@ -133,32 +137,46 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
         <section id="adminView-dashboard" class="admin-view space-y-6">
             <!-- Macro Stats Row 1: Users & Balances -->
             <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
-                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider block">Total Users</span>
+                <div onclick="switchAdminTab('users', { role: 'all', status: 'all' })" class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm cursor-pointer hover:border-amber-500/50 hover:bg-slate-900/90 transition transform hover:-translate-y-0.5 group" title="Click to view all users">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold text-slate-400 uppercase tracking-wider block group-hover:text-amber-400 transition">Total Users</span>
+                        <svg class="w-4 h-4 text-slate-600 group-hover:text-amber-400 transition" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                    </div>
                     <p class="text-2xl sm:text-3xl font-black text-white font-mono mt-1" id="dashTotalUsers">0</p>
                     <div class="flex gap-2 text-[11px] text-slate-500 mt-1 font-mono">
-                        <span>Act: <strong class="text-emerald-400" id="dashActiveUsers">0</strong></span>
-                        <span>Susp: <strong class="text-red-400" id="dashSuspendedUsers">0</strong></span>
+                        <span onclick="event.stopPropagation(); switchAdminTab('users', { status: 'active' });" class="hover:underline hover:text-emerald-300 transition cursor-pointer" title="Click to filter Active users">Act: <strong class="text-emerald-400" id="dashActiveUsers">0</strong></span>
+                        <span>&bull;</span>
+                        <span onclick="event.stopPropagation(); switchAdminTab('users', { status: 'suspended' });" class="hover:underline hover:text-red-300 transition cursor-pointer" title="Click to filter Suspended users">Susp: <strong class="text-red-400" id="dashSuspendedUsers">0</strong></span>
+                        <span>&bull;</span>
                         <span class="text-emerald-400 font-bold">● LIVE</span>
                     </div>
                 </div>
 
-                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
-                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider block">Tokens In Circulation</span>
+                <div onclick="switchAdminTab('users')" class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm cursor-pointer hover:border-emerald-500/50 hover:bg-slate-900/90 transition transform hover:-translate-y-0.5 group" title="Click to inspect users & token balances">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold text-slate-400 uppercase tracking-wider block group-hover:text-emerald-400 transition">Tokens In Circulation</span>
+                        <svg class="w-4 h-4 text-slate-600 group-hover:text-emerald-400 transition" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                    </div>
                     <p class="text-2xl sm:text-3xl font-black text-emerald-400 font-mono mt-1" id="dashCirculation">₹0.00</p>
                     <div class="text-[11px] text-slate-500 mt-1 font-mono">
                         <span>Avail: <strong class="text-slate-300" id="dashAvailableBal">₹0</strong> &bull; Res: <strong class="text-amber-400" id="dashReservedBal">₹0</strong></span>
                     </div>
                 </div>
 
-                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
-                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider block">Completed Trading Vol</span>
+                <div onclick="switchAdminTab('orders', { status: 'Completed', type: 'child' })" class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm cursor-pointer hover:border-indigo-500/50 hover:bg-slate-900/90 transition transform hover:-translate-y-0.5 group" title="Click to filter Completed orders">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold text-slate-400 uppercase tracking-wider block group-hover:text-indigo-400 transition">Completed Trading Vol</span>
+                        <svg class="w-4 h-4 text-slate-600 group-hover:text-indigo-400 transition" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                    </div>
                     <p class="text-2xl sm:text-3xl font-black text-indigo-400 font-mono mt-1" id="dashTradingVol">₹0.00</p>
                     <span class="text-[11px] text-slate-500 mt-1 block">Sell Vol: <strong class="text-slate-300 font-mono" id="dashSellVol">₹0.00</strong></span>
                 </div>
 
-                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
-                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider block">Purchase Rewards (9%)</span>
+                <div onclick="switchAdminTab('rewards')" class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm cursor-pointer hover:border-violet-500/50 hover:bg-slate-900/90 transition transform hover:-translate-y-0.5 group" title="Click to view Reward & Fee rules">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold text-slate-400 uppercase tracking-wider block group-hover:text-violet-400 transition">Purchase Rewards (9%)</span>
+                        <svg class="w-4 h-4 text-slate-600 group-hover:text-violet-400 transition" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                    </div>
                     <p class="text-2xl sm:text-3xl font-black text-violet-400 font-mono mt-1" id="dashTotalRewards">₹0.00</p>
                     <span class="text-[11px] text-slate-500 mt-1 block">Credited to buyers</span>
                 </div>
@@ -169,33 +187,36 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                 <div class="flex items-center justify-between border-b border-slate-800 pb-3">
                     <div>
                         <h3 class="text-base font-bold text-white">Marketplace Order State Breakdown</h3>
-                        <p class="text-xs text-slate-400">Total micro-orders processed across all parent allocations</p>
+                        <p class="text-xs text-slate-400">Total micro-orders processed across all parent allocations &bull; Click any metric to filter</p>
                     </div>
-                    <span class="px-2.5 py-1 rounded-full bg-slate-800 text-xs font-mono text-slate-300" id="dashOrdersTotal">0 Total Orders</span>
+                    <button onclick="switchAdminTab('orders', { status: 'all', type: 'child' })" class="px-2.5 py-1 rounded-full bg-slate-800 hover:bg-slate-700 text-xs font-mono text-slate-300 hover:text-white transition flex items-center gap-1.5" id="dashOrdersTotal">
+                        <span>0 Total Orders</span>
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                    </button>
                 </div>
                 <div class="grid grid-cols-2 sm:grid-cols-6 gap-3 text-center">
-                    <div class="bg-slate-950 p-3 rounded-xl border border-slate-800">
-                        <span class="text-[10px] text-slate-500 uppercase block font-bold">Available</span>
+                    <div onclick="switchAdminTab('orders', { status: 'Available', type: 'child' })" class="bg-slate-950 p-3 rounded-xl border border-slate-800 hover:border-slate-600 hover:bg-slate-900/90 transition cursor-pointer transform hover:-translate-y-0.5 group" title="Click to filter Available micro-orders">
+                        <span class="text-[10px] text-slate-500 uppercase block font-bold group-hover:text-slate-300 transition">Available</span>
                         <span class="text-xl font-bold font-mono text-slate-200 mt-1 block" id="dashOrdersAvailable">0</span>
                     </div>
-                    <div class="bg-slate-950 p-3 rounded-xl border border-slate-800">
-                        <span class="text-[10px] text-slate-500 uppercase block font-bold">Reserved</span>
+                    <div onclick="switchAdminTab('orders', { status: 'Reserved', type: 'child' })" class="bg-slate-950 p-3 rounded-xl border border-slate-800 hover:border-amber-500/50 hover:bg-slate-900/90 transition cursor-pointer transform hover:-translate-y-0.5 group" title="Click to filter Reserved orders">
+                        <span class="text-[10px] text-slate-500 uppercase block font-bold group-hover:text-amber-400 transition">Reserved</span>
                         <span class="text-xl font-bold font-mono text-amber-400 mt-1 block" id="dashOrdersReserved">0</span>
                     </div>
-                    <div class="bg-slate-950 p-3 rounded-xl border border-slate-800">
-                        <span class="text-[10px] text-slate-500 uppercase block font-bold">Proof Pending</span>
+                    <div onclick="switchAdminTab('orders', { status: 'Payment Proof Submitted', type: 'child' })" class="bg-slate-950 p-3 rounded-xl border border-slate-800 hover:border-indigo-500/50 hover:bg-slate-900/90 transition cursor-pointer transform hover:-translate-y-0.5 group" title="Click to filter Proof Pending orders">
+                        <span class="text-[10px] text-slate-500 uppercase block font-bold group-hover:text-indigo-400 transition">Proof Pending</span>
                         <span class="text-xl font-bold font-mono text-indigo-400 mt-1 block" id="dashOrdersPendingConfirm">0</span>
                     </div>
-                    <div class="bg-slate-950 p-3 rounded-xl border border-slate-800">
-                        <span class="text-[10px] text-slate-500 uppercase block font-bold">Disputed</span>
+                    <div onclick="switchAdminTab('disputes', { status: 'all' })" class="bg-slate-950 p-3 rounded-xl border border-slate-800 hover:border-red-500/50 hover:bg-slate-900/90 transition cursor-pointer transform hover:-translate-y-0.5 group" title="Click to navigate to Disputes Console">
+                        <span class="text-[10px] text-slate-500 uppercase block font-bold group-hover:text-red-400 transition">Disputed</span>
                         <span class="text-xl font-bold font-mono text-red-400 mt-1 block" id="dashOrdersDisputed">0</span>
                     </div>
-                    <div class="bg-slate-950 p-3 rounded-xl border border-slate-800">
-                        <span class="text-[10px] text-slate-500 uppercase block font-bold">Completed</span>
+                    <div onclick="switchAdminTab('orders', { status: 'Completed', type: 'child' })" class="bg-slate-950 p-3 rounded-xl border border-slate-800 hover:border-emerald-500/50 hover:bg-slate-900/90 transition cursor-pointer transform hover:-translate-y-0.5 group" title="Click to filter Completed orders">
+                        <span class="text-[10px] text-slate-500 uppercase block font-bold group-hover:text-emerald-400 transition">Completed</span>
                         <span class="text-xl font-bold font-mono text-emerald-400 mt-1 block" id="dashOrdersCompleted">0</span>
                     </div>
-                    <div class="bg-slate-950 p-3 rounded-xl border border-slate-800">
-                        <span class="text-[10px] text-slate-500 uppercase block font-bold">Cancelled / Rev</span>
+                    <div onclick="switchAdminTab('orders', { status: 'Cancelled / Reversed', type: 'child' })" class="bg-slate-950 p-3 rounded-xl border border-slate-800 hover:border-slate-500 hover:bg-slate-900/90 transition cursor-pointer transform hover:-translate-y-0.5 group" title="Click to filter Cancelled/Reversed orders">
+                        <span class="text-[10px] text-slate-500 uppercase block font-bold group-hover:text-slate-300 transition">Cancelled / Rev</span>
                         <span class="text-xl font-bold font-mono text-slate-400 mt-1 block" id="dashOrdersCancelled">0</span>
                     </div>
                 </div>
@@ -397,16 +418,23 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                     <h3 class="text-lg font-bold text-white">Dispute & Appeal Arbitration Console</h3>
                     <p class="text-xs text-slate-400">Review buyer UTR and screenshot proof against seller appeal statements. Tokens remain frozen until arbitration.</p>
                 </div>
-                <div class="flex items-center gap-3">
-                    <select id="disputeStatusFilter" onchange="loadAdminDisputes()" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white">
+                <div class="flex flex-wrap items-center gap-2.5">
+                    <div class="relative">
+                        <input type="text" id="disputeSearchInput" onkeyup="if(event.key === 'Enter') loadAdminDisputes();"
+                               placeholder="Search Order ID, UTR, phone, trader..."
+                               class="bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 w-56 sm:w-64">
+                        <svg class="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                    </div>
+                    <select id="disputeStatusFilter" onchange="loadAdminDisputes()" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500">
                         <option value="all">All Disputes</option>
                         <option value="pending">Pending Only</option>
                         <option value="under_review">Under Review</option>
                         <option value="resolved_buyer">Resolved (Buyer Settled)</option>
                         <option value="resolved_seller">Resolved (Seller Reversed)</option>
                     </select>
-                    <button onclick="loadAdminDisputes()" class="p-2 text-slate-400 hover:text-white bg-slate-800 rounded-xl transition">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    <button onclick="loadAdminDisputes()" class="px-3 py-2 text-xs font-semibold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl transition flex items-center gap-1.5" title="Search & Refresh">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                        <span>Search</span>
                     </button>
                 </div>
             </div>
@@ -656,6 +684,87 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
             </div>
         </section>
 
+        <!-- ========================================== -->
+        <!-- VIEW 9: ADMINISTRATORS & TEAM ROLES (Part 10, Item 4) -->
+        <!-- ========================================== -->
+        <section id="adminView-admins" class="admin-view space-y-6 hidden">
+            <!-- Header Deck with Summary and Action Buttons -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <div class="flex items-center gap-2">
+                        <h3 class="text-lg font-bold text-white">Administrator Directory & Team Roles</h3>
+                        <span class="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-amber-500/10 text-amber-400 border border-amber-500/30">RBAC GOVERNANCE</span>
+                    </div>
+                    <p class="text-xs text-slate-400 mt-1">Manage platform administrators, assign team responsibilities (Support Team, Finance Team, Order Team, Super Admin), and oversee access permissions.</p>
+                </div>
+                <div class="flex items-center gap-3">
+                    <button onclick="openAddAdminModal()" class="px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-slate-950 font-bold rounded-xl text-xs uppercase tracking-wider transition shadow-md shadow-amber-500/10 flex items-center gap-1.5">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/></svg>
+                        <span>Add Administrator</span>
+                    </button>
+                    <button onclick="loadAdminDirectory()" class="p-2 text-slate-400 hover:text-white bg-slate-800 rounded-xl transition" title="Refresh Directory">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Administrators Table -->
+            <div class="overflow-x-auto bg-slate-900 border border-slate-800 rounded-2xl">
+                <table class="w-full text-left">
+                    <thead class="bg-slate-950 text-slate-400 text-xs uppercase border-b border-slate-800">
+                        <tr>
+                            <th class="p-3">Admin ID</th>
+                            <th class="p-3">Display Name & Contact</th>
+                            <th class="p-3">Assigned Team Role</th>
+                            <th class="p-3">Status</th>
+                            <th class="p-3">Created Date</th>
+                            <th class="p-3">Manage</th>
+                        </tr>
+                    </thead>
+                    <tbody id="adminDirectoryTableBody" class="divide-y divide-slate-800/60">
+                        <tr><td colspan="6" class="p-8 text-center text-slate-500 font-sans">Loading administrator directory...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Centralized Super Admin Password Reset Card -->
+            <div class="bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950/40 border border-slate-800 rounded-2xl p-6 shadow-lg space-y-4 max-w-xl">
+                <div class="flex items-center gap-3 border-b border-slate-800 pb-3">
+                    <div class="w-10 h-10 rounded-xl bg-indigo-500/20 flex items-center justify-center text-indigo-400">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                    </div>
+                    <div>
+                        <h4 class="text-sm font-bold text-white">Centralized Administrator Password Reset</h4>
+                        <p class="text-xs text-slate-400">Securely change your administrator password. Verified against current credentials and audited.</p>
+                    </div>
+                </div>
+
+                <form onsubmit="handleChangeAdminPassword(event)" class="space-y-3.5">
+                    <div>
+                        <label class="text-xs font-semibold text-slate-300 block mb-1">Current Password</label>
+                        <input type="password" id="adminCurrentPassword" required placeholder="Enter current password"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500">
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label class="text-xs font-semibold text-slate-300 block mb-1">New Password (min 6)</label>
+                            <input type="password" id="adminNewPassword" required minlength="6" placeholder="Enter new password"
+                                   class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500">
+                        </div>
+                        <div>
+                            <label class="text-xs font-semibold text-slate-300 block mb-1">Confirm New Password</label>
+                            <input type="password" id="adminConfirmPassword" required minlength="6" placeholder="Re-enter new password"
+                                   class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500">
+                        </div>
+                    </div>
+                    <button type="submit" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-5 py-2.5 rounded-xl text-xs uppercase tracking-wider transition shadow-md shadow-indigo-600/20 flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                        <span>Update Login Password</span>
+                    </button>
+                </form>
+            </div>
+        </section>
+
     </main>
 
     <!-- ========================================== -->
@@ -766,6 +875,61 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
 
                 <button type="submit" class="w-full bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-slate-950 font-black py-3 rounded-xl text-xs uppercase tracking-wider transition">
                     Execute & Audit Adjustment
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MODAL 3: ADD ADMINISTRATOR (Part 10, Item 4) -->
+    <!-- ========================================== -->
+    <div id="addAdminModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl relative space-y-5">
+            <button onclick="closeAddAdminModal()" class="absolute right-4 top-4 text-slate-400 hover:text-white">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+            <div>
+                <h3 class="text-lg font-bold text-white">Add New Administrator</h3>
+                <p class="text-xs text-slate-400 mt-0.5">Create an administrative account with role-based team permissions</p>
+            </div>
+
+            <form onsubmit="handleAddAdminSubmit(event)" class="space-y-4">
+                <div>
+                    <label class="text-xs font-semibold text-slate-300 block mb-1">Mobile Phone (Login ID) *</label>
+                    <input type="tel" id="newAdminPhone" required placeholder="9876543210" pattern="[0-9]{10}" maxlength="10"
+                           class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white font-mono focus:outline-none focus:border-amber-500">
+                </div>
+
+                <div>
+                    <label class="text-xs font-semibold text-slate-300 block mb-1">Display Name (Optional)</label>
+                    <input type="text" id="newAdminName" placeholder="e.g. Finance Operations"
+                           class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500">
+                </div>
+
+                <div>
+                    <label class="text-xs font-semibold text-slate-300 block mb-1">Email Address (Optional)</label>
+                    <input type="email" id="newAdminEmail" placeholder="admin@jelipay.in"
+                           class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500">
+                </div>
+
+                <div>
+                    <label class="text-xs font-semibold text-slate-300 block mb-1">Initial Password (min 6 characters) *</label>
+                    <input type="password" id="newAdminPassword" required minlength="6" placeholder="Set secure password"
+                           class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500">
+                </div>
+
+                <div>
+                    <label class="text-xs font-semibold text-slate-300 block mb-1">Team Role & Permissions *</label>
+                    <select id="newAdminRole" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500">
+                        <option value="support_agent">Support Team (Disputes & Customer Care)</option>
+                        <option value="finance_manager">Finance Team (Ledgers & Balances)</option>
+                        <option value="order_manager">Order Team (Orders & Trading)</option>
+                        <option value="super_admin">Super Admin (Full Platform Control)</option>
+                    </select>
+                </div>
+
+                <button type="submit" class="w-full bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-slate-950 font-black py-3 rounded-xl text-xs uppercase tracking-wider transition">
+                    Create Administrator
                 </button>
             </form>
         </div>

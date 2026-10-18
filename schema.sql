@@ -27,7 +27,7 @@ CREATE TABLE `users` (
   `tpin_hash` VARCHAR(255) DEFAULT NULL,
   `account_status` ENUM('active', 'suspended') NOT NULL DEFAULT 'active',
   `role` ENUM('user', 'admin') NOT NULL DEFAULT 'user',
-  `admin_role` ENUM('super_admin', 'order_manager', 'dispute_manager') DEFAULT NULL,
+  `admin_role` VARCHAR(50) DEFAULT NULL,
   `is_demo` TINYINT(1) NOT NULL DEFAULT 0,
   `is_flagged` TINYINT(1) NOT NULL DEFAULT 0,
   `flag_reason` VARCHAR(255) DEFAULT NULL,

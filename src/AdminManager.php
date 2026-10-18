@@ -70,6 +70,22 @@ class AdminManager {
             'dispute_manager' => [
                 'dashboard_view', 'users_view', 'disputes_view', 'disputes_arbitrate',
                 'evidence_request', 'refund_track', 'reports_view'
+            ],
+            'support_agent' => [
+                'dashboard_view', 'users_view', 'disputes_view', 'disputes_arbitrate',
+                'evidence_request', 'refund_track', 'reports_view'
+            ],
+            'support_team' => [
+                'dashboard_view', 'users_view', 'disputes_view', 'disputes_arbitrate',
+                'evidence_request', 'refund_track', 'reports_view'
+            ],
+            'finance_manager' => [
+                'dashboard_view', 'users_view', 'wallets_manage', 'adjust_balance',
+                'reports_view', 'ledger_view'
+            ],
+            'finance_team' => [
+                'dashboard_view', 'users_view', 'wallets_manage', 'adjust_balance',
+                'reports_view', 'ledger_view'
             ]
         ];
 
@@ -769,7 +785,7 @@ class AdminManager {
     /**
      * Update Global Configurations & Content (Requirements 5 & 6)
      */
-    public static function updateSetting(string $key, string $value, int $adminId, string $reason): array {
+    public static function updateSetting(string $key, string $value, int $adminId, string $reason = 'Admin configuration update'): array {
         $pdo = Database::getConnection();
         $nowUtc = gmdate('Y-m-d H:i:s');
 
@@ -777,18 +793,22 @@ class AdminManager {
         $curStmt->execute([$key]);
         $curr = $curStmt->fetch();
 
-        if (!$curr) {
-            return ['success' => false, 'error' => "Configuration key '{$key}' does not exist."];
+        $beforeVal = $curr ? $curr['setting_value'] : null;
+
+        if ($curr) {
+            $upd = $pdo->prepare("
+                UPDATE platform_settings
+                SET setting_value = ?, updated_by = ?, updated_at = ?
+                WHERE setting_key = ?
+            ");
+            $upd->execute([$value, $adminId, $nowUtc, $key]);
+        } else {
+            $ins = $pdo->prepare("
+                INSERT INTO platform_settings (setting_key, setting_value, updated_by, updated_at)
+                VALUES (?, ?, ?, ?)
+            ");
+            $ins->execute([$key, $value, $adminId, $nowUtc]);
         }
-
-        $beforeVal = $curr['setting_value'];
-
-        $upd = $pdo->prepare("
-            UPDATE platform_settings
-            SET setting_value = ?, updated_by = ?, updated_at = ?
-            WHERE setting_key = ?
-        ");
-        $upd->execute([$value, $adminId, $nowUtc, $key]);
 
         self::logAudit(
             $adminId,
@@ -797,7 +817,7 @@ class AdminManager {
             $key,
             ['value' => $beforeVal],
             ['value' => $value],
-            $reason
+            !empty(trim($reason)) ? $reason : 'Admin configuration update'
         );
 
         return ['success' => true, 'message' => "Setting '{$key}' updated successfully."];
@@ -1076,5 +1096,264 @@ class AdminManager {
                 'error' => 'Failed to purge demo data: ' . $e->getMessage()
             ];
         }
+    }
+
+    /**
+     * List all administrator accounts and their roles (Part 10, Item 4)
+     */
+    public static function listAdmins(): array {
+        $pdo = Database::getConnection();
+        $stmt = $pdo->query("
+            SELECT id, phone, email, role, admin_role, account_status, referral_code, account_holder_name, created_at
+            FROM users
+            WHERE role = 'admin' OR admin_role IS NOT NULL
+            ORDER BY id ASC
+        ");
+        return $stmt->fetchAll();
+    }
+
+    /**
+     * Create a new administrator account with role-based access (Part 10, Item 4)
+     */
+    public static function createAdmin(array $data, int $byAdminId): array {
+        $cleanPhone = Validator::cleanPhone($data['phone'] ?? '');
+        if (!Validator::validatePhone($cleanPhone)) {
+            return ['success' => false, 'error' => 'Please provide a valid 10-digit Indian mobile number for administrator login.'];
+        }
+
+        $password = $data['password'] ?? '';
+        if (strlen($password) < 6) {
+            return ['success' => false, 'error' => 'Password must be at least 6 characters.'];
+        }
+
+        $adminRole = $data['admin_role'] ?? 'support_agent';
+        $allowedRoles = ['super_admin', 'support_agent', 'support_team', 'finance_manager', 'finance_team', 'order_manager', 'dispute_manager'];
+        if (!in_array($adminRole, $allowedRoles, true)) {
+            $adminRole = 'support_agent';
+        }
+
+        $pdo = Database::getConnection();
+
+        // Check if phone already registered
+        $stmt = $pdo->prepare("SELECT id, role, admin_role FROM users WHERE phone = ?");
+        $stmt->execute([$cleanPhone]);
+        $existing = $stmt->fetch();
+        if ($existing) {
+            if ($existing['role'] === 'admin') {
+                return ['success' => false, 'error' => 'An administrator account with this phone number already exists.'];
+            }
+            // Elevate existing user to admin
+            $passHash = password_hash($password, PASSWORD_BCRYPT, ['cost' => 10]);
+            $upd = $pdo->prepare("
+                UPDATE users
+                SET role = 'admin', admin_role = ?, password_hash = ?, account_status = 'active',
+                    email = COALESCE(?, email), account_holder_name = COALESCE(?, account_holder_name)
+                WHERE id = ?
+            ");
+            $upd->execute([
+                $adminRole,
+                $passHash,
+                !empty($data['email']) ? trim($data['email']) : null,
+                !empty($data['name']) ? trim($data['name']) : null,
+                $existing['id']
+            ]);
+
+            self::logAudit(
+                $byAdminId,
+                'UPGRADE_USER_TO_ADMIN',
+                'users',
+                (string)$existing['id'],
+                ['role' => $existing['role'], 'admin_role' => $existing['admin_role']],
+                ['role' => 'admin', 'admin_role' => $adminRole],
+                'Existing account elevated to administrator role'
+            );
+
+            return [
+                'success' => true,
+                'admin_id' => (int)$existing['id'],
+                'phone' => $cleanPhone,
+                'admin_role' => $adminRole,
+                'message' => 'Existing account elevated to administrator successfully.'
+            ];
+        }
+
+        $referralCode = strtoupper('ADM' . substr(md5(uniqid($cleanPhone, true)), 0, 6));
+        $passwordHash = password_hash($password, PASSWORD_BCRYPT, ['cost' => 10]);
+
+        $pdo->beginTransaction();
+        try {
+            $ins = $pdo->prepare("
+                INSERT INTO users (phone, email, password_hash, account_status, role, admin_role, referral_code, account_holder_name)
+                VALUES (?, ?, ?, 'active', 'admin', ?, ?, ?)
+            ");
+            $ins->execute([
+                $cleanPhone,
+                !empty($data['email']) ? trim($data['email']) : null,
+                $passwordHash,
+                $adminRole,
+                $referralCode,
+                !empty($data['name']) ? trim($data['name']) : null
+            ]);
+            $newAdminId = (int)$pdo->lastInsertId();
+
+            // Create zeroed wallet
+            $wIns = $pdo->prepare("
+                INSERT INTO wallets (user_id, available_balance, reserved_balance, pending_credit_balance, version)
+                VALUES (?, 0.00, 0.00, 0.00, 1)
+            ");
+            $wIns->execute([$newAdminId]);
+
+            self::logAudit(
+                $byAdminId,
+                'CREATE_ADMIN',
+                'users',
+                (string)$newAdminId,
+                null,
+                ['phone' => $cleanPhone, 'admin_role' => $adminRole, 'role' => 'admin'],
+                'Administrator created via Admin Management Console'
+            );
+
+            $pdo->commit();
+
+            return [
+                'success' => true,
+                'admin_id' => $newAdminId,
+                'phone' => $cleanPhone,
+                'admin_role' => $adminRole,
+                'message' => 'New administrator created successfully.'
+            ];
+        } catch (Exception $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            return ['success' => false, 'error' => 'Failed to create administrator: ' . $e->getMessage()];
+        }
+    }
+
+    /**
+     * Update an administrator's assigned team / role (Part 10, Item 4)
+     */
+    public static function updateAdminRole(int $targetAdminId, string $newRole, int $byAdminId): array {
+        $allowedRoles = ['super_admin', 'support_agent', 'support_team', 'finance_manager', 'finance_team', 'order_manager', 'dispute_manager'];
+        if (!in_array($newRole, $allowedRoles, true)) {
+            return ['success' => false, 'error' => "Invalid admin role '{$newRole}'."];
+        }
+
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare("SELECT id, role, admin_role, phone FROM users WHERE id = ?");
+        $stmt->execute([$targetAdminId]);
+        $target = $stmt->fetch();
+
+        if (!$target || $target['role'] !== 'admin') {
+            return ['success' => false, 'error' => 'Target administrator not found.'];
+        }
+
+        // Prevent demoting the last super_admin
+        if ($target['admin_role'] === 'super_admin' && $newRole !== 'super_admin') {
+            $superCount = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'admin' AND admin_role = 'super_admin' AND account_status = 'active'")->fetchColumn();
+            if ($superCount <= 1) {
+                return ['success' => false, 'error' => 'Cannot reassign role: platform must retain at least one active Super Admin.'];
+            }
+        }
+
+        $oldRole = $target['admin_role'];
+        $upd = $pdo->prepare("UPDATE users SET admin_role = ? WHERE id = ?");
+        $upd->execute([$newRole, $targetAdminId]);
+
+        self::logAudit(
+            $byAdminId,
+            'UPDATE_ADMIN_ROLE',
+            'users',
+            (string)$targetAdminId,
+            ['admin_role' => $oldRole],
+            ['admin_role' => $newRole],
+            "Reassigned administrator role from '{$oldRole}' to '{$newRole}'"
+        );
+
+        return ['success' => true, 'message' => "Administrator role updated to {$newRole}."];
+    }
+
+    /**
+     * Remove / Delete an administrator (Part 10, Item 4)
+     */
+    public static function deleteAdmin(int $targetAdminId, int $byAdminId): array {
+        if ($targetAdminId === $byAdminId) {
+            return ['success' => false, 'error' => 'You cannot remove your own active administrator account.'];
+        }
+
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare("SELECT id, role, admin_role, phone FROM users WHERE id = ?");
+        $stmt->execute([$targetAdminId]);
+        $target = $stmt->fetch();
+
+        if (!$target || $target['role'] !== 'admin') {
+            return ['success' => false, 'error' => 'Target administrator not found.'];
+        }
+
+        // Check if target is the last super_admin
+        if ($target['admin_role'] === 'super_admin') {
+            $superCount = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'admin' AND admin_role = 'super_admin' AND account_status = 'active'")->fetchColumn();
+            if ($superCount <= 1) {
+                return ['success' => false, 'error' => 'Cannot remove the last active Super Admin.'];
+            }
+        }
+
+        try {
+            $pdo->prepare("DELETE FROM users WHERE id = ?")->execute([$targetAdminId]);
+        } catch (Exception $e) {
+            // Fallback: revoke admin permissions and suspend
+            $upd = $pdo->prepare("UPDATE users SET role = 'user', admin_role = NULL, account_status = 'suspended' WHERE id = ?");
+            $upd->execute([$targetAdminId]);
+        }
+
+        self::logAudit(
+            $byAdminId,
+            'DELETE_ADMIN',
+            'users',
+            (string)$targetAdminId,
+            ['phone' => $target['phone'], 'admin_role' => $target['admin_role']],
+            null,
+            'Administrator removed via Admin Management Console'
+        );
+
+        return ['success' => true, 'message' => 'Administrator removed successfully.'];
+    }
+
+    /**
+     * Change admin password with current password verification (Part 10, Item 4)
+     */
+    public static function changeAdminPassword(int $adminId, string $currentPassword, string $newPassword): array {
+        if (strlen($newPassword) < 6) {
+            return ['success' => false, 'error' => 'New password must be at least 6 characters long.'];
+        }
+
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare("SELECT id, role, password_hash, phone FROM users WHERE id = ?");
+        $stmt->execute([$adminId]);
+        $user = $stmt->fetch();
+
+        if (!$user || $user['role'] !== 'admin') {
+            return ['success' => false, 'error' => 'Administrator account not found.'];
+        }
+
+        if (!password_verify($currentPassword, $user['password_hash'])) {
+            return ['success' => false, 'error' => 'Current password verification failed. Please check your current password.'];
+        }
+
+        $newHash = password_hash($newPassword, PASSWORD_BCRYPT, ['cost' => 10]);
+        $upd = $pdo->prepare("UPDATE users SET password_hash = ? WHERE id = ?");
+        $upd->execute([$newHash, $adminId]);
+
+        self::logAudit(
+            $adminId,
+            'CHANGE_ADMIN_PASSWORD',
+            'users',
+            (string)$adminId,
+            null,
+            ['phone' => $user['phone']],
+            'Administrator login password updated securely'
+        );
+
+        return ['success' => true, 'message' => 'Administrator login password changed successfully.'];
     }
 }

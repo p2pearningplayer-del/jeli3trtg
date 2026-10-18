@@ -19,7 +19,7 @@ async function initAdmin() {
     switchAdminTab(tabParam || 'dashboard');
 }
 
-function switchAdminTab(tabId) {
+function switchAdminTab(tabId, filterOptions = null) {
     currentAdminTab = tabId;
 
     document.querySelectorAll('.admin-nav-item').forEach(el => {
@@ -37,6 +37,40 @@ function switchAdminTab(tabId) {
     const activeView = document.getElementById(`adminView-${tabId}`);
     if (activeView) activeView.classList.remove('hidden');
 
+    // Pre-apply filters if supplied
+    if (tabId === 'users' && filterOptions) {
+        if (filterOptions.status && document.getElementById('userStatusFilter')) {
+            document.getElementById('userStatusFilter').value = filterOptions.status;
+        }
+        if (filterOptions.role && document.getElementById('userRoleFilter')) {
+            document.getElementById('userRoleFilter').value = filterOptions.role;
+        }
+        if (filterOptions.query !== undefined && document.getElementById('userSearchInput')) {
+            document.getElementById('userSearchInput').value = filterOptions.query;
+        }
+    }
+
+    if (tabId === 'orders' && filterOptions) {
+        if (filterOptions.status && document.getElementById('orderStatusFilter')) {
+            document.getElementById('orderStatusFilter').value = filterOptions.status;
+        }
+        if (filterOptions.type && document.getElementById('orderTypeFilter')) {
+            document.getElementById('orderTypeFilter').value = filterOptions.type;
+        }
+        if (filterOptions.query !== undefined && document.getElementById('orderSearchInput')) {
+            document.getElementById('orderSearchInput').value = filterOptions.query;
+        }
+    }
+
+    if (tabId === 'disputes' && filterOptions) {
+        if (filterOptions.status && document.getElementById('disputeStatusFilter')) {
+            document.getElementById('disputeStatusFilter').value = filterOptions.status;
+        }
+        if (filterOptions.query !== undefined && document.getElementById('disputeSearchInput')) {
+            document.getElementById('disputeSearchInput').value = filterOptions.query;
+        }
+    }
+
     // Trigger data loader
     if (tabId === 'dashboard') loadAdminDashboard();
     if (tabId === 'users') loadAdminUsers();
@@ -46,6 +80,7 @@ function switchAdminTab(tabId) {
     if (tabId === 'content') loadAdminContentSettings();
     if (tabId === 'reports') loadAdminReports();
     if (tabId === 'audit') loadAdminAuditLogs();
+    if (tabId === 'admins') loadAdminDirectory();
 }
 
 function periodicAdminSync() {
@@ -486,15 +521,16 @@ async function cancelAdminOrder(orderId) {
 
 async function loadAdminDisputes() {
     const status = document.getElementById('disputeStatusFilter')?.value || 'all';
+    const query = document.getElementById('disputeSearchInput')?.value || '';
 
     try {
-        const res = await fetch(`/api/admin.php?action=disputes&status=${encodeURIComponent(status)}`);
+        const res = await fetch(`/api/admin.php?action=disputes&status=${encodeURIComponent(status)}&query=${encodeURIComponent(query)}`);
         const data = await res.json();
         const list = document.getElementById('adminDisputesContainer');
         if (!list) return;
 
         if (!data.success || !data.disputes || data.disputes.length === 0) {
-            list.innerHTML = `<div class="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center text-slate-500">No disputes pending review.</div>`;
+            list.innerHTML = `<div class="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center text-slate-500 font-sans">No matching disputes found.</div>`;
             return;
         }
 
@@ -823,8 +859,13 @@ async function loadSettingsIntoGrid(containerId, keys) {
 async function saveGlobalSetting(key) {
     const input = document.getElementById(`settingInput_${key}`);
     const val = input ? input.value : '';
-    const reason = prompt(`Enter mandatory reason for modifying setting '${key}':`, 'Admin configuration change');
-    if (!reason) return;
+    let reason = prompt(`Enter reason for modifying setting '${key}' (optional):`, 'Admin configuration change');
+    if (reason === null) {
+        return; // User clicked Cancel
+    }
+    if (!reason.trim()) {
+        reason = 'Admin configuration change';
+    }
 
     try {
         const res = await fetch('/api/admin.php?action=settings', {
@@ -834,7 +875,13 @@ async function saveGlobalSetting(key) {
         });
         const data = await res.json();
         if (data.success) {
-            alert(`Setting '${key}' updated and audited successfully!`);
+            if (key === 'telegram_support_url') {
+                const quickInp = document.getElementById('quickTelegramUrlInput');
+                const testBtn = document.getElementById('quickTelegramTestBtn');
+                if (quickInp) quickInp.value = val;
+                if (testBtn) testBtn.href = val;
+            }
+            alert(`Setting '${key}' saved and applied successfully!`);
         } else {
             alert(data.error || 'Failed to update setting.');
         }
@@ -884,6 +931,226 @@ async function loadAdminAuditLogs() {
         `).join('');
     } catch (e) {
         console.error('Failed to load audit logs:', e);
+    }
+}
+
+// -------------------------------------------------------------
+// TAB 9: ADMINISTRATORS & TEAMS (Part 10, Item 4)
+// -------------------------------------------------------------
+
+async function loadAdminDirectory() {
+    const tbody = document.getElementById('adminDirectoryTableBody');
+    if (!tbody) return;
+
+    try {
+        const res = await fetch('/api/admin.php?action=admins_list');
+        const data = await res.json();
+
+        if (!data.success || !data.admins || data.admins.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-slate-500">No administrators found.</td></tr>`;
+            return;
+        }
+
+        const roleBadges = {
+            'super_admin': '<span class="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-amber-500/20 text-amber-400 border border-amber-500/30">SUPER ADMIN</span>',
+            'support_agent': '<span class="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-blue-500/20 text-blue-400 border border-blue-500/30">SUPPORT TEAM</span>',
+            'support_team': '<span class="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-blue-500/20 text-blue-400 border border-blue-500/30">SUPPORT TEAM</span>',
+            'finance_manager': '<span class="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-purple-500/20 text-purple-400 border border-purple-500/30">FINANCE TEAM</span>',
+            'finance_team': '<span class="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-purple-500/20 text-purple-400 border border-purple-500/30">FINANCE TEAM</span>',
+            'order_manager': '<span class="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">ORDER TEAM</span>',
+            'dispute_manager': '<span class="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-rose-500/20 text-rose-400 border border-rose-500/30">DISPUTES TEAM</span>'
+        };
+
+        tbody.innerHTML = data.admins.map(a => {
+            const roleKey = a.admin_role || (a.role === 'admin' ? 'super_admin' : 'support_agent');
+            const badgeHtml = roleBadges[roleKey] || `<span class="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-slate-800 text-slate-300 uppercase">${escapeHtml(roleKey)}</span>`;
+            return `
+                <tr class="hover:bg-slate-900/80 transition text-xs font-mono">
+                    <td class="p-3 text-slate-500 font-bold">
+                        #${a.id} &bull; ${escapeHtml(a.referral_code || 'ADM')}
+                    </td>
+                    <td class="p-3">
+                        <span class="text-white font-bold block">${escapeHtml(a.phone)}</span>
+                        <span class="text-[10px] text-slate-400 font-sans block">${escapeHtml(a.account_holder_name || a.email || 'Admin Staff')}</span>
+                    </td>
+                    <td class="p-3">
+                        ${badgeHtml}
+                    </td>
+                    <td class="p-3">
+                        <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase ${a.account_status === 'active' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}">
+                            ${a.account_status}
+                        </span>
+                    </td>
+                    <td class="p-3 text-slate-400 text-[11px]">
+                        ${escapeHtml(a.created_at || 'System')}
+                    </td>
+                    <td class="p-3 font-sans">
+                        <div class="flex items-center gap-2">
+                            <button onclick="promptChangeAdminRole(${a.id}, '${escapeHtml(roleKey)}')" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-semibold transition" title="Reassign Team Role">
+                                Change Team
+                            </button>
+                            <button onclick="confirmDeleteAdmin(${a.id}, '${escapeHtml(a.phone)}')" class="px-2.5 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg text-xs font-semibold transition" title="Remove Administrator">
+                                Remove
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    } catch (e) {
+        console.error('Failed to load admin directory:', e);
+    }
+}
+
+function openAddAdminModal() {
+    document.getElementById('newAdminPhone').value = '';
+    document.getElementById('newAdminName').value = '';
+    document.getElementById('newAdminEmail').value = '';
+    document.getElementById('newAdminPassword').value = '';
+    document.getElementById('newAdminRole').value = 'support_agent';
+    document.getElementById('addAdminModal').classList.remove('hidden');
+}
+
+function closeAddAdminModal() {
+    document.getElementById('addAdminModal').classList.add('hidden');
+}
+
+async function handleAddAdminSubmit(event) {
+    event.preventDefault();
+    const phone = document.getElementById('newAdminPhone').value.trim();
+    const name = document.getElementById('newAdminName').value.trim();
+    const email = document.getElementById('newAdminEmail').value.trim();
+    const password = document.getElementById('newAdminPassword').value;
+    const admin_role = document.getElementById('newAdminRole').value;
+
+    if (!phone || phone.length !== 10) {
+        alert('Please enter a valid 10-digit mobile number.');
+        return;
+    }
+
+    if (password.length < 6) {
+        alert('Password must be at least 6 characters.');
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/admin.php?action=admin_create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phone, name, email, password, admin_role })
+        });
+        const data = await res.json();
+        if (data.success) {
+            alert(data.message || 'Administrator created successfully!');
+            closeAddAdminModal();
+            loadAdminDirectory();
+        } else {
+            alert(data.error || 'Failed to create administrator.');
+        }
+    } catch (e) {
+        alert('Network error creating administrator.');
+    }
+}
+
+async function promptChangeAdminRole(adminId, currentRole) {
+    const roles = ['super_admin', 'support_agent', 'finance_manager', 'order_manager'];
+    const choice = prompt(
+        `Select new role for Admin #${adminId} (current: ${currentRole}):\n` +
+        `1 = support_agent (Support Team)\n` +
+        `2 = finance_manager (Finance Team)\n` +
+        `3 = order_manager (Order Team)\n` +
+        `4 = super_admin (Super Admin)\n\n` +
+        `Type role name (e.g. support_agent or finance_manager):`,
+        currentRole
+    );
+
+    if (!choice) return;
+
+    let targetRole = choice.trim();
+    if (targetRole === '1') targetRole = 'support_agent';
+    else if (targetRole === '2') targetRole = 'finance_manager';
+    else if (targetRole === '3') targetRole = 'order_manager';
+    else if (targetRole === '4') targetRole = 'super_admin';
+
+    if (!roles.includes(targetRole)) {
+        alert(`Invalid role '${targetRole}'. Must be one of: ${roles.join(', ')}`);
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/admin.php?action=admin_update_role', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ admin_id: adminId, admin_role: targetRole })
+        });
+        const data = await res.json();
+        if (data.success) {
+            alert(data.message || 'Administrator role updated successfully!');
+            loadAdminDirectory();
+        } else {
+            alert(data.error || 'Failed to update administrator role.');
+        }
+    } catch (e) {
+        alert('Network error updating administrator role.');
+    }
+}
+
+async function confirmDeleteAdmin(adminId, phone) {
+    if (!confirm(`Are you sure you want to remove Administrator #${adminId} (${phone})? This will revoke all administrative privileges.`)) {
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/admin.php?action=admin_delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ admin_id: adminId })
+        });
+        const data = await res.json();
+        if (data.success) {
+            alert(data.message || 'Administrator removed successfully!');
+            loadAdminDirectory();
+        } else {
+            alert(data.error || 'Failed to remove administrator.');
+        }
+    } catch (e) {
+        alert('Network error removing administrator.');
+    }
+}
+
+async function handleChangeAdminPassword(event) {
+    event.preventDefault();
+    const curPass = document.getElementById('adminCurrentPassword').value;
+    const newPass = document.getElementById('adminNewPassword').value;
+    const confPass = document.getElementById('adminConfirmPassword').value;
+
+    if (newPass !== confPass) {
+        alert('New passwords do not match. Please re-enter.');
+        return;
+    }
+
+    if (newPass.length < 6) {
+        alert('New password must be at least 6 characters long.');
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/admin.php?action=admin_change_password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ current_password: curPass, new_password: newPass })
+        });
+        const data = await res.json();
+        if (data.success) {
+            alert('Your administrator login password has been changed successfully!');
+            document.getElementById('adminCurrentPassword').value = '';
+            document.getElementById('adminNewPassword').value = '';
+            document.getElementById('adminConfirmPassword').value = '';
+        } else {
+            alert(data.error || 'Password update failed.');
+        }
+    } catch (e) {
+        alert('Network error updating password.');
     }
 }
 

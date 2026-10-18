@@ -190,9 +190,10 @@ switch ($action) {
         break;
 
     case 'disputes':
-        // Requirement 4: List disputes and evidence
+        // Requirement 4 & Part 10 Item 2: List disputes and evidence with live search
         $pdo = Database::getConnection();
         $statusFilter = $_GET['status'] ?? 'all';
+        $query = trim($_GET['query'] ?? '');
 
         $sql = "
             SELECT d.*, c.amount, c.snapshotted_reward_amount, c.seller_id, c.buyer_id, c.status as order_status,
@@ -205,14 +206,39 @@ switch ($action) {
             LEFT JOIN users u_buyer ON c.buyer_id = u_buyer.id
             LEFT JOIN payment_proofs p ON c.id = p.child_order_id
         ";
+        $whereClauses = [];
+        $params = [];
+
         if ($statusFilter !== 'all') {
-            $sql .= " WHERE d.status = :status";
+            $whereClauses[] = "d.status = :status";
+            $params[':status'] = $statusFilter;
         }
+
+        if (!empty($query)) {
+            $whereClauses[] = "(
+                d.id = :qid
+                OR d.child_order_id = :qchild
+                OR p.utr_number LIKE :qlike
+                OR u_seller.phone LIKE :qlike
+                OR u_seller.account_holder_name LIKE :qlike
+                OR u_buyer.phone LIKE :qlike
+                OR u_buyer.account_holder_name LIKE :qlike
+                OR d.reason LIKE :qlike
+            )";
+            $params[':qid'] = is_numeric($query) ? (int)$query : -1;
+            $params[':qchild'] = is_numeric($query) ? (int)$query : -1;
+            $params[':qlike'] = "%{$query}%";
+        }
+
+        if (!empty($whereClauses)) {
+            $sql .= " WHERE " . implode(" AND ", $whereClauses);
+        }
+
         $sql .= " ORDER BY d.id DESC LIMIT 100";
 
         $stmt = $pdo->prepare($sql);
-        if ($statusFilter !== 'all') {
-            $stmt->bindValue(':status', $statusFilter);
+        foreach ($params as $paramKey => $paramVal) {
+            $stmt->bindValue($paramKey, $paramVal);
         }
         $stmt->execute();
         $disputes = $stmt->fetchAll();
@@ -330,16 +356,96 @@ switch ($action) {
         break;
 
     case 'admin_users':
-        // Requirement 8: List administrators & roles
-        $pdo = Database::getConnection();
-        $stmt = $pdo->query("
-            SELECT id, phone, email, role, admin_role, account_status, referral_code, account_holder_name, created_at
-            FROM users
-            WHERE role = 'admin'
-            ORDER BY id ASC
-        ");
-        $admins = $stmt->fetchAll();
+    case 'admins_list':
+        // Part 10, Item 4: List administrators & assigned team roles
+        $admins = AdminManager::listAdmins();
         jsonResponse(true, ['admins' => $admins]);
+        break;
+
+    case 'admin_create':
+        // Part 10, Item 4: Create new administrator account (Super Admin only)
+        $caller = Auth::getCurrentUser();
+        if (($caller['admin_role'] ?? 'super_admin') !== 'super_admin') {
+            jsonError('Super Admin privileges required to create administrators.', 403);
+        }
+
+        $phone = $input['phone'] ?? '';
+        $password = $input['password'] ?? '';
+        $adminRole = $input['admin_role'] ?? 'support_agent';
+        $email = $input['email'] ?? null;
+        $name = $input['name'] ?? null;
+
+        $res = AdminManager::createAdmin([
+            'phone' => $phone,
+            'password' => $password,
+            'admin_role' => $adminRole,
+            'email' => $email,
+            'name' => $name
+        ], $adminId);
+
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
+    case 'admin_update_role':
+        // Part 10, Item 4: Update administrator team role (Super Admin only)
+        $caller = Auth::getCurrentUser();
+        if (($caller['admin_role'] ?? 'super_admin') !== 'super_admin') {
+            jsonError('Super Admin privileges required to modify administrator roles.', 403);
+        }
+
+        $targetId = (int)($input['admin_id'] ?? 0);
+        $newRole = $input['admin_role'] ?? '';
+        if ($targetId <= 0 || empty($newRole)) {
+            jsonError('Target Administrator ID and new team role are required.');
+        }
+
+        $res = AdminManager::updateAdminRole($targetId, $newRole, $adminId);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
+    case 'admin_delete':
+        // Part 10, Item 4: Remove administrator (Super Admin only)
+        $caller = Auth::getCurrentUser();
+        if (($caller['admin_role'] ?? 'super_admin') !== 'super_admin') {
+            jsonError('Super Admin privileges required to remove administrators.', 403);
+        }
+
+        $targetId = (int)($input['admin_id'] ?? 0);
+        if ($targetId <= 0) {
+            jsonError('Target Administrator ID is required.');
+        }
+
+        $res = AdminManager::deleteAdmin($targetId, $adminId);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
+    case 'admin_change_password':
+        // Part 10, Item 4: Centralized password change for Super Admins / Admins
+        $currentPass = $input['current_password'] ?? '';
+        $newPass = $input['new_password'] ?? '';
+
+        if (empty($currentPass) || empty($newPass)) {
+            jsonError('Current password and new password are required.');
+        }
+
+        $res = AdminManager::changeAdminPassword($adminId, $currentPass, $newPass);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error']);
+        }
         break;
 
     default:

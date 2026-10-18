@@ -263,7 +263,7 @@ class SchemaInstaller {
         if ($driver === 'mysql') {
             $userCols = [
                 'email' => 'VARCHAR(100) DEFAULT NULL',
-                'admin_role' => "ENUM('super_admin', 'order_manager', 'dispute_manager') DEFAULT NULL",
+                'admin_role' => 'VARCHAR(50) DEFAULT NULL',
                 'is_demo' => 'TINYINT(1) NOT NULL DEFAULT 0',
                 'is_flagged' => 'TINYINT(1) NOT NULL DEFAULT 0',
                 'flag_reason' => 'VARCHAR(255) DEFAULT NULL',
@@ -274,6 +274,12 @@ class SchemaInstaller {
                 'refund_status' => "ENUM('none', 'pending', 'issued', 'not_applicable') NOT NULL DEFAULT 'none'",
                 'refund_reference' => 'VARCHAR(100) DEFAULT NULL'
             ];
+
+            try {
+                $pdo->exec("ALTER TABLE users MODIFY COLUMN `admin_role` VARCHAR(50) DEFAULT NULL");
+            } catch (Exception $e) {
+                // Column modify handled
+            }
         }
 
         foreach ($userCols as $col => $type) {
