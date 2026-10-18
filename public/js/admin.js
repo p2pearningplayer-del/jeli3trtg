@@ -46,10 +46,16 @@ function switchAdminTab(tabId) {
     if (tabId === 'content') loadAdminContentSettings();
     if (tabId === 'reports') loadAdminReports();
     if (tabId === 'audit') loadAdminAuditLogs();
+    if (tabId === 'support') loadAdminSupportChats();
 }
 
 function periodicAdminSync() {
     if (currentAdminTab === 'dashboard') loadAdminDashboard(true);
+    if (currentAdminTab === 'support') {
+        pollAdminChatMessages();
+    } else {
+        checkAdminSupportBadge();
+    }
 }
 
 // -------------------------------------------------------------
@@ -820,4 +826,464 @@ function escapeHtml(str) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
+}
+
+// -------------------------------------------------------------
+// LIVE SUPPORT & REAL-TIME CHAT DESK CONTROLLER
+// -------------------------------------------------------------
+
+let adminSelectedChatId = null;
+let adminSelectedChatData = null;
+let adminChatLastMsgId = 0;
+let adminChatsCache = [];
+let adminChatFilter = 'all';
+let adminChatIsSending = false;
+
+async function loadAdminSupportChats(force = false) {
+    const list = document.getElementById('adminSupportChatList');
+    if (!list) return;
+
+    if (!force && adminChatsCache.length === 0) {
+        list.innerHTML = '<div class="p-8 text-center text-slate-500 text-xs">Loading support conversations...</div>';
+    }
+
+    try {
+        const res = await fetch(`/api/support.php?action=admin_chats&filter=${adminChatFilter}`);
+        const data = await res.json();
+
+        if (data.success && data.chats) {
+            adminChatsCache = data.chats;
+            renderAdminChatList();
+            updateAdminSupportBadges();
+
+            // If a chat was selected, re-poll its messages
+            if (adminSelectedChatId) {
+                pollAdminChatMessages();
+            }
+        } else {
+            if (list) list.innerHTML = `<div class="p-8 text-center text-red-400 text-xs">${escapeHtml(data.error || 'Failed to load conversations.')}</div>`;
+        }
+    } catch (e) {
+        console.error('Failed to load admin support chats:', e);
+        if (list) list.innerHTML = '<div class="p-8 text-center text-red-400 text-xs">Network error loading chat sessions.</div>';
+    }
+}
+
+function renderAdminChatList() {
+    const list = document.getElementById('adminSupportChatList');
+    const totalCountEl = document.getElementById('adminChatTotalCount');
+    if (!list) return;
+
+    const searchTerm = (document.getElementById('adminChatSearchInput')?.value || '').toLowerCase().trim();
+    const filtered = adminChatsCache.filter(c => {
+        if (!searchTerm) return true;
+        const phone = (c.phone || '').toLowerCase();
+        const name = (c.username || c.account_holder_name || '').toLowerCase();
+        return phone.includes(searchTerm) || name.includes(searchTerm);
+    });
+
+    if (totalCountEl) {
+        totalCountEl.innerText = `${filtered.length} conversation${filtered.length === 1 ? '' : 's'}`;
+    }
+
+    if (filtered.length === 0) {
+        list.innerHTML = `
+            <div class="p-8 text-center text-slate-500 text-xs space-y-2">
+                <svg class="w-8 h-8 text-slate-700 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+                <p>No support conversations found</p>
+            </div>
+        `;
+        return;
+    }
+
+    list.innerHTML = filtered.map(c => {
+        const isSelected = (adminSelectedChatId === c.id);
+        const unreadCount = parseInt(c.unread_count || 0, 10);
+        const name = c.account_holder_name || c.username || 'Guest User';
+        const initials = name.slice(0, 2).toUpperCase();
+        const timeStr = c.last_message_at ? c.last_message_at.slice(11, 16) : (c.updated_at ? c.updated_at.slice(11, 16) : '');
+        const lastMsg = c.last_message || 'Session started';
+
+        let statusClass = 'bg-slate-800 text-slate-300';
+        if (c.status === 'open') statusClass = 'bg-emerald-950/60 text-emerald-400 border border-emerald-800/60';
+        if (c.status === 'in_progress') statusClass = 'bg-indigo-950/60 text-indigo-400 border border-indigo-800/60';
+        if (c.status === 'resolved') statusClass = 'bg-slate-800/60 text-slate-500';
+
+        return `
+            <div onclick="selectAdminChat(${c.id})" class="p-3.5 cursor-pointer transition flex items-start gap-3 ${isSelected ? 'bg-amber-500/10 border-l-4 border-amber-500' : 'hover:bg-slate-950/60'}">
+                <div class="w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs flex-shrink-0 ${unreadCount > 0 ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-300'}">
+                    ${escapeHtml(initials)}
+                </div>
+                <div class="flex-1 min-w-0 space-y-1">
+                    <div class="flex items-center justify-between gap-1">
+                        <span class="text-xs font-bold text-white truncate">${escapeHtml(name)}</span>
+                        <span class="text-[10px] text-slate-500 font-mono">${timeStr}</span>
+                    </div>
+                    <div class="flex items-center justify-between gap-1">
+                        <span class="text-[11px] text-slate-400 font-mono">+91 ${escapeHtml(c.phone)}</span>
+                        <span class="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded ${statusClass}">${escapeHtml(c.status)}</span>
+                    </div>
+                    <div class="flex items-center justify-between gap-2 pt-0.5">
+                        <p class="text-[11px] text-slate-400 truncate max-w-[190px]">${escapeHtml(lastMsg)}</p>
+                        ${unreadCount > 0 ? `
+                            <span class="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-amber-500 text-slate-950 flex-shrink-0 animate-pulse">
+                                ${unreadCount} new
+                            </span>
+                        ` : ''}
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function filterAdminChats(filter) {
+    adminChatFilter = filter;
+    ['all', 'open', 'resolved'].forEach(f => {
+        const btn = document.getElementById(`chatFilter-${f}`);
+        if (!btn) return;
+        if (f === filter) {
+            btn.className = 'px-2.5 py-1 rounded bg-amber-500/10 text-amber-400 font-bold';
+        } else {
+            btn.className = 'px-2.5 py-1 rounded text-slate-400 hover:text-white';
+        }
+    });
+    loadAdminSupportChats();
+}
+
+function filterAdminChatListBySearch() {
+    renderAdminChatList();
+}
+
+async function selectAdminChat(chatId) {
+    adminSelectedChatId = chatId;
+    adminSelectedChatData = adminChatsCache.find(c => c.id === chatId);
+
+    renderAdminChatList();
+
+    const stream = document.getElementById('adminSupportMessagesStream');
+    const actions = document.getElementById('adminChatActions');
+    const cannedBar = document.getElementById('adminChatCannedBar');
+    const form = document.getElementById('adminChatReplyForm');
+    const resolveBtn = document.getElementById('adminChatResolveBtn');
+
+    if (actions) actions.classList.remove('hidden');
+    if (cannedBar) cannedBar.classList.remove('hidden');
+    if (form) form.classList.remove('hidden');
+
+    if (adminSelectedChatData) {
+        const nameEl = document.getElementById('adminChatUserName');
+        const phoneEl = document.getElementById('adminChatUserPhone');
+        const initialsEl = document.getElementById('adminChatUserInitials');
+        const statusBadge = document.getElementById('adminChatStatusBadge');
+        const metaEl = document.getElementById('adminChatUserMeta');
+
+        const name = adminSelectedChatData.account_holder_name || adminSelectedChatData.username || 'Guest User';
+        if (nameEl) nameEl.innerText = name;
+        if (phoneEl) phoneEl.innerText = `+91 ${adminSelectedChatData.phone}`;
+        if (initialsEl) initialsEl.innerText = name.slice(0, 2).toUpperCase();
+
+        if (statusBadge) {
+            statusBadge.innerText = adminSelectedChatData.status.toUpperCase();
+            statusBadge.className = `text-[10px] font-bold px-2 py-0.5 rounded ${adminSelectedChatData.status === 'resolved' ? 'bg-slate-800 text-slate-500' : 'bg-emerald-950 text-emerald-400 border border-emerald-800'}`;
+            statusBadge.classList.remove('hidden');
+        }
+
+        if (resolveBtn) {
+            resolveBtn.innerText = adminSelectedChatData.status === 'resolved' ? 'Reopen Chat' : 'Mark Resolved';
+        }
+
+        if (metaEl) {
+            const healthScore = adminSelectedChatData.health_score || 100;
+            metaEl.innerHTML = `
+                User #${adminSelectedChatData.user_id || 'Guest'} &bull; 
+                Health Score: <strong class="${healthScore <= 50 ? 'text-red-400' : 'text-emerald-400'}">${healthScore}/100</strong> &bull; 
+                Status: <strong class="text-white">${adminSelectedChatData.account_status || 'active'}</strong>
+            `;
+        }
+    }
+
+    if (stream) stream.innerHTML = '<div class="p-8 text-center text-slate-500 text-xs">Loading message transcript...</div>';
+
+    try {
+        const res = await fetch(`/api/support.php?action=poll_messages&request_id=${chatId}&after_id=0`);
+        const data = await res.json();
+
+        if (data.success) {
+            renderAdminMessagesStream(data.messages || []);
+            // Update unread count in cache
+            if (adminSelectedChatData) {
+                adminSelectedChatData.unread_count = 0;
+                renderAdminChatList();
+                updateAdminSupportBadges();
+            }
+        }
+    } catch (e) {
+        console.error('Failed to load chat messages:', e);
+    }
+
+    const replyInput = document.getElementById('adminChatReplyInput');
+    if (replyInput) {
+        replyInput.focus();
+        replyInput.onkeydown = (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                submitAdminChatReply();
+            }
+        };
+    }
+}
+
+function renderAdminMessagesStream(messages) {
+    const stream = document.getElementById('adminSupportMessagesStream');
+    if (!stream) return;
+
+    if (!messages || messages.length === 0) {
+        stream.innerHTML = '<div class="p-8 text-center text-slate-500 text-xs">No messages in this chat session yet.</div>';
+        return;
+    }
+
+    adminChatLastMsgId = 0;
+    let html = '';
+
+    messages.forEach(m => {
+        if (m.id > adminChatLastMsgId) adminChatLastMsgId = m.id;
+        const timeStr = m.created_at ? m.created_at.slice(11, 16) : '';
+        const isUser = (m.sender_type === 'user');
+        const isSystem = (m.sender_type === 'system');
+
+        if (isSystem) {
+            html += `
+                <div class="flex justify-center my-1.5">
+                    <div class="bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 max-w-md text-center text-slate-400 text-[11px]">
+                        ${escapeHtml(m.message)}
+                        <span class="block text-[9px] text-slate-600 mt-0.5">${timeStr}</span>
+                    </div>
+                </div>
+            `;
+        } else if (isUser) {
+            html += `
+                <div class="flex justify-start my-1.5 items-end gap-2">
+                    <div class="w-7 h-7 rounded-lg bg-indigo-950 border border-indigo-700/50 text-indigo-400 flex items-center justify-center text-[10px] font-bold flex-shrink-0">
+                        U
+                    </div>
+                    <div class="bg-slate-900 border border-slate-800 text-slate-200 rounded-2xl rounded-tl-sm px-3.5 py-2 max-w-[75%] space-y-1 shadow-sm">
+                        <div class="flex items-center justify-between gap-3 border-b border-slate-800 pb-1 mb-1">
+                            <span class="text-[10px] font-bold text-indigo-400">${escapeHtml(m.sender_name || 'User')}</span>
+                            <span class="text-[9px] text-slate-500 font-mono">${timeStr}</span>
+                        </div>
+                        <div class="text-xs break-words whitespace-pre-wrap">${escapeHtml(m.message)}</div>
+                        ${m.attachment_path ? `
+                            <div class="pt-1.5">
+                                <a href="/serve_file.php?file=${encodeURIComponent(m.attachment_path)}" target="_blank" class="inline-flex items-center gap-1.5 bg-slate-950 hover:bg-slate-800 text-indigo-400 text-[11px] px-2.5 py-1 rounded-lg border border-slate-800 transition">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
+                                    <span>Attachment (${escapeHtml(m.attachment_path.split('/').pop())})</span>
+                                </a>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        } else {
+            // Admin message
+            html += `
+                <div class="flex justify-end my-1.5 items-end gap-2">
+                    <div class="bg-amber-500/10 border border-amber-500/30 text-white rounded-2xl rounded-tr-sm px-3.5 py-2 max-w-[75%] space-y-1 shadow-sm">
+                        <div class="flex items-center justify-between gap-3 border-b border-amber-500/20 pb-1 mb-1">
+                            <span class="text-[10px] font-bold text-amber-400 uppercase tracking-wider">${escapeHtml(m.sender_name || 'Admin')}</span>
+                            <span class="text-[9px] text-slate-400 font-mono">${timeStr}</span>
+                        </div>
+                        <div class="text-xs break-words whitespace-pre-wrap">${escapeHtml(m.message)}</div>
+                        ${m.attachment_path ? `
+                            <div class="pt-1.5">
+                                <a href="/serve_file.php?file=${encodeURIComponent(m.attachment_path)}" target="_blank" class="inline-flex items-center gap-1.5 bg-slate-950 text-amber-400 text-[11px] px-2.5 py-1 rounded-lg border border-amber-500/30 transition">
+                                    <span>Attachment</span>
+                                </a>
+                            </div>
+                        ` : ''}
+                    </div>
+                    <div class="w-7 h-7 rounded-lg bg-amber-500 text-slate-950 flex items-center justify-center text-[10px] font-black flex-shrink-0">
+                        AD
+                    </div>
+                </div>
+            `;
+        }
+    });
+
+    stream.innerHTML = html;
+    stream.scrollTop = stream.scrollHeight;
+}
+
+async function pollAdminChatMessages() {
+    if (!adminSelectedChatId) return;
+
+    try {
+        const res = await fetch(`/api/support.php?action=poll_messages&request_id=${adminSelectedChatId}&after_id=${adminChatLastMsgId}`);
+        const data = await res.json();
+
+        if (data.success && data.messages && data.messages.length > 0) {
+            const stream = document.getElementById('adminSupportMessagesStream');
+            data.messages.forEach(m => {
+                if (m.id > adminChatLastMsgId) adminChatLastMsgId = m.id;
+                const timeStr = m.created_at ? m.created_at.slice(11, 16) : '';
+                const isUser = (m.sender_type === 'user');
+                const isSystem = (m.sender_type === 'system');
+
+                const wrapper = document.createElement('div');
+                if (isSystem) {
+                    wrapper.className = 'flex justify-center my-1.5';
+                    wrapper.innerHTML = `
+                        <div class="bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 max-w-md text-center text-slate-400 text-[11px]">
+                            ${escapeHtml(m.message)}
+                            <span class="block text-[9px] text-slate-600 mt-0.5">${timeStr}</span>
+                        </div>
+                    `;
+                } else if (isUser) {
+                    wrapper.className = 'flex justify-start my-1.5 items-end gap-2';
+                    wrapper.innerHTML = `
+                        <div class="w-7 h-7 rounded-lg bg-indigo-950 border border-indigo-700/50 text-indigo-400 flex items-center justify-center text-[10px] font-bold flex-shrink-0">
+                            U
+                        </div>
+                        <div class="bg-slate-900 border border-slate-800 text-slate-200 rounded-2xl rounded-tl-sm px-3.5 py-2 max-w-[75%] space-y-1 shadow-sm">
+                            <div class="flex items-center justify-between gap-3 border-b border-slate-800 pb-1 mb-1">
+                                <span class="text-[10px] font-bold text-indigo-400">${escapeHtml(m.sender_name || 'User')}</span>
+                                <span class="text-[9px] text-slate-500 font-mono">${timeStr}</span>
+                            </div>
+                            <div class="text-xs break-words whitespace-pre-wrap">${escapeHtml(m.message)}</div>
+                        </div>
+                    `;
+                } else {
+                    wrapper.className = 'flex justify-end my-1.5 items-end gap-2';
+                    wrapper.innerHTML = `
+                        <div class="bg-amber-500/10 border border-amber-500/30 text-white rounded-2xl rounded-tr-sm px-3.5 py-2 max-w-[75%] space-y-1 shadow-sm">
+                            <div class="flex items-center justify-between gap-3 border-b border-amber-500/20 pb-1 mb-1">
+                                <span class="text-[10px] font-bold text-amber-400 uppercase tracking-wider">${escapeHtml(m.sender_name || 'Admin')}</span>
+                                <span class="text-[9px] text-slate-400 font-mono">${timeStr}</span>
+                            </div>
+                            <div class="text-xs break-words whitespace-pre-wrap">${escapeHtml(m.message)}</div>
+                        </div>
+                        <div class="w-7 h-7 rounded-lg bg-amber-500 text-slate-950 flex items-center justify-center text-[10px] font-black flex-shrink-0">
+                            AD
+                        </div>
+                    `;
+                }
+                if (stream) stream.appendChild(wrapper);
+            });
+            if (stream) stream.scrollTop = stream.scrollHeight;
+        }
+    } catch (e) {
+        // Silent poll error
+    }
+}
+
+async function submitAdminChatReply() {
+    if (!adminSelectedChatId || adminChatIsSending) return;
+    const input = document.getElementById('adminChatReplyInput');
+    const sendBtn = document.getElementById('adminChatSendBtn');
+    const message = input ? input.value.trim() : '';
+
+    if (!message) return;
+
+    adminChatIsSending = true;
+    if (sendBtn) sendBtn.disabled = true;
+
+    try {
+        const res = await fetch('/api/support.php?action=admin_reply', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                request_id: adminSelectedChatId,
+                message: message
+            })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            if (input) input.value = '';
+            await pollAdminChatMessages();
+            loadAdminSupportChats(true);
+        } else {
+            alert(data.error || 'Failed to send reply.');
+        }
+    } catch (e) {
+        console.error('Failed to send admin reply:', e);
+        alert('Network error sending reply.');
+    } finally {
+        adminChatIsSending = false;
+        if (sendBtn) sendBtn.disabled = false;
+    }
+}
+
+async function toggleAdminChatStatus() {
+    if (!adminSelectedChatId || !adminSelectedChatData) return;
+    const currentStatus = adminSelectedChatData.status;
+    const targetStatus = (currentStatus === 'resolved') ? 'open' : 'resolved';
+
+    try {
+        const res = await fetch('/api/support.php?action=admin_update_status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                request_id: adminSelectedChatId,
+                status: targetStatus
+            })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            adminSelectedChatData.status = targetStatus;
+            selectAdminChat(adminSelectedChatId);
+            loadAdminSupportChats(true);
+        } else {
+            alert(data.error || 'Failed to update chat status.');
+        }
+    } catch (e) {
+        alert('Network error updating status.');
+    }
+}
+
+function insertAdminCanned(text) {
+    const input = document.getElementById('adminChatReplyInput');
+    if (input) {
+        input.value = text;
+        input.focus();
+    }
+}
+
+function openAdminChatUserDossier() {
+    if (adminSelectedChatData && adminSelectedChatData.user_id) {
+        openUserDossier(adminSelectedChatData.user_id);
+    } else {
+        alert('This session was initiated by a guest without a registered account ID.');
+    }
+}
+
+function updateAdminSupportBadges() {
+    const badge = document.getElementById('adminSupportUnreadBadge');
+    if (!badge) return;
+
+    let unreadTotal = 0;
+    adminChatsCache.forEach(c => {
+        unreadTotal += parseInt(c.unread_count || 0, 10);
+    });
+
+    if (unreadTotal > 0) {
+        badge.innerText = unreadTotal > 9 ? '9+' : unreadTotal;
+        badge.classList.remove('hidden');
+    } else {
+        badge.classList.add('hidden');
+    }
+}
+
+async function checkAdminSupportBadge() {
+    try {
+        const res = await fetch('/api/support.php?action=admin_chats&filter=open');
+        const data = await res.json();
+        if (data.success && data.chats) {
+            adminChatsCache = data.chats;
+            updateAdminSupportBadges();
+        }
+    } catch (e) {
+        // Silent check
+    }
 }

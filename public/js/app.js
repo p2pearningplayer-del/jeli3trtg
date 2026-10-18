@@ -818,81 +818,332 @@ function toggleSupportMenu() {
     }
 }
 
+let liveChatSessionId = null;
+let liveChatPollInterval = null;
+let liveChatLastMsgId = 0;
+let liveChatPendingAttachment = null;
+let liveChatIsSending = false;
+
 function openLiveChatModal() {
     if (supportMenuOpen) toggleSupportMenu();
     const modal = document.getElementById('liveChatModal');
-    const phoneInput = document.getElementById('liveChatPhoneInput');
-    const statusDiv = document.getElementById('liveChatStatus');
-    if (statusDiv) {
-        statusDiv.className = 'text-xs font-semibold hidden';
-        statusDiv.innerText = '';
-    }
-    if (phoneInput && currentUser && currentUser.phone) {
-        phoneInput.value = currentUser.phone;
-    }
     if (modal) modal.classList.remove('hidden');
+
+    loadLiveChatSession();
+
+    if (liveChatPollInterval) clearInterval(liveChatPollInterval);
+    liveChatPollInterval = setInterval(pollLiveChatMessages, 3000);
+
+    const input = document.getElementById('liveChatMessageInput');
+    if (input) {
+        input.focus();
+        input.onkeydown = (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                submitLiveChatMessage();
+            }
+        };
+    }
 }
 
 function closeLiveChatModal() {
     const modal = document.getElementById('liveChatModal');
     if (modal) modal.classList.add('hidden');
+    if (liveChatPollInterval) {
+        clearInterval(liveChatPollInterval);
+        liveChatPollInterval = null;
+    }
 }
 
-async function submitLiveChatRequest() {
-    const phoneInput = document.getElementById('liveChatPhoneInput');
-    const msgInput = document.getElementById('liveChatMessageInput');
-    const statusDiv = document.getElementById('liveChatStatus');
-    const submitBtn = document.getElementById('liveChatSubmitBtn');
+async function loadLiveChatSession(force = false) {
+    const container = document.getElementById('liveChatMessagesContainer');
+    const badge = document.getElementById('liveChatSessionBadge');
+    const guestBanner = document.getElementById('liveChatGuestPhoneBanner');
 
-    const phone = phoneInput ? phoneInput.value.trim() : '';
-    const message = msgInput ? msgInput.value.trim() : '';
+    try {
+        const res = await fetch('/api/support.php?action=session');
+        const data = await res.json();
 
-    if (!phone || phone.length < 10) {
-        if (statusDiv) {
-            statusDiv.className = 'text-xs font-semibold text-red-400 block p-2.5 bg-red-500/10 rounded-xl border border-red-500/20';
-            statusDiv.innerText = 'Please enter a valid 10-digit mobile phone number.';
+        if (data.success && data.session) {
+            liveChatSessionId = data.session.id;
+            if (badge) badge.innerText = `#${String(data.session.id).padStart(4, '0')}`;
+
+            if (!data.is_authenticated) {
+                if (guestBanner) guestBanner.classList.remove('hidden');
+                const guestInput = document.getElementById('liveChatGuestPhoneInput');
+                if (guestInput && data.session.phone && data.session.phone !== '9999999999') {
+                    guestInput.value = data.session.phone;
+                }
+            } else {
+                if (guestBanner) guestBanner.classList.add('hidden');
+            }
+
+            renderLiveChatMessages(data.messages || []);
+        } else {
+            if (container) {
+                container.innerHTML = '<div class="text-center py-8 text-slate-400">Unable to connect to live support desk. Please retry.</div>';
+            }
         }
+    } catch (e) {
+        console.error('Failed to load live chat session:', e);
+        if (container) {
+            container.innerHTML = '<div class="text-center py-8 text-slate-400">Connection error. Please check your network and retry.</div>';
+        }
+    }
+}
+
+function renderLiveChatMessages(messages) {
+    const container = document.getElementById('liveChatMessagesContainer');
+    if (!container) return;
+
+    if (!messages || messages.length === 0) {
+        container.innerHTML = '<div class="text-center py-8 text-slate-500">No messages yet. Send a message to chat with support!</div>';
         return;
     }
 
-    if (submitBtn) submitBtn.disabled = true;
-    if (statusDiv) {
-        statusDiv.className = 'text-xs font-semibold text-slate-300 block p-2 bg-slate-800 rounded-xl';
-        statusDiv.innerText = 'Transmitting phone number to admin support queue...';
-    }
+    let html = '';
+    liveChatLastMsgId = 0;
+
+    messages.forEach(m => {
+        if (m.id > liveChatLastMsgId) liveChatLastMsgId = m.id;
+        const timeStr = m.created_at ? m.created_at.slice(11, 16) : '';
+        const isUser = (m.sender_type === 'user');
+        const isSystem = (m.sender_type === 'system');
+
+        if (isSystem) {
+            html += `
+                <div class="flex justify-center my-1">
+                    <div class="bg-slate-950/80 border border-slate-800 rounded-2xl px-3.5 py-2 max-w-sm text-center text-slate-300 text-[11px] leading-relaxed shadow-sm">
+                        <span class="text-emerald-400 font-bold block mb-0.5">JeliPay Automated Assistant</span>
+                        ${escapeHtml(m.message)}
+                        <span class="block text-[9px] text-slate-500 mt-1">${timeStr}</span>
+                    </div>
+                </div>
+            `;
+        } else if (isUser) {
+            html += `
+                <div class="flex justify-end my-1">
+                    <div class="bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-3.5 py-2 max-w-[80%] shadow-md space-y-1">
+                        <div class="text-xs break-words whitespace-pre-wrap">${escapeHtml(m.message)}</div>
+                        ${m.attachment_path ? `
+                            <div class="pt-1">
+                                <a href="/serve_file.php?file=${encodeURIComponent(m.attachment_path)}" target="_blank" class="inline-flex items-center gap-1.5 bg-indigo-700 hover:bg-indigo-800 text-[11px] px-2.5 py-1 rounded-lg transition">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
+                                    <span>View Attachment</span>
+                                </a>
+                            </div>
+                        ` : ''}
+                        <div class="text-[9px] text-indigo-200 text-right flex items-center justify-end gap-1">
+                            <span>${timeStr}</span>
+                            <svg class="w-3 h-3 text-emerald-300 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                        </div>
+                    </div>
+                </div>
+            `;
+        } else {
+            // Admin / Support Agent
+            html += `
+                <div class="flex justify-start my-1 gap-2 items-end">
+                    <div class="w-7 h-7 rounded-xl bg-emerald-600/30 border border-emerald-500/30 text-emerald-400 flex items-center justify-center text-[10px] font-bold flex-shrink-0">
+                        SP
+                    </div>
+                    <div class="bg-slate-950 border border-slate-800 text-slate-200 rounded-2xl rounded-tl-sm px-3.5 py-2 max-w-[80%] shadow-md space-y-1">
+                        <div class="flex items-center justify-between gap-2 border-b border-slate-800/60 pb-1 mb-1">
+                            <span class="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">${escapeHtml(m.sender_name || 'Support Desk')}</span>
+                            <span class="text-[9px] text-slate-500 font-mono">${timeStr}</span>
+                        </div>
+                        <div class="text-xs break-words whitespace-pre-wrap">${escapeHtml(m.message)}</div>
+                        ${m.attachment_path ? `
+                            <div class="pt-1">
+                                <a href="/serve_file.php?file=${encodeURIComponent(m.attachment_path)}" target="_blank" class="inline-flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-indigo-400 text-[11px] px-2.5 py-1 rounded-lg transition border border-slate-800">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
+                                    <span>View Attachment</span>
+                                </a>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        }
+    });
+
+    container.innerHTML = html;
+    container.scrollTop = container.scrollHeight;
+}
+
+async function pollLiveChatMessages() {
+    if (!liveChatSessionId) return;
+    const modal = document.getElementById('liveChatModal');
+    if (modal && modal.classList.contains('hidden')) return;
 
     try {
-        const res = await fetch('/api/support.php?action=live_chat', {
+        const res = await fetch(`/api/support.php?action=poll_messages&request_id=${liveChatSessionId}&after_id=${liveChatLastMsgId}`);
+        const data = await res.json();
+        if (data.success && data.messages && data.messages.length > 0) {
+            const container = document.getElementById('liveChatMessagesContainer');
+            data.messages.forEach(m => {
+                if (m.id > liveChatLastMsgId) liveChatLastMsgId = m.id;
+                const timeStr = m.created_at ? m.created_at.slice(11, 16) : '';
+                const isUser = (m.sender_type === 'user');
+                const isSystem = (m.sender_type === 'system');
+
+                const wrapper = document.createElement('div');
+                if (isSystem) {
+                    wrapper.className = 'flex justify-center my-1';
+                    wrapper.innerHTML = `
+                        <div class="bg-slate-950/80 border border-slate-800 rounded-2xl px-3.5 py-2 max-w-sm text-center text-slate-300 text-[11px] leading-relaxed shadow-sm">
+                            <span class="text-emerald-400 font-bold block mb-0.5">JeliPay Automated Assistant</span>
+                            ${escapeHtml(m.message)}
+                            <span class="block text-[9px] text-slate-500 mt-1">${timeStr}</span>
+                        </div>
+                    `;
+                } else if (isUser) {
+                    wrapper.className = 'flex justify-end my-1';
+                    wrapper.innerHTML = `
+                        <div class="bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-3.5 py-2 max-w-[80%] shadow-md space-y-1">
+                            <div class="text-xs break-words whitespace-pre-wrap">${escapeHtml(m.message)}</div>
+                            <div class="text-[9px] text-indigo-200 text-right flex items-center justify-end gap-1">
+                                <span>${timeStr}</span>
+                                <svg class="w-3 h-3 text-emerald-300 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    wrapper.className = 'flex justify-start my-1 gap-2 items-end';
+                    wrapper.innerHTML = `
+                        <div class="w-7 h-7 rounded-xl bg-emerald-600/30 border border-emerald-500/30 text-emerald-400 flex items-center justify-center text-[10px] font-bold flex-shrink-0">
+                            SP
+                        </div>
+                        <div class="bg-slate-950 border border-slate-800 text-slate-200 rounded-2xl rounded-tl-sm px-3.5 py-2 max-w-[80%] shadow-md space-y-1">
+                            <div class="flex items-center justify-between gap-2 border-b border-slate-800/60 pb-1 mb-1">
+                                <span class="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">${escapeHtml(m.sender_name || 'Support Desk')}</span>
+                                <span class="text-[9px] text-slate-500 font-mono">${timeStr}</span>
+                            </div>
+                            <div class="text-xs break-words whitespace-pre-wrap">${escapeHtml(m.message)}</div>
+                            ${m.attachment_path ? `
+                                <div class="pt-1">
+                                    <a href="/serve_file.php?file=${encodeURIComponent(m.attachment_path)}" target="_blank" class="inline-flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-indigo-400 text-[11px] px-2.5 py-1 rounded-lg transition border border-slate-800">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
+                                        <span>View Attachment</span>
+                                    </a>
+                                </div>
+                            ` : ''}
+                        </div>
+                    `;
+                }
+                if (container) container.appendChild(wrapper);
+            });
+            if (container) container.scrollTop = container.scrollHeight;
+        }
+    } catch (e) {
+        // Silent poll error
+    }
+}
+
+async function submitLiveChatMessage() {
+    if (liveChatIsSending) return;
+    const msgInput = document.getElementById('liveChatMessageInput');
+    const guestInput = document.getElementById('liveChatGuestPhoneInput');
+    const sendBtn = document.getElementById('liveChatSendBtn');
+
+    const message = msgInput ? msgInput.value.trim() : '';
+    const phone = guestInput ? guestInput.value.trim() : '';
+
+    if (!message && !liveChatPendingAttachment) return;
+
+    if (!currentUser && (!phone || phone.length < 10)) {
+        alert('Please enter your 10-digit phone number in the top bar so support can assist your account.');
+        if (guestInput) guestInput.focus();
+        return;
+    }
+
+    liveChatIsSending = true;
+    if (sendBtn) sendBtn.disabled = true;
+
+    try {
+        const payload = {
+            request_id: liveChatSessionId,
+            message: message,
+            attachment_path: liveChatPendingAttachment || '',
+            phone: phone
+        };
+
+        const res = await fetch('/api/support.php?action=send_message', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ phone, message })
+            body: JSON.stringify(payload)
         });
         const data = await res.json();
 
         if (data.success) {
-            if (statusDiv) {
-                statusDiv.className = 'text-xs font-semibold text-emerald-400 block p-3 bg-emerald-500/10 rounded-xl border border-emerald-500/20';
-                statusDiv.innerText = `Request transmitted! An agent has been assigned to +91 ${phone} and will connect with you shortly.`;
+            if (msgInput) {
+                msgInput.value = '';
+                msgInput.style.height = 'auto';
             }
-            if (msgInput) msgInput.value = '';
-            setTimeout(() => {
-                closeLiveChatModal();
-                loadNotifications();
-            }, 2500);
+            clearLiveChatAttachment();
+            if (data.request_id) liveChatSessionId = data.request_id;
+            await pollLiveChatMessages();
         } else {
-            if (statusDiv) {
-                statusDiv.className = 'text-xs font-semibold text-red-400 block p-2.5 bg-red-500/10 rounded-xl border border-red-500/20';
-                statusDiv.innerText = data.error || 'Failed to submit live chat request.';
-            }
+            alert(data.error || 'Failed to send message.');
         }
     } catch (e) {
-        if (statusDiv) {
-            statusDiv.className = 'text-xs font-semibold text-red-400 block p-2.5 bg-red-500/10 rounded-xl border border-red-500/20';
-            statusDiv.innerText = 'Network error requesting live chat.';
-        }
+        console.error('Failed to send live chat message:', e);
+        alert('Network error sending message.');
     } finally {
-        if (submitBtn) submitBtn.disabled = false;
+        liveChatIsSending = false;
+        if (sendBtn) sendBtn.disabled = false;
     }
+}
+
+function sendQuickTopic(topic) {
+    const input = document.getElementById('liveChatMessageInput');
+    if (input) {
+        input.value = topic;
+        submitLiveChatMessage();
+    }
+}
+
+async function handleLiveChatFileSelected(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+
+    const bar = document.getElementById('liveChatAttachmentBar');
+    const nameEl = document.getElementById('liveChatAttachmentName');
+    if (nameEl) nameEl.innerText = `Uploading ${file.name}...`;
+    if (bar) bar.classList.remove('hidden');
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('type', 'chat');
+
+    try {
+        const res = await fetch('/api/uploads.php', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await res.json();
+
+        if (data.success && data.file_path) {
+            liveChatPendingAttachment = data.file_path;
+            if (nameEl) nameEl.innerText = `${file.name} (Attached)`;
+        } else {
+            alert(data.error || 'Failed to upload attachment.');
+            clearLiveChatAttachment();
+        }
+    } catch (err) {
+        alert('Network error uploading attachment.');
+        clearLiveChatAttachment();
+    } finally {
+        e.target.value = '';
+    }
+}
+
+function clearLiveChatAttachment() {
+    liveChatPendingAttachment = null;
+    const bar = document.getElementById('liveChatAttachmentBar');
+    if (bar) bar.classList.add('hidden');
+    const fileInput = document.getElementById('liveChatFileInput');
+    if (fileInput) fileInput.value = '';
 }
 
 async function requestCustomAllocation() {

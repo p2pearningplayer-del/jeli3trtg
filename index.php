@@ -802,7 +802,7 @@ endif;
                             </div>
                             <div>
                                 <h4 class="text-xs font-bold text-white">Live Chat Support</h4>
-                                <p class="text-[10px] text-slate-400">Transmit phone to assign agent</p>
+                                <p class="text-[10px] text-slate-400">Real-time 24/7 Agent Desk</p>
                             </div>
                         </div>
                         <span class="text-xs font-bold text-slate-400 group-hover:text-white">&rarr;</span>
@@ -1471,58 +1471,97 @@ endif;
                         <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
                         <span>Live Chat</span>
                     </div>
-                    <span class="text-[10px] text-slate-400 group-hover:text-white transition">Assign Agent &rarr;</span>
+                    <span class="text-[10px] text-slate-400 group-hover:text-white transition">Open Chat &rarr;</span>
                 </button>
             </div>
         </div>
 
         <!-- Floating Action Button -->
-        <button type="button" onclick="toggleSupportMenu()" class="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-bold px-4 py-3 rounded-full shadow-2xl shadow-indigo-600/40 border border-indigo-400/30 transition transform hover:scale-105" title="Customer Support">
+        <button type="button" onclick="toggleSupportMenu()" class="relative flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-bold px-4 py-3 rounded-full shadow-2xl shadow-indigo-600/40 border border-indigo-400/30 transition transform hover:scale-105" title="Customer Support">
+            <span id="supportUnreadDot" class="absolute -top-1 -right-1 w-3.5 h-3.5 bg-emerald-400 rounded-full border-2 border-slate-950 hidden animate-ping"></span>
             <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
             <span class="text-xs tracking-wider">Support</span>
         </button>
     </div>
 
-    <!-- Live Chat Support Request Modal (Part 8, Item 3) -->
-    <div id="liveChatModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
-        <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 shadow-2xl relative space-y-4">
-            <button onclick="closeLiveChatModal()" class="absolute right-4 top-4 text-slate-400 hover:text-white transition">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-            </button>
-            <div class="flex items-center gap-3 border-b border-slate-800 pb-3 pr-8">
-                <div class="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center flex-shrink-0">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
-                </div>
-                <div>
-                    <span class="text-xs uppercase font-bold text-emerald-400 tracking-wider">Live Agent Assistance</span>
-                    <h3 class="text-lg font-bold text-white mt-0.5">Request Support Agent</h3>
-                </div>
-            </div>
-            <p class="text-xs text-slate-400 leading-relaxed">
-                Transmitting your phone number assigns an available support agent directly to your account to assist with trades, payments, or escrow arbitration.
-            </p>
-            <form onsubmit="event.preventDefault(); submitLiveChatRequest(); return false;" class="space-y-3 pt-1">
-                <div>
-                    <label class="text-xs font-semibold text-slate-300 block mb-1">Your Registered Phone Number</label>
-                    <div class="flex items-center bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5">
-                        <span class="text-slate-400 text-xs font-bold mr-2">+91</span>
-                        <input type="tel" id="liveChatPhoneInput" required maxlength="10" placeholder="9876543210" class="w-full bg-transparent text-sm text-white font-mono focus:outline-none">
+    <!-- Real-time Live Chat Modal / Window -->
+    <div id="liveChatModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full h-[620px] max-h-[92vh] shadow-2xl relative flex flex-col overflow-hidden">
+            <!-- Header -->
+            <div class="bg-slate-950/90 border-b border-slate-800 px-4 py-3.5 flex items-center justify-between flex-shrink-0">
+                <div class="flex items-center gap-3">
+                    <div class="relative">
+                        <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center font-black text-sm shadow-md shadow-emerald-500/20">
+                            JP
+                        </div>
+                        <span class="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-400 border-2 border-slate-950 animate-pulse"></span>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h3 class="text-sm font-bold text-white leading-tight">JeliPay Live Support</h3>
+                            <span id="liveChatSessionBadge" class="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-slate-800 text-indigo-400">#LIVE</span>
+                        </div>
+                        <div class="flex items-center gap-1.5 text-[11px] text-emerald-400">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                            <span>Escrow & Helpdesk • Online (Avg 2m)</span>
+                        </div>
                     </div>
                 </div>
-                <div>
-                    <label class="text-xs font-semibold text-slate-300 block mb-1">Brief Description of Issue (Optional)</label>
-                    <textarea id="liveChatMessageInput" rows="2" placeholder="e.g. Need assistance with order #0003 payment verification" class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white focus:border-indigo-500 focus:outline-none"></textarea>
-                </div>
-                <div id="liveChatStatus" class="text-xs font-semibold hidden"></div>
-                <div class="grid grid-cols-2 gap-3 pt-2">
-                    <button type="button" onclick="closeLiveChatModal()" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2.5 rounded-xl transition text-xs">
-                        Cancel
+                <div class="flex items-center gap-1">
+                    <button type="button" onclick="loadLiveChatSession(true)" title="Refresh Chat" class="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                     </button>
-                    <button type="submit" id="liveChatSubmitBtn" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl shadow-lg shadow-emerald-600/30 transition text-xs flex items-center justify-center gap-1.5">
-                        <span>Transmit & Assign</span>
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+                    <button type="button" onclick="closeLiveChatModal()" title="Close Chat" class="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                     </button>
                 </div>
+            </div>
+
+            <!-- Quick Assistance Chips Strip -->
+            <div class="bg-slate-950/60 border-b border-slate-800/80 px-3 py-2 flex items-center gap-2 overflow-x-auto scrollbar-none flex-shrink-0">
+                <span class="text-[10px] uppercase font-bold text-slate-500 whitespace-nowrap pl-1">Quick Topics:</span>
+                <button type="button" onclick="sendQuickTopic('Need help verifying my order payment UTR')" class="px-2.5 py-1 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-semibold whitespace-nowrap transition border border-slate-700/50">💳 UTR Payment</button>
+                <button type="button" onclick="sendQuickTopic('Inquiry regarding active order verification delay')" class="px-2.5 py-1 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-semibold whitespace-nowrap transition border border-slate-700/50">⏳ Order Delay</button>
+                <button type="button" onclick="sendQuickTopic('How to cancel my active sell listing and refund tokens?')" class="px-2.5 py-1 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-semibold whitespace-nowrap transition border border-slate-700/50">🏷️ Sell Orders</button>
+                <button type="button" onclick="sendQuickTopic('Need assistance with T-PIN configuration or reset')" class="px-2.5 py-1 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-semibold whitespace-nowrap transition border border-slate-700/50">🔐 T-PIN Reset</button>
+            </div>
+
+            <!-- Messages Stream Area -->
+            <div id="liveChatMessagesContainer" class="flex-1 overflow-y-auto p-4 space-y-3.5 bg-slate-900/50 text-xs">
+                <!-- Dynamically rendered messages -->
+                <div class="text-center py-10 text-slate-500 text-xs flex flex-col items-center gap-2">
+                    <svg class="w-6 h-6 animate-spin text-emerald-400" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
+                    <span>Connecting to Live Support Desk...</span>
+                </div>
+            </div>
+
+            <!-- Guest Phone Banner (Only shown if guest user) -->
+            <div id="liveChatGuestPhoneBanner" class="bg-indigo-950/60 border-t border-indigo-500/20 px-4 py-2.5 flex items-center gap-2 flex-shrink-0 hidden">
+                <span class="text-[11px] text-indigo-300 whitespace-nowrap">Your Phone (+91):</span>
+                <input type="tel" id="liveChatGuestPhoneInput" maxlength="10" placeholder="10-digit number" class="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white font-mono flex-1 focus:outline-none focus:border-indigo-400">
+            </div>
+
+            <!-- Attachment Preview Bar -->
+            <div id="liveChatAttachmentBar" class="bg-slate-950 border-t border-slate-800 px-4 py-2 flex items-center justify-between flex-shrink-0 hidden">
+                <div class="flex items-center gap-2 truncate">
+                    <svg class="w-4 h-4 text-emerald-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
+                    <span id="liveChatAttachmentName" class="text-xs text-slate-300 truncate">photo.png</span>
+                </div>
+                <button type="button" onclick="clearLiveChatAttachment()" class="text-red-400 hover:text-red-300 text-xs font-semibold ml-2">Remove</button>
+            </div>
+
+            <!-- Footer Input Form -->
+            <form id="liveChatInputForm" onsubmit="event.preventDefault(); submitLiveChatMessage(); return false;" class="bg-slate-950 border-t border-slate-800 p-3 flex items-end gap-2 flex-shrink-0">
+                <input type="file" id="liveChatFileInput" class="hidden" accept="image/*,application/pdf" onchange="handleLiveChatFileSelected(event)">
+                <button type="button" onclick="document.getElementById('liveChatFileInput').click()" title="Attach Screenshot or PDF" class="p-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-emerald-400 border border-slate-800 transition flex-shrink-0">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
+                </button>
+                <div class="flex-1 relative">
+                    <textarea id="liveChatMessageInput" rows="1" placeholder="Type a message to Live Support..." class="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 resize-none max-h-24"></textarea>
+                </div>
+                <button type="submit" id="liveChatSendBtn" class="bg-emerald-600 hover:bg-emerald-500 text-white p-2.5 rounded-xl shadow-lg shadow-emerald-600/30 transition flex-shrink-0 flex items-center justify-center">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+                </button>
             </form>
         </div>
     </div>

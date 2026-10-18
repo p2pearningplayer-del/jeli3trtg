@@ -22,8 +22,8 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST' || (empty($_FILES['file']) && empty($_
 }
 
 $rawFiles = !empty($_FILES['files']) ? $_FILES['files'] : $_FILES['file'];
-$uploadType = $_POST['type'] ?? 'proof'; // 'proof' or 'evidence'
-$targetDir = ($uploadType === 'evidence') ? EVIDENCE_UPLOAD_DIR : PROOF_UPLOAD_DIR;
+$uploadType = $_POST['type'] ?? 'proof'; // 'proof', 'evidence', or 'chat'
+$targetDir = ($uploadType === 'evidence') ? EVIDENCE_UPLOAD_DIR : (($uploadType === 'chat') ? (UPLOAD_DIR . '/chat') : PROOF_UPLOAD_DIR);
 
 if (!is_dir($targetDir)) {
     mkdir($targetDir, 0755, true);
@@ -93,7 +93,7 @@ foreach ($fileList as $f) {
         jsonError("Failed to store uploaded file '{$f['name']}'.");
     }
 
-    $relativeUri = ($uploadType === 'evidence') ? "evidence/{$filename}" : "proofs/{$filename}";
+    $relativeUri = ($uploadType === 'evidence') ? "evidence/{$filename}" : (($uploadType === 'chat') ? "chat/{$filename}" : "proofs/{$filename}");
     $savedPaths[] = $relativeUri;
     $savedUrls[] = APP_URL . '/serve_file.php?file=' . urlencode($relativeUri);
 }

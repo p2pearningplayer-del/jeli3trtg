@@ -223,6 +223,19 @@ class SchemaInstaller {
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS support_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            request_id INTEGER NOT NULL,
+            sender_type TEXT NOT NULL,
+            sender_id INTEGER,
+            sender_name TEXT,
+            message TEXT NOT NULL,
+            attachment_path TEXT,
+            is_read INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (request_id) REFERENCES support_requests(id) ON DELETE CASCADE
+        );
         ";
 
         $pdo->exec($schema);
@@ -303,6 +316,18 @@ class SchemaInstaller {
                         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                         updated_at TEXT DEFAULT CURRENT_TIMESTAMP
                     );
+                    CREATE TABLE IF NOT EXISTS support_messages (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        request_id INTEGER NOT NULL,
+                        sender_type TEXT NOT NULL,
+                        sender_id INTEGER,
+                        sender_name TEXT,
+                        message TEXT NOT NULL,
+                        attachment_path TEXT,
+                        is_read INTEGER NOT NULL DEFAULT 0,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (request_id) REFERENCES support_requests(id) ON DELETE CASCADE
+                    );
                 ");
             } else {
                 $pdo->exec("
@@ -319,6 +344,22 @@ class SchemaInstaller {
                         `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                         INDEX `idx_support_user` (`user_id`),
                         INDEX `idx_support_status` (`status`)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                ");
+                $pdo->exec("
+                    CREATE TABLE IF NOT EXISTS `support_messages` (
+                        `id` INT AUTO_INCREMENT PRIMARY KEY,
+                        `request_id` INT NOT NULL,
+                        `sender_type` VARCHAR(20) NOT NULL,
+                        `sender_id` INT NULL,
+                        `sender_name` VARCHAR(100) NULL,
+                        `message` TEXT NOT NULL,
+                        `attachment_path` VARCHAR(255) NULL,
+                        `is_read` TINYINT NOT NULL DEFAULT 0,
+                        `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        INDEX `idx_msg_req` (`request_id`),
+                        INDEX `idx_msg_read` (`is_read`),
+                        FOREIGN KEY (`request_id`) REFERENCES `support_requests`(`id`) ON DELETE CASCADE
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
                 ");
             }

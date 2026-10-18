@@ -46,8 +46,12 @@ if (!$isAdmin) {
         SELECT 1 FROM disputes d
         JOIN child_orders c ON d.child_order_id = c.id
         WHERE d.evidence_screenshot_path = ? AND (c.buyer_id = ? OR c.seller_id = ?)
+        UNION
+        SELECT 1 FROM support_messages sm
+        JOIN support_requests sr ON sm.request_id = sr.id
+        WHERE sm.attachment_path = ? AND sr.user_id = ?
     ");
-    $authStmt->execute([$requestedFile, $userId, $userId, $requestedFile, $userId, $userId]);
+    $authStmt->execute([$requestedFile, $userId, $userId, $requestedFile, $userId, $userId, $requestedFile, $userId]);
 
     if (!$authStmt->fetch()) {
         http_response_code(403);
