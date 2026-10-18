@@ -240,6 +240,43 @@ CREATE TABLE `notifications` (
   CONSTRAINT `fk_notifications_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 12. SUPPORT REQUESTS (Live Chat Sessions)
+CREATE TABLE `support_requests` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `user_id` INT NULL,
+  `phone` VARCHAR(20) NOT NULL,
+  `username` VARCHAR(100) NULL,
+  `message` TEXT NULL,
+  `status` VARCHAR(20) NOT NULL DEFAULT 'open',
+  `assigned_admin_id` INT NULL,
+  `notes` TEXT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX `idx_support_user` (`user_id`),
+  INDEX `idx_support_phone` (`phone`),
+  INDEX `idx_support_status` (`status`),
+  INDEX `idx_support_assigned` (`assigned_admin_id`),
+  CONSTRAINT `fk_support_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_support_admin` FOREIGN KEY (`assigned_admin_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 13. SUPPORT MESSAGES (Real-Time Live Chat Transcripts)
+CREATE TABLE `support_messages` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `request_id` INT NOT NULL,
+  `sender_type` VARCHAR(20) NOT NULL,
+  `sender_id` INT NULL,
+  `sender_name` VARCHAR(100) NULL,
+  `message` TEXT NOT NULL,
+  `attachment_path` VARCHAR(255) NULL,
+  `is_read` TINYINT(1) NOT NULL DEFAULT 0,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_msg_req` (`request_id`),
+  INDEX `idx_msg_read` (`is_read`),
+  INDEX `idx_msg_created` (`created_at`),
+  CONSTRAINT `fk_msg_req` FOREIGN KEY (`request_id`) REFERENCES `support_requests` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- ====================================================================
 -- DEFAULT CONFIGURATION SEEDS
 -- ====================================================================

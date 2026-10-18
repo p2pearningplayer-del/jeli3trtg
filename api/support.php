@@ -2,7 +2,8 @@
 /**
  * Support & Real-time Live Chat API Controller
  * Provides real-time messaging between users and support agents,
- * Telegram redirection, file attachment support, and admin chat management.
+ * Telegram redirection, file attachment support, instant agent assignment,
+ * and high-frequency admin synchronization.
  */
 
 require_once __DIR__ . '/../config/config.php';
@@ -12,8 +13,27 @@ require_once __DIR__ . '/../src/Auth.php';
 require_once __DIR__ . '/../src/Validator.php';
 require_once __DIR__ . '/response.php';
 
-// Ensure schema is installed (including support_messages)
+// Ensure schema is installed (including support_messages and support_requests)
 SchemaInstaller::ensureSchema();
+
+/**
+ * Resolves the authenticated administrator, supporting super_admin, demoadmin,
+ * support agents, and impersonation / support mode sessions.
+ */
+function getAdminUser(): ?array {
+    $user = Auth::getCurrentUser();
+    if (!$user && !empty($_SESSION['admin_user_id'])) {
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare("SELECT * FROM users WHERE id = ?");
+        $stmt->execute([(int)$_SESSION['admin_user_id']]);
+        $user = $stmt->fetch() ?: null;
+    }
+    if (!$user) return null;
+    if ($user['role'] === 'admin' || !empty($user['real_admin_id']) || !empty($user['admin_role']) || !empty($_SESSION['admin_role']) || !empty($_SESSION['is_admin'])) {
+        return $user;
+    }
+    return null;
+}
 
 $action = $_GET['action'] ?? $_POST['action'] ?? 'config';
 $input = getJsonInput();
@@ -150,8 +170,9 @@ switch ($action) {
             jsonError('Invalid request ID.');
         }
 
+        $admin = getAdminUser();
         $user = Auth::getCurrentUser();
-        $isAdmin = $user && $user['role'] === 'admin';
+        $isAdmin = (bool)$admin;
 
         // Check ownership if not admin
         $stmt = $pdo->prepare("SELECT * FROM support_requests WHERE id = ?");
@@ -212,26 +233,46 @@ switch ($action) {
         $user = Auth::getCurrentUser();
         $nowUtc = gmdate('Y-m-d H:i:s');
 
-        // If no request_id provided, create or find one
+        // If no request_id provided or <= 0, find open session first to prevent thread splitting
         if ($requestId <= 0) {
             $userId = $user ? (int)$user['id'] : null;
             $userPhone = $user ? $user['phone'] : (!empty($phone) ? Validator::cleanPhone($phone) : '');
             $userName = $user ? ($user['account_holder_name'] ?? 'User') : 'Guest User';
 
-            if (empty($userPhone)) {
+            if (empty($userPhone) && !$userId) {
                 jsonError('Please provide your 10-digit phone number to start live chat.');
             }
 
-            $stmt = $pdo->prepare("
-                INSERT INTO support_requests (user_id, phone, username, message, status, created_at, updated_at)
-                VALUES (?, ?, ?, ?, 'open', ?, ?)
-            ");
-            $stmt->execute([$userId, $userPhone, $userName, $message, $nowUtc, $nowUtc]);
-            $requestId = (int)$pdo->lastInsertId();
+            // Look for existing active session first
+            $existing = null;
+            if ($userId) {
+                $stmt = $pdo->prepare("SELECT id FROM support_requests WHERE user_id = ? AND status != 'resolved' ORDER BY id DESC LIMIT 1");
+                $stmt->execute([$userId]);
+                $existing = $stmt->fetch();
+            } elseif (!empty($_SESSION['guest_support_request_id'])) {
+                $stmt = $pdo->prepare("SELECT id FROM support_requests WHERE id = ? AND status != 'resolved'");
+                $stmt->execute([(int)$_SESSION['guest_support_request_id']]);
+                $existing = $stmt->fetch();
+            } elseif (!empty($userPhone)) {
+                $stmt = $pdo->prepare("SELECT id FROM support_requests WHERE phone = ? AND status != 'resolved' ORDER BY id DESC LIMIT 1");
+                $stmt->execute([$userPhone]);
+                $existing = $stmt->fetch();
+            }
 
-            if (!$userId) {
-                $_SESSION['guest_support_request_id'] = $requestId;
-                $_SESSION['guest_support_phone'] = $userPhone;
+            if ($existing) {
+                $requestId = (int)$existing['id'];
+            } else {
+                $stmt = $pdo->prepare("
+                    INSERT INTO support_requests (user_id, phone, username, message, status, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, 'open', ?, ?)
+                ");
+                $stmt->execute([$userId, $userPhone, $userName, $message, $nowUtc, $nowUtc]);
+                $requestId = (int)$pdo->lastInsertId();
+
+                if (!$userId) {
+                    $_SESSION['guest_support_request_id'] = $requestId;
+                    $_SESSION['guest_support_phone'] = $userPhone;
+                }
             }
         }
 
@@ -254,18 +295,32 @@ switch ($action) {
         $msgStmt->execute([$requestId, $senderId, $senderName, $message, $attachmentPath ?: null, $nowUtc]);
         $msgId = (int)$pdo->lastInsertId();
 
-        // Update session timestamp & status
+        // Update session timestamp & status (reopen if resolved)
         $pdo->prepare("
             UPDATE support_requests
-            SET status = 'open', updated_at = ?
+            SET status = CASE WHEN status = 'resolved' THEN 'open' ELSE status END,
+                updated_at = ?
             WHERE id = ?
         ")->execute([$nowUtc, $requestId]);
 
-        // Notify admins about new live chat message
+        // Dispatch alerts to assigned admin agent specifically, and all admins
+        $preview = mb_substr($message, 0, 50);
+        if (!empty($session['assigned_admin_id'])) {
+            Auth::createNotification(
+                (int)$session['assigned_admin_id'],
+                'Assigned Live Chat Alert',
+                "User +91 {$session['phone']}: {$preview}",
+                'support',
+                (string)$requestId
+            );
+        }
+
         $adminStmt = $pdo->query("SELECT id FROM users WHERE role = 'admin'");
         $admins = $adminStmt->fetchAll();
-        $preview = mb_substr($message, 0, 45);
         foreach ($admins as $adm) {
+            if (!empty($session['assigned_admin_id']) && (int)$adm['id'] === (int)$session['assigned_admin_id']) {
+                continue;
+            }
             Auth::createNotification(
                 (int)$adm['id'],
                 'New Live Chat Message',
@@ -276,7 +331,6 @@ switch ($action) {
         }
 
         // Automated Instant Assistant:
-        // If this is the user's first query or mentions key workflows, provide immediate assistance
         $countStmt = $pdo->prepare("SELECT COUNT(*) FROM support_messages WHERE request_id = ? AND sender_type = 'system'");
         $countStmt->execute([$requestId]);
         $systemMsgCount = (int)$countStmt->fetchColumn();
@@ -311,12 +365,122 @@ switch ($action) {
         break;
 
     // -------------------------------------------------------------
+    // ADMIN: UNIFIED FAST REAL-TIME SYNC
+    // -------------------------------------------------------------
+    case 'admin_sync':
+        $admin = getAdminUser();
+        if (!$admin) {
+            jsonError('Admin authentication required.', 403);
+        }
+
+        $activeRequestId = (int)($_GET['active_request_id'] ?? $input['active_request_id'] ?? 0);
+        $lastMsgId = (int)($_GET['last_msg_id'] ?? $input['last_msg_id'] ?? 0);
+        $filter = $_GET['filter'] ?? $input['filter'] ?? 'all';
+        $since = trim($_GET['since'] ?? $input['since'] ?? '');
+
+        // 1. Fetch conversations with assigned admin name
+        $sql = "
+            SELECT s.id, s.user_id, s.phone, s.username, s.status, s.assigned_admin_id,
+                   s.created_at, s.updated_at,
+                   u.account_holder_name, u.health_score, u.account_status,
+                   adm.account_holder_name as assigned_admin_name,
+                   (SELECT message FROM support_messages WHERE request_id = s.id ORDER BY id DESC LIMIT 1) as last_message,
+                   (SELECT created_at FROM support_messages WHERE request_id = s.id ORDER BY id DESC LIMIT 1) as last_message_at,
+                   (SELECT sender_type FROM support_messages WHERE request_id = s.id ORDER BY id DESC LIMIT 1) as last_sender_type,
+                   (SELECT COUNT(*) FROM support_messages WHERE request_id = s.id AND sender_type = 'user' AND is_read = 0) as unread_count
+            FROM support_requests s
+            LEFT JOIN users u ON s.user_id = u.id
+            LEFT JOIN users adm ON s.assigned_admin_id = adm.id
+        ";
+
+        if ($filter === 'open') {
+            $sql .= " WHERE s.status IN ('pending', 'open', 'in_progress') ";
+        } elseif ($filter === 'resolved') {
+            $sql .= " WHERE s.status = 'resolved' ";
+        }
+
+        $sql .= " ORDER BY unread_count DESC, s.updated_at DESC LIMIT 60";
+
+        $stmt = $pdo->query($sql);
+        $chats = $stmt->fetchAll();
+
+        // 2. Fetch total unread user messages across platform
+        $totalUnreadStmt = $pdo->query("
+            SELECT COUNT(*) FROM support_messages m
+            INNER JOIN support_requests s ON m.request_id = s.id
+            WHERE m.sender_type = 'user' AND m.is_read = 0 AND s.status != 'resolved'
+        ");
+        $totalUnread = (int)$totalUnreadStmt->fetchColumn();
+
+        // 3. Fetch active chat messages if active_request_id passed
+        $activeMessages = [];
+        $activeSession = null;
+        if ($activeRequestId > 0) {
+            $sessStmt = $pdo->prepare("
+                SELECT s.*, u.account_holder_name, u.health_score, u.account_status,
+                       adm.account_holder_name as assigned_admin_name
+                FROM support_requests s
+                LEFT JOIN users u ON s.user_id = u.id
+                LEFT JOIN users adm ON s.assigned_admin_id = adm.id
+                WHERE s.id = ?
+            ");
+            $sessStmt->execute([$activeRequestId]);
+            $activeSession = $sessStmt->fetch();
+
+            $msgStmt = $pdo->prepare("
+                SELECT id, request_id, sender_type, sender_id, sender_name, message, attachment_path, is_read, created_at
+                FROM support_messages
+                WHERE request_id = ? AND id > ?
+                ORDER BY id ASC
+            ");
+            $msgStmt->execute([$activeRequestId, $lastMsgId]);
+            $activeMessages = $msgStmt->fetchAll();
+
+            // Mark active chat user messages as read
+            if (!empty($activeMessages)) {
+                $pdo->prepare("
+                    UPDATE support_messages
+                    SET is_read = 1
+                    WHERE request_id = ? AND sender_type = 'user' AND is_read = 0
+                ")->execute([$activeRequestId]);
+            }
+        }
+
+        // 4. Check for any recent incoming message (in the last 10 seconds or since timestamp)
+        $nowTs = time();
+        $cutoff = !empty($since) ? $since : gmdate('Y-m-d H:i:s', $nowTs - 10);
+        $recentStmt = $pdo->prepare("
+            SELECT m.id, m.request_id, m.sender_name, m.message, m.created_at, s.phone, s.assigned_admin_id
+            FROM support_messages m
+            INNER JOIN support_requests s ON m.request_id = s.id
+            WHERE m.sender_type = 'user' AND m.created_at >= ?
+            ORDER BY m.id DESC LIMIT 5
+        ");
+        $recentStmt->execute([$cutoff]);
+        $recentIncoming = $recentStmt->fetchAll();
+
+        jsonResponse(true, [
+            'chats' => $chats,
+            'unread_total' => $totalUnread,
+            'active_session' => $activeSession,
+            'active_messages' => $activeMessages,
+            'recent_incoming' => $recentIncoming,
+            'server_time' => gmdate('Y-m-d H:i:s', $nowTs),
+            'admin' => [
+                'id' => $admin['id'],
+                'name' => $admin['account_holder_name'] ?? 'Admin',
+                'role' => $admin['admin_role'] ?? $admin['role']
+            ]
+        ]);
+        break;
+
+    // -------------------------------------------------------------
     // ADMIN: LIST ALL SUPPORT CHATS
     // -------------------------------------------------------------
     case 'admin_chats':
     case 'list':
-        $user = Auth::getCurrentUser();
-        if (!$user || $user['role'] !== 'admin') {
+        $admin = getAdminUser();
+        if (!$admin) {
             jsonError('Admin authentication required.', 403);
         }
 
@@ -326,11 +490,14 @@ switch ($action) {
             SELECT s.id, s.user_id, s.phone, s.username, s.status, s.assigned_admin_id,
                    s.created_at, s.updated_at,
                    u.account_holder_name, u.health_score, u.account_status,
+                   adm.account_holder_name as assigned_admin_name,
                    (SELECT message FROM support_messages WHERE request_id = s.id ORDER BY id DESC LIMIT 1) as last_message,
                    (SELECT created_at FROM support_messages WHERE request_id = s.id ORDER BY id DESC LIMIT 1) as last_message_at,
+                   (SELECT sender_type FROM support_messages WHERE request_id = s.id ORDER BY id DESC LIMIT 1) as last_sender_type,
                    (SELECT COUNT(*) FROM support_messages WHERE request_id = s.id AND sender_type = 'user' AND is_read = 0) as unread_count
             FROM support_requests s
             LEFT JOIN users u ON s.user_id = u.id
+            LEFT JOIN users adm ON s.assigned_admin_id = adm.id
         ";
 
         if ($filter === 'open') {
@@ -348,11 +515,59 @@ switch ($action) {
         break;
 
     // -------------------------------------------------------------
+    // ADMIN: ASSIGN AGENT TO CHAT
+    // -------------------------------------------------------------
+    case 'assign_agent':
+        $admin = getAdminUser();
+        if (!$admin) {
+            jsonError('Admin authentication required.', 403);
+        }
+
+        $requestId = (int)($input['request_id'] ?? 0);
+        $agentId = (int)($input['admin_id'] ?? $admin['id']);
+
+        if ($requestId <= 0) {
+            jsonError('Invalid request ID.');
+        }
+
+        $nowUtc = gmdate('Y-m-d H:i:s');
+        $agentName = $admin['account_holder_name'] ?? 'Support Agent';
+
+        // Check if agent exists
+        if ($agentId !== (int)$admin['id']) {
+            $agentStmt = $pdo->prepare("SELECT account_holder_name FROM users WHERE id = ?");
+            $agentStmt->execute([$agentId]);
+            $agentRow = $agentStmt->fetch();
+            if ($agentRow) {
+                $agentName = $agentRow['account_holder_name'];
+            }
+        }
+
+        $pdo->prepare("
+            UPDATE support_requests
+            SET assigned_admin_id = ?, status = 'in_progress', updated_at = ?
+            WHERE id = ?
+        ")->execute([$agentId, $nowUtc, $requestId]);
+
+        // Add notice message
+        $pdo->prepare("
+            INSERT INTO support_messages (request_id, sender_type, sender_name, message, is_read, created_at)
+            VALUES (?, 'system', 'Support Desk', ?, 1, ?)
+        ")->execute([$requestId, "Support Agent {$agentName} has joined and taken ownership of this chat session.", $nowUtc]);
+
+        jsonResponse(true, [
+            'message' => 'Agent assigned successfully.',
+            'assigned_admin_id' => $agentId,
+            'assigned_admin_name' => $agentName
+        ]);
+        break;
+
+    // -------------------------------------------------------------
     // ADMIN: SEND REPLY TO USER
     // -------------------------------------------------------------
     case 'admin_reply':
-        $user = Auth::getCurrentUser();
-        if (!$user || $user['role'] !== 'admin') {
+        $admin = getAdminUser();
+        if (!$admin) {
             jsonError('Admin authentication required.', 403);
         }
 
@@ -372,21 +587,22 @@ switch ($action) {
         }
 
         $nowUtc = gmdate('Y-m-d H:i:s');
-        $adminName = $user['account_holder_name'] ?? 'Support Desk';
+        $adminName = $admin['account_holder_name'] ?? 'Support Desk';
 
         $msgStmt = $pdo->prepare("
             INSERT INTO support_messages (request_id, sender_type, sender_id, sender_name, message, attachment_path, is_read, created_at)
             VALUES (?, 'admin', ?, ?, ?, ?, 0, ?)
         ");
-        $msgStmt->execute([$requestId, $user['id'], $adminName, $message, $attachmentPath ?: null, $nowUtc]);
+        $msgStmt->execute([$requestId, $admin['id'], $adminName, $message, $attachmentPath ?: null, $nowUtc]);
         $msgId = (int)$pdo->lastInsertId();
 
-        // Mark session in_progress and assign to this admin
+        // Mark session in_progress and assign to this admin if unassigned
+        $assignedId = !empty($session['assigned_admin_id']) ? $session['assigned_admin_id'] : $admin['id'];
         $pdo->prepare("
             UPDATE support_requests
             SET status = 'in_progress', assigned_admin_id = ?, updated_at = ?
             WHERE id = ?
-        ")->execute([$user['id'], $nowUtc, $requestId]);
+        ")->execute([$assignedId, $nowUtc, $requestId]);
 
         // Notify user if authenticated
         if (!empty($session['user_id'])) {
@@ -411,8 +627,8 @@ switch ($action) {
     // ADMIN: UPDATE SESSION STATUS (open, in_progress, resolved)
     // -------------------------------------------------------------
     case 'admin_update_status':
-        $user = Auth::getCurrentUser();
-        if (!$user || $user['role'] !== 'admin') {
+        $admin = getAdminUser();
+        if (!$admin) {
             jsonError('Admin authentication required.', 403);
         }
 
@@ -440,6 +656,87 @@ switch ($action) {
 
         jsonResponse(true, ['message' => "Chat status updated to {$newStatus}."]);
         break;
+
+    // -------------------------------------------------------------
+    // REAL-TIME SERVER-SENT EVENTS (SSE) STREAM
+    // -------------------------------------------------------------
+    case 'sse_stream':
+        $admin = getAdminUser();
+        $user = Auth::getCurrentUser();
+
+        if (!$admin && !$user && empty($_SESSION['guest_support_request_id'])) {
+            http_response_code(403);
+            echo "data: " . json_encode(['error' => 'Unauthorized']) . "\n\n";
+            exit;
+        }
+
+        if (function_exists('apache_setenv')) {
+            @apache_setenv('no-gzip', '1');
+        }
+        @ini_set('zlib.output_compression', '0');
+        @ini_set('implicit_flush', '1');
+        while (ob_get_level() > 0) {
+            @ob_end_clean();
+        }
+
+        header('Content-Type: text/event-stream');
+        header('Cache-Control: no-cache');
+        header('Connection: keep-alive');
+        header('X-Accel-Buffering: no');
+
+        $requestId = (int)($_GET['request_id'] ?? 0);
+        $lastId = (int)($_GET['last_id'] ?? 0);
+        $isAdmin = (bool)$admin;
+
+        $start = time();
+        // Stream up to 25 seconds per HTTP request
+        while (time() - $start < 25) {
+            if (connection_aborted()) {
+                break;
+            }
+
+            if ($isAdmin) {
+                $stmt = $pdo->prepare("
+                    SELECT m.id, m.request_id, m.sender_name, m.message, m.created_at, s.phone
+                    FROM support_messages m
+                    INNER JOIN support_requests s ON m.request_id = s.id
+                    WHERE m.sender_type = 'user' AND m.id > ?
+                    ORDER BY m.id ASC LIMIT 10
+                ");
+                $stmt->execute([$lastId]);
+                $msgs = $stmt->fetchAll();
+                if (!empty($msgs)) {
+                    foreach ($msgs as $m) {
+                        if ($m['id'] > $lastId) $lastId = $m['id'];
+                    }
+                    echo "event: new_message\n";
+                    echo "data: " . json_encode(['messages' => $msgs, 'last_id' => $lastId]) . "\n\n";
+                    @flush();
+                }
+            } elseif ($requestId > 0) {
+                $stmt = $pdo->prepare("
+                    SELECT id, request_id, sender_type, sender_name, message, attachment_path, created_at
+                    FROM support_messages
+                    WHERE request_id = ? AND id > ? AND sender_type IN ('admin', 'system')
+                    ORDER BY id ASC LIMIT 10
+                ");
+                $stmt->execute([$requestId, $lastId]);
+                $msgs = $stmt->fetchAll();
+                if (!empty($msgs)) {
+                    foreach ($msgs as $m) {
+                        if ($m['id'] > $lastId) $lastId = $m['id'];
+                    }
+                    echo "event: new_message\n";
+                    echo "data: " . json_encode(['messages' => $msgs, 'last_id' => $lastId]) . "\n\n";
+                    @flush();
+                }
+            }
+
+            echo ": ping\n\n";
+            @flush();
+            usleep(1500000); // 1.5 seconds sleep
+        }
+        exit;
 
     // -------------------------------------------------------------
     // LEGACY COMPATIBILITY: SUBMIT PHONE REQUEST

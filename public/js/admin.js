@@ -10,13 +10,16 @@ let activeTimers = {};
 
 document.addEventListener('DOMContentLoaded', () => {
     initAdmin();
-    setInterval(periodicAdminSync, 10000);
+    initAdminSSE();
+    setInterval(periodicAdminSync, 10000); // Periodic general metrics sync
+    setInterval(syncAdminLiveSupport, 1500); // Ultra-fast 1.5s live support sync
 });
 
 async function initAdmin() {
     const urlParams = new URLSearchParams(window.location.search);
     const tabParam = urlParams.get('tab');
     switchAdminTab(tabParam || 'dashboard');
+    syncAdminLiveSupport();
 }
 
 function switchAdminTab(tabId) {
@@ -51,11 +54,6 @@ function switchAdminTab(tabId) {
 
 function periodicAdminSync() {
     if (currentAdminTab === 'dashboard') loadAdminDashboard(true);
-    if (currentAdminTab === 'support') {
-        pollAdminChatMessages();
-    } else {
-        checkAdminSupportBadge();
-    }
 }
 
 // -------------------------------------------------------------
@@ -838,7 +836,261 @@ let adminChatLastMsgId = 0;
 let adminChatsCache = [];
 let adminChatFilter = 'all';
 let adminChatIsSending = false;
+let adminSoundEnabled = true;
+let adminAlertedMessageIds = new Set();
+let toastChatTargetId = null;
+let toastTimeout = null;
+let adminSyncInProgress = false;
 
+// Sound Alert Toggle
+function toggleAdminSound() {
+    adminSoundEnabled = !adminSoundEnabled;
+    const icon = document.getElementById('adminSoundIcon');
+    const label = document.getElementById('adminSoundLabel');
+    if (icon) icon.innerText = adminSoundEnabled ? '🔔' : '🔕';
+    if (label) label.innerText = adminSoundEnabled ? 'Sound: On' : 'Sound: Muted';
+}
+
+// Synthesize pleasant two-tone audio alert chime using Web Audio API
+function playAdminNotificationChime() {
+    if (!adminSoundEnabled) return;
+    try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+        osc.frequency.setValueAtTime(880, ctx.currentTime + 0.12); // A5
+
+        gain.gain.setValueAtTime(0.2, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+
+        osc.start();
+        osc.stop(ctx.currentTime + 0.35);
+    } catch (e) {
+        // Audio playback may await user click on page
+    }
+}
+
+// Toast Alert Functions
+function showAdminLiveChatToast(chatId, userName, userPhone, message) {
+    const toast = document.getElementById('adminLiveChatToast');
+    const title = document.getElementById('adminToastTitle');
+    const msgEl = document.getElementById('adminToastMessage');
+    if (!toast) return;
+
+    toastChatTargetId = chatId;
+    if (title) title.innerText = `💬 ${userName || 'Trader'} (+91 ${userPhone})`;
+    if (msgEl) msgEl.innerText = message || 'Sent a new live support message.';
+
+    toast.classList.remove('opacity-0', 'translate-y-28', 'pointer-events-none');
+    toast.classList.add('opacity-100', 'translate-y-0');
+
+    if (toastTimeout) clearTimeout(toastTimeout);
+    toastTimeout = setTimeout(() => {
+        dismissAdminToast();
+    }, 8000);
+}
+
+function dismissAdminToast() {
+    const toast = document.getElementById('adminLiveChatToast');
+    if (!toast) return;
+    toast.classList.add('opacity-0', 'translate-y-28', 'pointer-events-none');
+    toast.classList.remove('opacity-100', 'translate-y-0');
+}
+
+function openChatFromToast() {
+    if (toastChatTargetId) {
+        switchAdminTab('support');
+        selectAdminChat(toastChatTargetId);
+        dismissAdminToast();
+    }
+}
+
+// Initialize Server-Sent Events (SSE) Stream
+function initAdminSSE() {
+    try {
+        if (!window.EventSource) return;
+        const es = new EventSource('/api/support.php?action=sse_stream');
+        es.addEventListener('new_message', () => {
+            syncAdminLiveSupport();
+        });
+        es.onerror = () => {
+            // EventSource will automatically retry in the background
+        };
+    } catch (e) {
+        // Fallback to high-frequency polling
+    }
+}
+
+// Primary Ultra-Fast Real-Time Live Support Sync (1.5s interval)
+async function syncAdminLiveSupport() {
+    if (adminSyncInProgress) return;
+    adminSyncInProgress = true;
+
+    try {
+        const activeId = adminSelectedChatId || 0;
+        const lastId = (activeId > 0) ? (adminChatLastMsgId || 0) : 0;
+        const res = await fetch(`/api/support.php?action=admin_sync&active_request_id=${activeId}&last_msg_id=${lastId}&filter=${adminChatFilter}`);
+        const data = await res.json();
+
+        if (!data.success) return;
+
+        // 1. Update chats cache
+        if (data.chats) {
+            adminChatsCache = data.chats;
+            if (currentAdminTab === 'support') {
+                renderAdminChatList();
+            }
+            renderDashboardSupportTable(data.chats, data.unread_total);
+        }
+
+        // 2. Update global navbar badge
+        updateAdminSupportBadges(data.unread_total);
+
+        // 3. Update active session metadata if loaded
+        if (activeId > 0 && data.active_session) {
+            adminSelectedChatData = data.active_session;
+            const metaEl = document.getElementById('adminChatUserMeta');
+            if (metaEl && data.active_session) {
+                const healthScore = data.active_session.health_score || 100;
+                const agentName = data.active_session.assigned_admin_name || 'Unassigned';
+                metaEl.innerHTML = `
+                    User #${data.active_session.user_id || 'Guest'} &bull; 
+                    Health Score: <strong class="${healthScore <= 50 ? 'text-red-400' : 'text-emerald-400'}">${healthScore}/100</strong> &bull; 
+                    Status: <strong class="text-white">${data.active_session.account_status || 'active'}</strong> &bull; 
+                    Agent: <strong class="text-indigo-400">${escapeHtml(agentName)}</strong>
+                `;
+            }
+        }
+
+        // 4. Append new messages in the currently open active thread
+        if (currentAdminTab === 'support' && activeId > 0 && data.active_messages && data.active_messages.length > 0) {
+            appendAdminMessages(data.active_messages);
+        }
+
+        // 5. Detect and alert on new user messages across the platform
+        if (data.recent_incoming && data.recent_incoming.length > 0) {
+            let hasNewAlert = false;
+            data.recent_incoming.forEach(m => {
+                if (!adminAlertedMessageIds.has(m.id)) {
+                    adminAlertedMessageIds.add(m.id);
+                    hasNewAlert = true;
+                    if (currentAdminTab !== 'support' || adminSelectedChatId !== m.request_id) {
+                        showAdminLiveChatToast(m.request_id, m.sender_name, m.phone, m.message);
+                    }
+                }
+            });
+
+            if (hasNewAlert) {
+                playAdminNotificationChime();
+            }
+        }
+    } catch (e) {
+        // Silent failure; will retry next cycle
+    } finally {
+        adminSyncInProgress = false;
+    }
+}
+
+// Render Dashboard Live Support Desk Feed
+function renderDashboardSupportTable(chats, unreadTotal) {
+    const tbody = document.getElementById('dashLiveSupportTableBody');
+    const pill = document.getElementById('dashSupportUnreadPill');
+    if (pill) {
+        const count = unreadTotal || 0;
+        pill.innerText = `${count} Unread Message${count === 1 ? '' : 's'}`;
+        if (count > 0) {
+            pill.className = 'text-xs font-bold font-mono px-2.5 py-1 rounded-full bg-red-500/10 text-red-400 border border-red-500/30 animate-pulse';
+        } else {
+            pill.className = 'text-xs font-bold font-mono px-2.5 py-1 rounded-full bg-slate-800 text-slate-400 border border-slate-700';
+        }
+    }
+
+    if (!tbody) return;
+
+    if (!chats || chats.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="7" class="p-8 text-center text-slate-500">
+                    <p class="font-semibold">No live support inquiries active</p>
+                    <span class="text-[11px] text-slate-600 block mt-1">When traders or guests submit messages or dispute inquiries, they appear here instantly.</span>
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    const topChats = chats.slice(0, 6);
+    tbody.innerHTML = topChats.map(c => {
+        const name = c.account_holder_name || c.username || 'Guest Trader';
+        const phone = c.phone || 'N/A';
+        const unread = parseInt(c.unread_count || 0, 10);
+        const health = parseInt(c.health_score || 100, 10);
+        const timeStr = c.last_message_at ? c.last_message_at.slice(11, 16) : (c.updated_at ? c.updated_at.slice(11, 16) : '');
+        const lastMsg = c.last_message || 'Inquiry initiated';
+        const agentName = c.assigned_admin_name || 'Unassigned';
+
+        let statusClass = 'bg-slate-800 text-slate-400';
+        if (c.status === 'open') statusClass = 'bg-emerald-950/60 text-emerald-400 border border-emerald-800';
+        if (c.status === 'in_progress') statusClass = 'bg-indigo-950/60 text-indigo-400 border border-indigo-800';
+        if (c.status === 'resolved') statusClass = 'bg-slate-800 text-slate-500';
+
+        let healthClass = 'text-emerald-400';
+        if (health <= 50) healthClass = 'text-red-400 font-bold';
+        else if (health <= 75) healthClass = 'text-amber-400';
+
+        return `
+            <tr class="hover:bg-slate-950/40 transition">
+                <td class="p-2.5">
+                    <div class="font-bold text-white flex items-center gap-1.5">
+                        <span>${escapeHtml(name)}</span>
+                        ${unread > 0 ? `<span class="w-2 h-2 rounded-full bg-red-400 animate-ping"></span>` : ''}
+                    </div>
+                    <span class="text-[11px] text-slate-400 font-mono">+91 ${escapeHtml(phone)}</span>
+                </td>
+                <td class="p-2.5 font-mono text-xs ${healthClass}">
+                    ${health}/100
+                </td>
+                <td class="p-2.5">
+                    <span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded ${statusClass}">
+                        ${escapeHtml(c.status)}
+                    </span>
+                </td>
+                <td class="p-2.5 text-xs text-slate-300">
+                    <span class="inline-flex items-center gap-1">
+                        <span class="w-1.5 h-1.5 rounded-full ${c.assigned_admin_id ? 'bg-indigo-400' : 'bg-slate-600'}"></span>
+                        <strong class="${c.assigned_admin_id ? 'text-indigo-300' : 'text-slate-500'}">${escapeHtml(agentName)}</strong>
+                    </span>
+                </td>
+                <td class="p-2.5 text-slate-300 max-w-xs truncate" title="${escapeHtml(lastMsg)}">
+                    ${escapeHtml(lastMsg)}
+                </td>
+                <td class="p-2.5 text-slate-500 font-mono text-[11px] whitespace-nowrap">
+                    ${timeStr}
+                </td>
+                <td class="p-2.5 text-right whitespace-nowrap">
+                    <button onclick="openChatFromDashboard(${c.id})" class="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[11px] transition inline-flex items-center gap-1 shadow-sm">
+                        <span>Open</span>
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+                    </button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function openChatFromDashboard(chatId) {
+    switchAdminTab('support');
+    selectAdminChat(chatId);
+}
+
+// Load Full Support Conversations List
 async function loadAdminSupportChats(force = false) {
     const list = document.getElementById('adminSupportChatList');
     if (!list) return;
@@ -848,27 +1100,15 @@ async function loadAdminSupportChats(force = false) {
     }
 
     try {
-        const res = await fetch(`/api/support.php?action=admin_chats&filter=${adminChatFilter}`);
-        const data = await res.json();
-
-        if (data.success && data.chats) {
-            adminChatsCache = data.chats;
-            renderAdminChatList();
-            updateAdminSupportBadges();
-
-            // If a chat was selected, re-poll its messages
-            if (adminSelectedChatId) {
-                pollAdminChatMessages();
-            }
-        } else {
-            if (list) list.innerHTML = `<div class="p-8 text-center text-red-400 text-xs">${escapeHtml(data.error || 'Failed to load conversations.')}</div>`;
-        }
+        await syncAdminLiveSupport();
+        renderAdminChatList();
     } catch (e) {
         console.error('Failed to load admin support chats:', e);
         if (list) list.innerHTML = '<div class="p-8 text-center text-red-400 text-xs">Network error loading chat sessions.</div>';
     }
 }
 
+// Render Support Tab Conversations List
 function renderAdminChatList() {
     const list = document.getElementById('adminSupportChatList');
     const totalCountEl = document.getElementById('adminChatTotalCount');
@@ -948,13 +1188,14 @@ function filterAdminChats(filter) {
             btn.className = 'px-2.5 py-1 rounded text-slate-400 hover:text-white';
         }
     });
-    loadAdminSupportChats();
+    syncAdminLiveSupport();
 }
 
 function filterAdminChatListBySearch() {
     renderAdminChatList();
 }
 
+// Select a Chat Conversation
 async function selectAdminChat(chatId) {
     adminSelectedChatId = chatId;
     adminSelectedChatData = adminChatsCache.find(c => c.id === chatId);
@@ -966,6 +1207,7 @@ async function selectAdminChat(chatId) {
     const cannedBar = document.getElementById('adminChatCannedBar');
     const form = document.getElementById('adminChatReplyForm');
     const resolveBtn = document.getElementById('adminChatResolveBtn');
+    const claimBtn = document.getElementById('adminChatClaimBtn');
 
     if (actions) actions.classList.remove('hidden');
     if (cannedBar) cannedBar.classList.remove('hidden');
@@ -995,11 +1237,27 @@ async function selectAdminChat(chatId) {
 
         if (metaEl) {
             const healthScore = adminSelectedChatData.health_score || 100;
+            const agentName = adminSelectedChatData.assigned_admin_name || 'Unassigned';
             metaEl.innerHTML = `
                 User #${adminSelectedChatData.user_id || 'Guest'} &bull; 
                 Health Score: <strong class="${healthScore <= 50 ? 'text-red-400' : 'text-emerald-400'}">${healthScore}/100</strong> &bull; 
-                Status: <strong class="text-white">${adminSelectedChatData.account_status || 'active'}</strong>
+                Status: <strong class="text-white">${adminSelectedChatData.account_status || 'active'}</strong> &bull; 
+                Agent: <strong class="text-indigo-400">${escapeHtml(agentName)}</strong>
             `;
+        }
+
+        if (claimBtn) {
+            if (adminSelectedChatData.assigned_admin_name) {
+                claimBtn.innerHTML = `
+                    <svg class="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                    <span>Assigned: ${escapeHtml(adminSelectedChatData.assigned_admin_name)}</span>
+                `;
+            } else {
+                claimBtn.innerHTML = `
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                    <span>Assign to Me</span>
+                `;
+            }
         }
     }
 
@@ -1011,7 +1269,6 @@ async function selectAdminChat(chatId) {
 
         if (data.success) {
             renderAdminMessagesStream(data.messages || []);
-            // Update unread count in cache
             if (adminSelectedChatData) {
                 adminSelectedChatData.unread_count = 0;
                 renderAdminChatList();
@@ -1034,6 +1291,37 @@ async function selectAdminChat(chatId) {
     }
 }
 
+// Claim Chat for Current Admin
+async function claimAdminChat() {
+    if (!adminSelectedChatId) return;
+    const btn = document.getElementById('adminChatClaimBtn');
+    if (btn) btn.disabled = true;
+
+    try {
+        const res = await fetch('/api/support.php?action=assign_agent', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ request_id: adminSelectedChatId })
+        });
+        const data = await res.json();
+        if (data.success) {
+            if (adminSelectedChatData) {
+                adminSelectedChatData.assigned_admin_name = data.assigned_admin_name;
+                adminSelectedChatData.status = 'in_progress';
+            }
+            selectAdminChat(adminSelectedChatId);
+            syncAdminLiveSupport();
+        } else {
+            alert(data.error || 'Failed to assign agent.');
+        }
+    } catch (e) {
+        alert('Network error assigning agent.');
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+// Render Messages Stream
 function renderAdminMessagesStream(messages) {
     const stream = document.getElementById('adminSupportMessagesStream');
     if (!stream) return;
@@ -1085,7 +1373,6 @@ function renderAdminMessagesStream(messages) {
                 </div>
             `;
         } else {
-            // Admin message
             html += `
                 <div class="flex justify-end my-1.5 items-end gap-2">
                     <div class="bg-amber-500/10 border border-amber-500/30 text-white rounded-2xl rounded-tr-sm px-3.5 py-2 max-w-[75%] space-y-1 shadow-sm">
@@ -1114,68 +1401,66 @@ function renderAdminMessagesStream(messages) {
     stream.scrollTop = stream.scrollHeight;
 }
 
-async function pollAdminChatMessages() {
-    if (!adminSelectedChatId) return;
+// Append Incremental Messages to Stream
+function appendAdminMessages(messages) {
+    const stream = document.getElementById('adminSupportMessagesStream');
+    if (!stream || !messages || messages.length === 0) return;
 
-    try {
-        const res = await fetch(`/api/support.php?action=poll_messages&request_id=${adminSelectedChatId}&after_id=${adminChatLastMsgId}`);
-        const data = await res.json();
+    let shouldScroll = (stream.scrollHeight - stream.scrollTop - stream.clientHeight < 120);
 
-        if (data.success && data.messages && data.messages.length > 0) {
-            const stream = document.getElementById('adminSupportMessagesStream');
-            data.messages.forEach(m => {
-                if (m.id > adminChatLastMsgId) adminChatLastMsgId = m.id;
-                const timeStr = m.created_at ? m.created_at.slice(11, 16) : '';
-                const isUser = (m.sender_type === 'user');
-                const isSystem = (m.sender_type === 'system');
+    messages.forEach(m => {
+        if (m.id > adminChatLastMsgId) adminChatLastMsgId = m.id;
+        const timeStr = m.created_at ? m.created_at.slice(11, 16) : '';
+        const isUser = (m.sender_type === 'user');
+        const isSystem = (m.sender_type === 'system');
 
-                const wrapper = document.createElement('div');
-                if (isSystem) {
-                    wrapper.className = 'flex justify-center my-1.5';
-                    wrapper.innerHTML = `
-                        <div class="bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 max-w-md text-center text-slate-400 text-[11px]">
-                            ${escapeHtml(m.message)}
-                            <span class="block text-[9px] text-slate-600 mt-0.5">${timeStr}</span>
-                        </div>
-                    `;
-                } else if (isUser) {
-                    wrapper.className = 'flex justify-start my-1.5 items-end gap-2';
-                    wrapper.innerHTML = `
-                        <div class="w-7 h-7 rounded-lg bg-indigo-950 border border-indigo-700/50 text-indigo-400 flex items-center justify-center text-[10px] font-bold flex-shrink-0">
-                            U
-                        </div>
-                        <div class="bg-slate-900 border border-slate-800 text-slate-200 rounded-2xl rounded-tl-sm px-3.5 py-2 max-w-[75%] space-y-1 shadow-sm">
-                            <div class="flex items-center justify-between gap-3 border-b border-slate-800 pb-1 mb-1">
-                                <span class="text-[10px] font-bold text-indigo-400">${escapeHtml(m.sender_name || 'User')}</span>
-                                <span class="text-[9px] text-slate-500 font-mono">${timeStr}</span>
-                            </div>
-                            <div class="text-xs break-words whitespace-pre-wrap">${escapeHtml(m.message)}</div>
-                        </div>
-                    `;
-                } else {
-                    wrapper.className = 'flex justify-end my-1.5 items-end gap-2';
-                    wrapper.innerHTML = `
-                        <div class="bg-amber-500/10 border border-amber-500/30 text-white rounded-2xl rounded-tr-sm px-3.5 py-2 max-w-[75%] space-y-1 shadow-sm">
-                            <div class="flex items-center justify-between gap-3 border-b border-amber-500/20 pb-1 mb-1">
-                                <span class="text-[10px] font-bold text-amber-400 uppercase tracking-wider">${escapeHtml(m.sender_name || 'Admin')}</span>
-                                <span class="text-[9px] text-slate-400 font-mono">${timeStr}</span>
-                            </div>
-                            <div class="text-xs break-words whitespace-pre-wrap">${escapeHtml(m.message)}</div>
-                        </div>
-                        <div class="w-7 h-7 rounded-lg bg-amber-500 text-slate-950 flex items-center justify-center text-[10px] font-black flex-shrink-0">
-                            AD
-                        </div>
-                    `;
-                }
-                if (stream) stream.appendChild(wrapper);
-            });
-            if (stream) stream.scrollTop = stream.scrollHeight;
+        const wrapper = document.createElement('div');
+        if (isSystem) {
+            wrapper.className = 'flex justify-center my-1.5';
+            wrapper.innerHTML = `
+                <div class="bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 max-w-md text-center text-slate-400 text-[11px]">
+                    ${escapeHtml(m.message)}
+                    <span class="block text-[9px] text-slate-600 mt-0.5">${timeStr}</span>
+                </div>
+            `;
+        } else if (isUser) {
+            wrapper.className = 'flex justify-start my-1.5 items-end gap-2';
+            wrapper.innerHTML = `
+                <div class="w-7 h-7 rounded-lg bg-indigo-950 border border-indigo-700/50 text-indigo-400 flex items-center justify-center text-[10px] font-bold flex-shrink-0">
+                    U
+                </div>
+                <div class="bg-slate-900 border border-slate-800 text-slate-200 rounded-2xl rounded-tl-sm px-3.5 py-2 max-w-[75%] space-y-1 shadow-sm">
+                    <div class="flex items-center justify-between gap-3 border-b border-slate-800 pb-1 mb-1">
+                        <span class="text-[10px] font-bold text-indigo-400">${escapeHtml(m.sender_name || 'User')}</span>
+                        <span class="text-[9px] text-slate-500 font-mono">${timeStr}</span>
+                    </div>
+                    <div class="text-xs break-words whitespace-pre-wrap">${escapeHtml(m.message)}</div>
+                </div>
+            `;
+        } else {
+            wrapper.className = 'flex justify-end my-1.5 items-end gap-2';
+            wrapper.innerHTML = `
+                <div class="bg-amber-500/10 border border-amber-500/30 text-white rounded-2xl rounded-tr-sm px-3.5 py-2 max-w-[75%] space-y-1 shadow-sm">
+                    <div class="flex items-center justify-between gap-3 border-b border-amber-500/20 pb-1 mb-1">
+                        <span class="text-[10px] font-bold text-amber-400 uppercase tracking-wider">${escapeHtml(m.sender_name || 'Admin')}</span>
+                        <span class="text-[9px] text-slate-400 font-mono">${timeStr}</span>
+                    </div>
+                    <div class="text-xs break-words whitespace-pre-wrap">${escapeHtml(m.message)}</div>
+                </div>
+                <div class="w-7 h-7 rounded-lg bg-amber-500 text-slate-950 flex items-center justify-center text-[10px] font-black flex-shrink-0">
+                    AD
+                </div>
+            `;
         }
-    } catch (e) {
-        // Silent poll error
+        stream.appendChild(wrapper);
+    });
+
+    if (shouldScroll) {
+        stream.scrollTop = stream.scrollHeight;
     }
 }
 
+// Send Admin Reply
 async function submitAdminChatReply() {
     if (!adminSelectedChatId || adminChatIsSending) return;
     const input = document.getElementById('adminChatReplyInput');
@@ -1200,8 +1485,7 @@ async function submitAdminChatReply() {
 
         if (data.success) {
             if (input) input.value = '';
-            await pollAdminChatMessages();
-            loadAdminSupportChats(true);
+            await syncAdminLiveSupport();
         } else {
             alert(data.error || 'Failed to send reply.');
         }
@@ -1214,6 +1498,7 @@ async function submitAdminChatReply() {
     }
 }
 
+// Toggle Resolved/Open Status
 async function toggleAdminChatStatus() {
     if (!adminSelectedChatId || !adminSelectedChatData) return;
     const currentStatus = adminSelectedChatData.status;
@@ -1233,7 +1518,7 @@ async function toggleAdminChatStatus() {
         if (data.success) {
             adminSelectedChatData.status = targetStatus;
             selectAdminChat(adminSelectedChatId);
-            loadAdminSupportChats(true);
+            syncAdminLiveSupport();
         } else {
             alert(data.error || 'Failed to update chat status.');
         }
@@ -1258,32 +1543,21 @@ function openAdminChatUserDossier() {
     }
 }
 
-function updateAdminSupportBadges() {
+function updateAdminSupportBadges(explicitTotal = null) {
     const badge = document.getElementById('adminSupportUnreadBadge');
     if (!badge) return;
 
-    let unreadTotal = 0;
-    adminChatsCache.forEach(c => {
-        unreadTotal += parseInt(c.unread_count || 0, 10);
-    });
+    let unreadTotal = (explicitTotal !== null) ? explicitTotal : 0;
+    if (explicitTotal === null) {
+        adminChatsCache.forEach(c => {
+            unreadTotal += parseInt(c.unread_count || 0, 10);
+        });
+    }
 
     if (unreadTotal > 0) {
         badge.innerText = unreadTotal > 9 ? '9+' : unreadTotal;
         badge.classList.remove('hidden');
     } else {
         badge.classList.add('hidden');
-    }
-}
-
-async function checkAdminSupportBadge() {
-    try {
-        const res = await fetch('/api/support.php?action=admin_chats&filter=open');
-        const data = await res.json();
-        if (data.success && data.chats) {
-            adminChatsCache = data.chats;
-            updateAdminSupportBadges();
-        }
-    } catch (e) {
-        // Silent check
     }
 }

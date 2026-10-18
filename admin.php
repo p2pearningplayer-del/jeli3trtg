@@ -216,6 +216,55 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                 </div>
             </div>
 
+            <!-- Real-Time Live Support Desk Widget on Dashboard -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-sm">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex items-center justify-center font-bold">
+                            <svg class="w-5 h-5 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+                        </div>
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <h3 class="text-base font-bold text-white">Live Customer Support Desk</h3>
+                                <span id="dashSupportLiveDot" class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span> Real-Time Sync Active
+                                </span>
+                            </div>
+                            <p class="text-xs text-slate-400">Incoming trader chats, live payment proof inquiries, and escalated requests</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span id="dashSupportUnreadPill" class="text-xs font-bold font-mono px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/30">0 Unread Messages</span>
+                        <button onclick="switchAdminTab('support')" class="bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold px-3.5 py-1.5 rounded-xl transition flex items-center gap-1 shadow-sm">
+                            <span>Open Full Helpdesk</span>
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Live Active Inquiries Table / Feed -->
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left">
+                        <thead class="bg-slate-950 text-slate-400 text-[10px] uppercase border-b border-slate-800">
+                            <tr>
+                                <th class="p-2.5">User / Phone</th>
+                                <th class="p-2.5">Health Score</th>
+                                <th class="p-2.5">Status</th>
+                                <th class="p-2.5">Assigned Agent</th>
+                                <th class="p-2.5">Latest Message</th>
+                                <th class="p-2.5">Time</th>
+                                <th class="p-2.5 text-right">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dashLiveSupportTableBody" class="divide-y divide-slate-800/60 text-xs">
+                            <tr>
+                                <td colspan="7" class="p-6 text-center text-slate-500">Checking for live customer conversations...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
             <!-- Dual Recent Activities Tables -->
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <!-- Recent Financial Transactions -->
@@ -598,6 +647,10 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                     <p class="text-xs text-slate-400">Direct two-way messaging with platform traders, dispute parties, and guests</p>
                 </div>
                 <div class="flex items-center gap-2">
+                    <button type="button" onclick="toggleAdminSound()" id="adminSoundToggleBtn" class="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-3 py-2 rounded-xl text-xs transition flex items-center gap-1.5" title="Toggle audio alert chime">
+                        <span id="adminSoundIcon">🔔</span>
+                        <span id="adminSoundLabel">Sound: On</span>
+                    </button>
                     <button onclick="loadAdminSupportChats(true)" class="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-3 py-2 rounded-xl text-xs transition flex items-center gap-1.5">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                         <span>Refresh Inbox</span>
@@ -650,6 +703,10 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                         </div>
 
                         <div id="adminChatActions" class="hidden flex items-center gap-2">
+                            <button type="button" id="adminChatClaimBtn" onclick="claimAdminChat()" class="px-3 py-1.5 rounded-xl bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 border border-indigo-500/40 text-xs font-semibold transition flex items-center gap-1.5">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                                <span>Assign to Me</span>
+                            </button>
                             <button type="button" onclick="openAdminChatUserDossier()" title="Inspect User Dossier" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition border border-slate-700">
                                 User Dossier
                             </button>
@@ -802,6 +859,28 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                     Execute & Audit Adjustment
                 </button>
             </form>
+        </div>
+    </div>
+
+    <!-- Floating Live Chat Notification Toast for Admin -->
+    <div id="adminLiveChatToast" class="fixed bottom-6 right-6 z-50 max-w-sm w-full bg-slate-900 border border-amber-500/40 rounded-2xl p-4 shadow-2xl transition-all duration-300 transform translate-y-28 opacity-0 pointer-events-none flex items-start gap-3">
+        <div class="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center font-bold flex-shrink-0">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+        </div>
+        <div class="flex-1 min-w-0">
+            <div class="flex items-center justify-between gap-1">
+                <span id="adminToastTitle" class="text-xs font-bold text-white truncate">New Live Chat Message</span>
+                <button onclick="dismissAdminToast()" class="text-slate-500 hover:text-slate-300 p-0.5 text-sm">&times;</button>
+            </div>
+            <p id="adminToastMessage" class="text-xs text-slate-300 mt-1 line-clamp-2"></p>
+            <div class="mt-3 flex items-center gap-2">
+                <button id="adminToastReplyBtn" onclick="openChatFromToast()" class="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-[11px] transition shadow-sm">
+                    Open & Reply
+                </button>
+                <button onclick="dismissAdminToast()" class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl text-[11px] transition border border-slate-700">
+                    Dismiss
+                </button>
+            </div>
         </div>
     </div>
 

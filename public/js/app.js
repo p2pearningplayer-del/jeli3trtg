@@ -832,7 +832,7 @@ function openLiveChatModal() {
     loadLiveChatSession();
 
     if (liveChatPollInterval) clearInterval(liveChatPollInterval);
-    liveChatPollInterval = setInterval(pollLiveChatMessages, 3000);
+    liveChatPollInterval = setInterval(pollLiveChatMessages, 1500);
 
     const input = document.getElementById('liveChatMessageInput');
     if (input) {

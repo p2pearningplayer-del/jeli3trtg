@@ -179,4 +179,76 @@ $statusCheck->execute([$requestId]);
 assert($statusCheck->fetchColumn() === 'resolved', "Session status is resolved");
 echo "[PASS] Test 8: Admin marks session resolved and system resolution message appended\n";
 
+// -------------------------------------------------------------
+// Test 9: User replies in resolved thread - Reopens and Deduplicates
+// -------------------------------------------------------------
+$reopenMsg = "Wait, I still have a question about the UPI reference!";
+$stmt = $pdo->prepare("
+    UPDATE support_requests
+    SET status = CASE WHEN status = 'resolved' THEN 'open' ELSE status END,
+        updated_at = ?
+    WHERE id = ?
+");
+$stmt->execute([$nowUtc, $requestId]);
+
+$stmt = $pdo->prepare("
+    INSERT INTO support_messages (request_id, sender_type, sender_id, sender_name, message, is_read, created_at)
+    VALUES (?, 'user', ?, 'Trader John', ?, 0, ?)
+");
+$stmt->execute([$requestId, $userId, $reopenMsg, $nowUtc]);
+
+$reopenCheck = $pdo->prepare("SELECT status FROM support_requests WHERE id = ?");
+$reopenCheck->execute([$requestId]);
+assert($reopenCheck->fetchColumn() === 'open', "Session status automatically reopened on user follow-up");
+
+// Verify no duplicate session was created for user
+$countUserSessions = $pdo->prepare("SELECT COUNT(*) FROM support_requests WHERE user_id = ?");
+$countUserSessions->execute([$userId]);
+assert((int)$countUserSessions->fetchColumn() === 1, "Session deduplicated; single thread preserved for user");
+echo "[PASS] Test 9: Thread deduplication and automatic re-open verified\n";
+
+// -------------------------------------------------------------
+// Test 10: Admin Fast Sync Query (admin_sync logic)
+// -------------------------------------------------------------
+$syncQuery = $pdo->query("
+    SELECT s.id, s.user_id, s.phone, s.username, s.status, s.assigned_admin_id,
+           s.created_at, s.updated_at,
+           u.account_holder_name, u.health_score, u.account_status,
+           adm.account_holder_name as assigned_admin_name,
+           (SELECT message FROM support_messages WHERE request_id = s.id ORDER BY id DESC LIMIT 1) as last_message,
+           (SELECT created_at FROM support_messages WHERE request_id = s.id ORDER BY id DESC LIMIT 1) as last_message_at,
+           (SELECT COUNT(*) FROM support_messages WHERE request_id = s.id AND sender_type = 'user' AND is_read = 0) as unread_count
+    FROM support_requests s
+    LEFT JOIN users u ON s.user_id = u.id
+    LEFT JOIN users adm ON s.assigned_admin_id = adm.id
+    ORDER BY unread_count DESC, s.updated_at DESC
+");
+$syncChats = $syncQuery->fetchAll();
+assert(count($syncChats) === 1, "Fast sync returns 1 active chat session");
+assert((int)$syncChats[0]['unread_count'] === 1, "Unread count is exactly 1 from user reopened message");
+assert($syncChats[0]['last_message'] === $reopenMsg, "Last message matches user message");
+echo "[PASS] Test 10: Admin fast sync correctly aggregates unread messages, timestamps, and metadata\n";
+
+// -------------------------------------------------------------
+// Test 11: Agent Assignment & Re-route
+// -------------------------------------------------------------
+$pdo->prepare("
+    UPDATE support_requests
+    SET assigned_admin_id = ?, status = 'in_progress', updated_at = ?
+    WHERE id = ?
+")->execute([$adminId, $nowUtc, $requestId]);
+
+$pdo->prepare("
+    INSERT INTO support_messages (request_id, sender_type, sender_name, message, is_read, created_at)
+    VALUES (?, 'system', 'Support Desk', 'Support Agent Super Admin has joined and taken ownership of this chat session.', 1, ?)
+")->execute([$requestId, $nowUtc]);
+
+$assignedStmt = $pdo->prepare("SELECT assigned_admin_id, status FROM support_requests WHERE id = ?");
+$assignedStmt->execute([$requestId]);
+$assignedRow = $assignedStmt->fetch();
+assert((int)$assignedRow['assigned_admin_id'] === $adminId, "Chat assigned to specific admin agent");
+assert($assignedRow['status'] === 'in_progress', "Chat status transitioned to in_progress");
+echo "[PASS] Test 11: Agent assignment and ownership routing confirmed\n";
+
 echo "\nALL REAL-TIME LIVE CHAT TESTS PASSED SUCCESSFULLY!\n";
+

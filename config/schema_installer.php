@@ -363,6 +363,24 @@ class SchemaInstaller {
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
                 ");
             }
+
+            // Ensure columns in support_requests exist even if created in earlier versions
+            $supportCols = [
+                'assigned_admin_id' => ($driver === 'sqlite') ? 'INTEGER' : 'INT NULL',
+                'notes' => ($driver === 'sqlite') ? 'TEXT' : 'TEXT NULL',
+                'updated_at' => ($driver === 'sqlite') ? 'TEXT DEFAULT CURRENT_TIMESTAMP' : 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'
+            ];
+            foreach ($supportCols as $col => $type) {
+                try {
+                    if ($driver === 'sqlite') {
+                        $pdo->exec("ALTER TABLE support_requests ADD COLUMN {$col} {$type}");
+                    } else {
+                        $pdo->exec("ALTER TABLE support_requests ADD COLUMN IF NOT EXISTS `{$col}` {$type}");
+                    }
+                } catch (Exception $e) {
+                    // Column already exists
+                }
+            }
         } catch (Exception $e) {
             // Table creation handled
         }
