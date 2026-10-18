@@ -24,6 +24,13 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>JeliPay | Administration & Governance Console</title>
+    <!-- Official Favicon & PWA Icons -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="icon" type="image/png" sizes="32x32" href="/public/images/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/public/images/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/public/images/apple-touch-icon.png">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#020617">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
     <style>
@@ -51,6 +58,10 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                             <span class="text-base font-extrabold text-white">JeliPay Admin Console</span>
                             <span class="text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30">
                                 <?= htmlspecialchars(strtoupper($adminRole)) ?>
+                            </span>
+                            <span class="hidden md:inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-bold">
+                                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                                LIVE MODE
                             </span>
                         </div>
                         <span class="text-[10px] text-slate-400 block -mt-0.5">Admin ID: <?= htmlspecialchars($currentUser['referral_code'] ?? 'ADMIN') ?> &bull; Phone: <?= htmlspecialchars($currentUser['phone']) ?></span>
@@ -128,7 +139,7 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                     <div class="flex gap-2 text-[11px] text-slate-500 mt-1 font-mono">
                         <span>Act: <strong class="text-emerald-400" id="dashActiveUsers">0</strong></span>
                         <span>Susp: <strong class="text-red-400" id="dashSuspendedUsers">0</strong></span>
-                        <span>Demo: <strong class="text-violet-400" id="dashDemoUsers">0</strong></span>
+                        <span class="text-emerald-400 font-bold">● LIVE</span>
                     </div>
                 </div>
 
@@ -427,6 +438,69 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                     Control live branding, announcement banners, payment timeouts, and maintenance mode without redeploying code.
                 </p>
             </div>
+
+            <!-- Dynamic Telegram Support & Live Operations Highlight Deck (Part 9, Items 1 & 4) -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <!-- Telegram Control Card -->
+                <div class="bg-gradient-to-br from-slate-900 to-[#102336] border border-[#229ED9]/40 rounded-2xl p-5 shadow-lg space-y-4">
+                    <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-xl bg-[#229ED9]/20 flex items-center justify-center text-[#229ED9]">
+                                <svg class="w-5 h-5 fill-current" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.52 2.77-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/></svg>
+                            </div>
+                            <div>
+                                <h4 class="text-sm font-bold text-white">Dynamic Telegram Support Control</h4>
+                                <p class="text-[11px] text-slate-400">Updates support destination in real-time across user interfaces</p>
+                            </div>
+                        </div>
+                        <span class="px-2 py-0.5 rounded bg-[#229ED9]/20 text-[#229ED9] text-[10px] font-bold font-mono">24/7 SUPPORT</span>
+                    </div>
+
+                    <div class="space-y-3">
+                        <div>
+                            <label class="text-[11px] font-bold uppercase tracking-wider text-slate-300 block mb-1">Telegram Support Channel / Username URL</label>
+                            <input type="url" id="quickTelegramUrlInput" placeholder="https://t.me/jelipay_support" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white font-mono focus:border-[#229ED9] focus:outline-none">
+                        </div>
+
+                        <div class="flex items-center gap-2">
+                            <button onclick="saveQuickTelegramUrl()" class="flex-1 bg-gradient-to-r from-[#229ED9] to-blue-600 hover:from-[#1b8ec5] hover:to-blue-500 text-white font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition shadow-md flex items-center justify-center gap-1.5">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                                <span>Save & Apply Telegram Link</span>
+                            </button>
+                            <a id="quickTelegramTestBtn" href="https://t.me/jelipay_support" target="_blank" rel="noopener noreferrer" class="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold transition flex items-center gap-1">
+                                <span>Test Link</span>
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live Production Mode Card -->
+                <div class="bg-gradient-to-br from-slate-900 to-emerald-950/40 border border-emerald-500/30 rounded-2xl p-5 shadow-lg space-y-4">
+                    <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-xl bg-emerald-500/20 flex items-center justify-center text-emerald-400">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            </div>
+                            <div>
+                                <h4 class="text-sm font-bold text-white">Live Production Mode Governance</h4>
+                                <p class="text-[11px] text-slate-400">Platform status: <strong class="text-emerald-400 font-bold">100% REAL PRODUCTION</strong></p>
+                            </div>
+                        </div>
+                        <span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-[10px] font-bold font-mono">LIVE / PRODUCTION</span>
+                    </div>
+
+                    <p class="text-xs text-slate-400 leading-relaxed">
+                        To guarantee absolute security and pristine operations for real users, you can clean any remaining demo accounts or test records with 1 click.
+                    </p>
+
+                    <button onclick="purgeDemoAccountsAndEnforceLive()" class="w-full bg-slate-800 hover:bg-red-500/20 text-slate-300 hover:text-red-400 border border-slate-700 hover:border-red-500/30 font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition flex items-center justify-center gap-2">
+                        <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                        <span>Purge All Demo Data & Confirm Live Mode</span>
+                    </button>
+                </div>
+            </div>
+
             <div id="contentSettingsGrid" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
         </section>
 

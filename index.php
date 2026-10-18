@@ -74,6 +74,22 @@ endif;
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title><?= $siteName ?> | Peer-to-Peer Token Trading Platform</title>
+    <!-- Official Favicon & PWA Icons -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="icon" type="image/png" sizes="32x32" href="/public/images/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/public/images/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/public/images/apple-touch-icon.png">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#020617">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="<?= $siteName ?>">
+    <meta property="og:title" content="<?= $siteName ?> - Peer-to-Peer Token Trading Platform">
+    <meta property="og:description" content="Unified P2P Token Trading with Instant UPI Settlement & 9% Rewards.">
+    <meta property="og:image" content="/public/images/icon-512.png">
+    <meta property="og:type" content="website">
+
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -107,6 +123,25 @@ endif;
     </style>
 </head>
 <body class="h-full text-slate-100 flex flex-col antialiased selection:bg-indigo-500 selection:text-white">
+
+    <!-- PWA Smart Install Banner (Part 9, Item 3) -->
+    <div id="pwaInstallBanner" class="hidden bg-slate-900/95 border-b border-indigo-500/30 px-4 py-2.5 shadow-xl backdrop-blur flex items-center justify-between text-xs sticky top-0 z-50 transition-all">
+        <div class="flex items-center gap-3">
+            <img src="/public/images/favicon-32x32.png" alt="JeliPay Logo" class="w-7 h-7 rounded-lg shadow-sm flex-shrink-0">
+            <div>
+                <span class="font-bold text-white block leading-tight">Install <?= $siteName ?> App</span>
+                <span class="text-[11px] text-slate-400">Add to your home screen for instant 1-tap trading</span>
+            </div>
+        </div>
+        <div class="flex items-center gap-2">
+            <button onclick="triggerPwaInstall()" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-3 py-1.5 rounded-lg text-xs transition shadow-md shadow-indigo-600/30">
+                Install
+            </button>
+            <button onclick="dismissPwaBanner()" class="text-slate-400 hover:text-white p-1" title="Dismiss">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+        </div>
+    </div>
 
     <!-- Admin Support Mode Banner (FR-022) -->
     <?php if ($isImpersonating): ?>
@@ -768,6 +803,21 @@ endif;
                 <button onclick="openHistoryModal()" class="text-indigo-400 hover:text-indigo-300 text-sm font-bold flex items-center gap-1.5 hover:underline px-3 py-1.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 transition">
                     <span>Check</span>
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                </button>
+            <!-- Progressive Web App Install Card (Part 9, Item 3) -->
+            <div id="pwaProfileCard" class="bg-gradient-to-br from-slate-900 to-indigo-950/40 border border-indigo-500/30 rounded-2xl p-5 sm:p-6 flex items-center justify-between shadow-sm">
+                <div class="flex items-center gap-3.5">
+                    <div class="w-11 h-11 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 flex-shrink-0">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-bold text-white">Install JeliPay Mobile App</h3>
+                        <p class="text-xs text-slate-400">Add to your Home Screen for fast native app experience & trade notifications</p>
+                    </div>
+                </div>
+                <button type="button" onclick="triggerPwaInstall()" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-4 py-2.5 rounded-xl text-xs uppercase tracking-wider transition shadow-md shadow-indigo-600/30 whitespace-nowrap flex items-center gap-1.5 flex-shrink-0">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                    <span>Install App</span>
                 </button>
             </div>
 
@@ -1460,6 +1510,32 @@ endif;
             <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
             <span class="text-xs tracking-wider">Support</span>
         </button>
+    </div>
+
+    <!-- iOS Add to Home Screen Instructions Modal (Part 9, Item 3) -->
+    <div id="iosInstallModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-sm w-full p-6 text-center space-y-4 shadow-2xl relative">
+            <div class="w-14 h-14 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center mx-auto text-indigo-400">
+                <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+            </div>
+            <div>
+                <h3 class="text-lg font-bold text-white">Install on iPhone / iPad</h3>
+                <p class="text-xs text-slate-400 mt-1">To add JeliPay to your iOS Home Screen:</p>
+            </div>
+            <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 text-left space-y-3 text-xs text-slate-300">
+                <div class="flex items-start gap-2.5">
+                    <span class="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px] font-bold flex-shrink-0 mt-0.5">1</span>
+                    <span>Tap the <strong>Share</strong> icon at the bottom of Safari (<svg class="w-3.5 h-3.5 inline text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"/></svg>).</span>
+                </div>
+                <div class="flex items-start gap-2.5">
+                    <span class="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px] font-bold flex-shrink-0 mt-0.5">2</span>
+                    <span>Scroll down and select <strong>"Add to Home Screen"</strong> (<svg class="w-3.5 h-3.5 inline text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>).</span>
+                </div>
+            </div>
+            <button type="button" onclick="closeIosInstallModal()" class="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition">
+                Got It
+            </button>
+        </div>
     </div>
 
     <!-- JavaScript Controller with Cache Busting -->

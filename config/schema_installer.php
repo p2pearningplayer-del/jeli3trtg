@@ -413,7 +413,14 @@ class SchemaInstaller {
             ['support_contact_info', 'support@jelipay.in', 'Official administrative support contact details'],
             ['approved_upi_config', 'jelipay@upi', 'Approved default UPI gateway reference'],
             ['reward_eligible_types', 'ALL', 'Eligible transaction types for reward calculation'],
-            ['telegram_support_url', 'https://t.me/jelipay_support', 'Official Telegram Support Channel URL']
+            ['telegram_support_url', 'https://t.me/jelipay_support', 'Official Telegram Support Channel or Username URL'],
+            ['telegram_support_username', '@jelipay_support', 'Official Telegram Support handle/username'],
+            ['platform_mode', 'live', 'Platform operating mode (live / test)'],
+            ['allow_user_registration', '1', 'Allow public user registrations (1=Active, 0=Disabled)'],
+            ['allow_sell_listings', '1', 'Allow peer users to list new sell orders (1=Active, 0=Disabled)'],
+            ['allow_buy_orders', '1', 'Allow peer buyers to pick and allocate orders (1=Active, 0=Disabled)'],
+            ['platform_logo_url', '/public/images/logo.svg', 'Official brand vector logo URL'],
+            ['platform_favicon_url', '/favicon.svg', 'Official brand vector favicon URL']
         ];
 
         $stmt = $pdo->prepare("SELECT setting_key FROM platform_settings WHERE setting_key = ?");
@@ -428,7 +435,29 @@ class SchemaInstaller {
     }
 
     public static function seedDemoAccounts(PDO $pdo): void {
-        // 1. Super Admin Account (ADMIN001 / 9999999999)
+        self::ensureDefaultAdmin($pdo);
+
+        // When running automated SQLite test suite, seed test admin for QA-012
+        if (Database::getDriver() === 'sqlite' || !empty(getenv('ALLOW_SQLITE_CLI_FALLBACK'))) {
+            self::ensureUser(
+                $pdo,
+                '9888800000',
+                'demoadmin@jelipay.in',
+                '$2y$10$HU771qOFL016eO.hpPE5x.IVliUJ1Qca2K8TyzAzFbN7XPo/BRuhO', // DemoAdmin@123
+                '$2y$10$aq.G53.wTfw/6bxgafs2O.TcU2ZPsuBlmRUqf9rXCI.TDhQO446ou', // 1234
+                'DEMOADMIN001',
+                'admin',
+                'super_admin',
+                0,
+                500000.00,
+                'demoadmin@upi',
+                'Demo Administrator'
+            );
+        }
+    }
+
+    public static function ensureDefaultAdmin(PDO $pdo): void {
+        // Super Admin Account (ADMIN001 / 9999999999)
         self::ensureUser(
             $pdo,
             '9999999999',
@@ -444,69 +473,14 @@ class SchemaInstaller {
             'JeliPay Admin'
         );
 
-        // 2. Demo Admin Account (DEMOADMIN001 / 9888800000 / demoadmin@jelipay.in / DemoAdmin@123)
-        self::ensureUser(
-            $pdo,
-            '9888800000',
-            'demoadmin@jelipay.in',
-            '$2y$10$HU771qOFL016eO.hpPE5x.IVliUJ1Qca2K8TyzAzFbN7XPo/BRuhO', // DemoAdmin@123
-            '$2y$10$aq.G53.wTfw/6bxgafs2O.TcU2ZPsuBlmRUqf9rXCI.TDhQO446ou', // 1234
-            'DEMOADMIN001',
-            'admin',
-            'super_admin',
-            0,
-            500000.00,
-            'demoadmin@upi',
-            'Demo Administrator'
-        );
-
-        // 3. Demo User Account (DEMOUSER001 / 9888800001 / demouser@jelipay.in / DemoUser@123)
-        self::ensureUser(
-            $pdo,
-            '9888800001',
-            'demouser@jelipay.in',
-            '$2y$10$1djyY.sn4UJ32HNnRE/3cOqYgCRho99T.Zk1IPzjTbexhKkk0NY2.', // DemoUser@123
-            '$2y$10$aq.G53.wTfw/6bxgafs2O.TcU2ZPsuBlmRUqf9rXCI.TDhQO446ou', // 1234
-            'DEMOUSER001',
-            'user',
-            null,
-            1, // is_demo
-            10000.00,
-            'demouser@okhdfcbank',
-            'Demo Trader'
-        );
-
-        // 4. Standard User 1 (9876543210 / USER001)
-        self::ensureUser(
-            $pdo,
-            '9876543210',
-            'rohan@jelipay.in',
-            '$2y$10$VptZJT57ky0utSer8oOiMerRqnDko3zNNqzM50MHgiWoPJoQNRyjW', // User@123456
-            '$2y$10$xR4yCngo7fNgdPrDkxFJ1OQPrhriUSm2RpwEvFkdBNRT3nEUVWGMm', // 1234
-            'USER001',
-            'user',
-            null,
-            0,
-            50000.00,
-            'user1@okhdfcbank',
-            'Rohan Sharma'
-        );
-
-        // 5. Standard User 2 (9811122233 / USER002)
-        self::ensureUser(
-            $pdo,
-            '9811122233',
-            'priya@jelipay.in',
-            '$2y$10$VptZJT57ky0utSer8oOiMerRqnDko3zNNqzM50MHgiWoPJoQNRyjW', // User@123456
-            '$2y$10$xR4yCngo7fNgdPrDkxFJ1OQPrhriUSm2RpwEvFkdBNRT3nEUVWGMm', // 1234
-            'USER002',
-            'user',
-            null,
-            0,
-            20000.00,
-            'user2@paytm',
-            'Priya Patel'
-        );
+        // On production MySQL, permanently purge demo accounts
+        if (Database::getDriver() !== 'sqlite' && empty(getenv('ALLOW_SQLITE_CLI_FALLBACK'))) {
+            try {
+                $pdo->exec("DELETE FROM users WHERE is_demo = 1 OR phone IN ('9888800000', '9888800001')");
+            } catch (Exception $e) {
+                // Ignore during intermediate migration phases
+            }
+        }
     }
 
     private static function ensureUser(

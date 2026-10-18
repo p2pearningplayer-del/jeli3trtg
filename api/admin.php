@@ -296,6 +296,16 @@ switch ($action) {
         }
         break;
 
+    case 'purge_demo_data':
+        // Part 9, Item 4: Push to Live/Production Mode (purge demo accounts and test data)
+        $res = AdminManager::purgeDemoData($adminId);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
     case 'audit_logs':
         // Requirement 7: Complete administrative audit trail
         $pdo = Database::getConnection();

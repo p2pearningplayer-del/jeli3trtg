@@ -3081,3 +3081,101 @@ async function markNotificationsRead() {
         console.warn('Failed to mark notifications read:', e);
     }
 }
+
+// -------------------------------------------------------------
+// PROGRESSIVE WEB APP (PWA) INSTALL & SERVICE WORKER CONTROLLER
+// -------------------------------------------------------------
+
+let deferredPwaPrompt = null;
+
+// Register Service Worker
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').then((reg) => {
+            console.log('[PWA] Service Worker registered with scope:', reg.scope);
+        }).catch((err) => {
+            console.warn('[PWA] Service Worker registration failed:', err);
+        });
+    });
+}
+
+// Capture BeforeInstallPrompt
+window.addEventListener('beforeinstallprompt', (e) => {
+    // Prevent default mini-infobar on mobile Chrome
+    e.preventDefault();
+    deferredPwaPrompt = e;
+
+    // Show custom smart install banner unless dismissed in this session
+    if (!sessionStorage.getItem('pwaBannerDismissed')) {
+        const banner = document.getElementById('pwaInstallBanner');
+        if (banner) banner.classList.remove('hidden');
+    }
+
+    // Ensure Profile Install Button is visible
+    const profileCard = document.getElementById('pwaProfileCard');
+    if (profileCard) profileCard.classList.remove('hidden');
+});
+
+// App Installed Event
+window.addEventListener('appinstalled', () => {
+    deferredPwaPrompt = null;
+    dismissPwaBanner();
+    const profileCard = document.getElementById('pwaProfileCard');
+    if (profileCard) {
+        profileCard.innerHTML = `
+            <div class="flex items-center gap-3.5">
+                <div class="w-11 h-11 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                </div>
+                <div>
+                    <h3 class="text-base font-bold text-white">JeliPay App Installed</h3>
+                    <p class="text-xs text-emerald-400">Running as native Web App on your device</p>
+                </div>
+            </div>
+            <span class="text-xs font-bold text-emerald-400 font-mono px-3 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20">Active</span>
+        `;
+    }
+});
+
+function triggerPwaInstall() {
+    if (deferredPwaPrompt) {
+        deferredPwaPrompt.prompt();
+        deferredPwaPrompt.userChoice.then((choiceResult) => {
+            if (choiceResult.outcome === 'accepted') {
+                console.log('[PWA] User accepted the install prompt');
+            } else {
+                console.log('[PWA] User dismissed the install prompt');
+            }
+            deferredPwaPrompt = null;
+            dismissPwaBanner();
+        });
+        return;
+    }
+
+    // Check if on iOS
+    const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+    const isStandalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+
+    if (isStandalone) {
+        alert('JeliPay is already installed and running as a native app on your device!');
+        return;
+    }
+
+    if (isIos) {
+        const modal = document.getElementById('iosInstallModal');
+        if (modal) modal.classList.remove('hidden');
+    } else {
+        alert("To install JeliPay:\n1. Tap your browser menu (⋮) in the top right.\n2. Tap 'Install app' or 'Add to Home screen'.");
+    }
+}
+
+function dismissPwaBanner() {
+    const banner = document.getElementById('pwaInstallBanner');
+    if (banner) banner.classList.add('hidden');
+    sessionStorage.setItem('pwaBannerDismissed', '1');
+}
+
+function closeIosInstallModal() {
+    const modal = document.getElementById('iosInstallModal');
+    if (modal) modal.classList.add('hidden');
+}

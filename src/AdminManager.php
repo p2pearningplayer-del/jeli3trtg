@@ -996,4 +996,85 @@ class AdminManager {
         fclose($output);
         return $csv;
     }
+
+    /**
+     * Requirement 4: Permanently purge all demo test accounts & artifacts,
+     * switching the platform completely into 100% Live / Real Mode.
+     */
+    public static function purgeDemoData(int $adminId): array {
+        $pdo = Database::getConnection();
+
+        try {
+            $pdo->beginTransaction();
+
+            // Find demo accounts
+            $demoStmt = $pdo->query("SELECT id FROM users WHERE is_demo = 1 OR phone IN ('9888800000', '9888800001')");
+            $demoUserIds = $demoStmt->fetchAll(PDO::FETCH_COLUMN);
+
+            $purgedCount = count($demoUserIds);
+
+            if (!empty($demoUserIds)) {
+                $inClause = implode(',', array_map('intval', $demoUserIds));
+
+                // 1. Delete associated payment proofs
+                $pdo->exec("DELETE FROM payment_proofs WHERE child_order_id IN (SELECT id FROM child_orders WHERE buyer_id IN ($inClause) OR seller_id IN ($inClause))");
+
+                // 2. Delete disputes
+                $pdo->exec("DELETE FROM disputes WHERE child_order_id IN (SELECT id FROM child_orders WHERE buyer_id IN ($inClause) OR seller_id IN ($inClause))");
+
+                // 4. Delete child orders
+                $pdo->exec("DELETE FROM child_orders WHERE buyer_id IN ($inClause) OR seller_id IN ($inClause)");
+
+                // 5. Delete parent sell orders
+                $pdo->exec("DELETE FROM parent_sell_orders WHERE seller_id IN ($inClause)");
+
+                // 6. Delete ledger entries
+                $pdo->exec("DELETE FROM wallet_ledger WHERE user_id IN ($inClause)");
+
+                // 7. Delete wallets
+                $pdo->exec("DELETE FROM wallets WHERE user_id IN ($inClause)");
+
+                // 8. Delete notifications
+                $pdo->exec("DELETE FROM notifications WHERE user_id IN ($inClause)");
+
+                // 9. Delete support requests
+                $pdo->exec("DELETE FROM support_requests WHERE user_id IN ($inClause)");
+
+                // 10. Delete the users themselves
+                $pdo->exec("DELETE FROM users WHERE id IN ($inClause)");
+            }
+
+            // Set platform_mode to 'live' in platform_settings
+            $updateMode = $pdo->prepare("UPDATE platform_settings SET setting_value = 'live', updated_at = CURRENT_TIMESTAMP WHERE setting_key = 'platform_mode'");
+            $updateMode->execute();
+
+            // Log audit
+            self::logAudit(
+                $adminId,
+                'PURGE_DEMO_DATA',
+                'system',
+                '0',
+                null,
+                ['purged_users' => $purgedCount, 'mode' => 'live'],
+                'Switched platform to 100% Live Mode. Permanently purged demo users and mock orders.'
+            );
+
+            $pdo->commit();
+
+            return [
+                'success' => true,
+                'purged_users' => $purgedCount,
+                'platform_mode' => 'live',
+                'message' => "Successfully purged $purgedCount demo accounts and associated records. Platform is now operating in 100% Live Mode."
+            ];
+        } catch (Exception $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            return [
+                'success' => false,
+                'error' => 'Failed to purge demo data: ' . $e->getMessage()
+            ];
+        }
+    }
 }

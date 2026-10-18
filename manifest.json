@@ -1,0 +1,71 @@
+{
+  "name": "JeliPay P2P - Peer-to-Peer Token Trading Platform",
+  "short_name": "JeliPay",
+  "description": "Unified Peer-to-Peer Token Trading Platform with Instant UPI Settlement & 9% Rewards.",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "lang": "en-IN",
+  "dir": "ltr",
+  "categories": ["finance", "business", "utilities"],
+  "icons": [
+    {
+      "src": "/public/images/favicon-32x32.png",
+      "sizes": "32x32",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/public/images/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/public/images/icon-192-maskable.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/public/images/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/public/images/icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Buy Tokens",
+      "short_name": "Buy",
+      "url": "/?tab=buy",
+      "icons": [{ "src": "/public/images/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Sell Tokens",
+      "short_name": "Sell",
+      "url": "/?tab=sell",
+      "icons": [{ "src": "/public/images/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Wallet & Profile",
+      "short_name": "Wallet",
+      "url": "/?tab=profile",
+      "icons": [{ "src": "/public/images/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

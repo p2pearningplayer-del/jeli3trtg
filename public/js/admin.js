@@ -65,10 +65,10 @@ async function loadAdminDashboard(silent = false) {
         const s = data.stats;
 
         // User metrics
-        document.getElementById('dashTotalUsers').innerText = s.total_users;
-        document.getElementById('dashActiveUsers').innerText = s.active_users;
-        document.getElementById('dashSuspendedUsers').innerText = s.suspended_users;
-        document.getElementById('dashDemoUsers').innerText = s.demo_users;
+        if (document.getElementById('dashTotalUsers')) document.getElementById('dashTotalUsers').innerText = s.total_users;
+        if (document.getElementById('dashActiveUsers')) document.getElementById('dashActiveUsers').innerText = s.active_users;
+        if (document.getElementById('dashSuspendedUsers')) document.getElementById('dashSuspendedUsers').innerText = s.suspended_users;
+        if (document.getElementById('dashDemoUsers')) document.getElementById('dashDemoUsers').innerText = s.demo_users;
 
         // Volumes & Balances
         document.getElementById('dashTradingVol').innerText = `₹${parseFloat(s.total_completed_trading_volume).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
@@ -153,7 +153,6 @@ async function loadAdminUsers() {
             <tr class="hover:bg-slate-900/80 transition text-xs font-mono">
                 <td class="p-3 text-slate-500 font-bold">
                     #${u.id}
-                    ${u.is_demo ? '<span class="ml-1 px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-400 text-[9px] uppercase font-bold">Demo</span>' : ''}
                     ${u.is_flagged ? '<span class="ml-1 px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 text-[9px] uppercase font-bold" title="' + escapeHtml(u.flag_reason || 'Flagged') + '">⚠️ Suspicious</span>' : ''}
                 </td>
                 <td class="p-3">
@@ -690,7 +689,27 @@ async function loadAdminRewardSettings() {
 }
 
 async function loadAdminContentSettings() {
+    try {
+        const res = await fetch('/api/admin.php?action=settings');
+        const data = await res.json();
+        if (data.success && data.settings) {
+            const tg = data.settings.find(s => s.setting_key === 'telegram_support_url');
+            if (tg) {
+                const input = document.getElementById('quickTelegramUrlInput');
+                const testBtn = document.getElementById('quickTelegramTestBtn');
+                if (input && !input.value) input.value = tg.setting_value;
+                if (testBtn) testBtn.href = tg.setting_value;
+            }
+        }
+    } catch (e) {}
+
     loadSettingsIntoGrid('contentSettingsGrid', [
+        'telegram_support_url',
+        'telegram_support_username',
+        'platform_mode',
+        'allow_user_registration',
+        'allow_sell_listings',
+        'allow_buy_orders',
         'site_name',
         'site_tagline',
         'token_rate_inr',
@@ -704,8 +723,69 @@ async function loadAdminContentSettings() {
         'terms_of_service',
         'privacy_policy',
         'buyer_payment_window_seconds',
-        'seller_verify_window_seconds'
+        'seller_verify_window_seconds',
+        'platform_logo_url',
+        'platform_favicon_url'
     ]);
+}
+
+async function saveQuickTelegramUrl() {
+    const input = document.getElementById('quickTelegramUrlInput');
+    const val = input ? input.value.trim() : '';
+    if (!val || (!val.startsWith('https://t.me/') && !val.startsWith('http://t.me/') && !val.startsWith('@'))) {
+        alert('Please enter a valid Telegram link (e.g. https://t.me/jelipay_support) or username.');
+        return;
+    }
+
+    const fullUrl = val.startsWith('@') ? `https://t.me/${val.replace('@', '')}` : val;
+
+    try {
+        const res = await fetch('/api/admin.php?action=settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                setting_key: 'telegram_support_url',
+                setting_value: fullUrl,
+                reason: 'Dynamic admin update for Telegram Support link'
+            })
+        });
+        const data = await res.json();
+        if (data.success) {
+            const testBtn = document.getElementById('quickTelegramTestBtn');
+            if (testBtn) testBtn.href = fullUrl;
+            alert('Official Telegram Support link updated successfully! It is now live across the platform.');
+            loadAdminContentSettings();
+        } else {
+            alert(data.error || 'Failed to update Telegram link.');
+        }
+    } catch (e) {
+        alert('Network error updating Telegram link.');
+    }
+}
+
+async function purgeDemoAccountsAndEnforceLive() {
+    const conf = confirm(
+        'WARNING: This will permanently purge all test/demo accounts and simulated orders from the database, leaving only real registered users. The platform will be locked in 100% Live Production Mode.\n\nAre you sure you want to proceed?'
+    );
+    if (!conf) return;
+
+    try {
+        const res = await fetch('/api/admin.php?action=purge_demo_data', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        });
+        const data = await res.json();
+        if (data.success) {
+            alert(data.message || 'Platform successfully switched to 100% Live Mode!');
+            loadAdminDashboard();
+            loadAdminContentSettings();
+        } else {
+            alert(data.error || 'Failed to purge demo data.');
+        }
+    } catch (e) {
+        alert('Network error executing live purge.');
+    }
 }
 
 async function loadSettingsIntoGrid(containerId, keys) {
