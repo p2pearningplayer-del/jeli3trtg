@@ -129,6 +129,38 @@ function updateProfilePreviews(user) {
         sellUpi.value = user.upi_id;
     }
 
+    // Prefill profile edit inputs
+    const profHolder = document.getElementById('profHolderName');
+    const profUpi = document.getElementById('profUpiId');
+    const profEmail = document.getElementById('profEmail');
+    if (profHolder && user.account_holder_name && (!profHolder.value || profHolder.value !== user.account_holder_name)) {
+        profHolder.value = user.account_holder_name;
+    }
+    if (profUpi && user.upi_id && (!profUpi.value || profUpi.value !== user.upi_id)) {
+        profUpi.value = user.upi_id;
+    }
+    if (profEmail && user.email && (!profEmail.value || profEmail.value !== user.email)) {
+        profEmail.value = user.email;
+    }
+
+    // Profile Top Header Cards & Displays
+    const nameDisplay = document.getElementById('profileNameDisplay');
+    const emailDisplay = document.getElementById('profileEmailDisplay');
+    const avatarInitial = document.getElementById('profileAvatarInitial');
+    const headerInitial = document.getElementById('headerProfileInitial');
+    const headerName = document.getElementById('headerProfileName');
+    const userIdDisplay = document.getElementById('profileUserIdDisplay');
+
+    const displayName = user.account_holder_name || (user.phone ? `Trader ${user.phone.slice(-4)}` : 'Verified Trader');
+    const initialChar = (user.account_holder_name ? user.account_holder_name.trim().charAt(0) : (user.phone ? user.phone.trim().charAt(0) : 'U')).toUpperCase();
+
+    if (nameDisplay) nameDisplay.innerText = displayName;
+    if (emailDisplay) emailDisplay.innerText = user.email || 'Email not linked';
+    if (avatarInitial) avatarInitial.innerText = initialChar;
+    if (headerInitial) headerInitial.innerText = initialChar;
+    if (headerName) headerName.innerText = user.account_holder_name ? user.account_holder_name.split(' ')[0] : 'Profile';
+    if (userIdDisplay) userIdDisplay.innerText = `#${user.id}`;
+
     const phoneDisplay = document.getElementById('profilePhoneDisplay');
     const refCodeDisplay = document.getElementById('profileRefCodeDisplay');
     if (phoneDisplay && user.phone) phoneDisplay.innerText = user.phone;
@@ -2769,28 +2801,108 @@ function closeProfileModal() {
 }
 
 async function handleProfileUpdate(e) {
-    e.preventDefault();
+    if (e && e.preventDefault) e.preventDefault();
     const holderInput = document.getElementById('profHolderName');
     const upiInput = document.getElementById('profUpiId');
+    const emailInput = document.getElementById('profEmail');
+    const statusEl = document.getElementById('profUpdateStatus');
+    const submitBtn = document.getElementById('profUpdateBtn');
+
     const holderName = holderInput ? holderInput.value.trim() : '';
     const upiId = upiInput ? upiInput.value.trim() : '';
+    const email = emailInput ? emailInput.value.trim() : '';
+
+    if (!holderName) {
+        if (statusEl) {
+            statusEl.innerText = 'Account holder name is required.';
+            statusEl.className = 'text-xs font-semibold text-red-400 block';
+            statusEl.classList.remove('hidden');
+        } else {
+            alert('Account holder name is required.');
+        }
+        if (holderInput) holderInput.focus();
+        return;
+    }
+
+    if (!upiId || !upiId.includes('@')) {
+        if (statusEl) {
+            statusEl.innerText = 'Please provide a valid UPI ID (e.g. user@bank).';
+            statusEl.className = 'text-xs font-semibold text-red-400 block';
+            statusEl.classList.remove('hidden');
+        } else {
+            alert('Please provide a valid UPI ID (e.g. user@bank).');
+        }
+        if (upiInput) upiInput.focus();
+        return;
+    }
+
+    if (email && (!email.includes('@') || !email.includes('.'))) {
+        if (statusEl) {
+            statusEl.innerText = 'Please provide a valid email address.';
+            statusEl.className = 'text-xs font-semibold text-red-400 block';
+            statusEl.classList.remove('hidden');
+        } else {
+            alert('Please provide a valid email address.');
+        }
+        if (emailInput) emailInput.focus();
+        return;
+    }
+
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerText = 'Saving Details...';
+    }
+    if (statusEl) {
+        statusEl.innerText = 'Saving payout details...';
+        statusEl.className = 'text-xs font-semibold text-slate-400 block';
+        statusEl.classList.remove('hidden');
+    }
 
     try {
+        const payload = { account_holder_name: holderName, upi_id: upiId };
+        if (emailInput) {
+            payload.email = email;
+        }
         const res = await fetch('/api/auth.php?action=update_profile', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ account_holder_name: holderName, upi_id: upiId })
+            body: JSON.stringify(payload)
         });
         const data = await res.json();
         if (data.success) {
-            alert('Banking payout details updated!');
+            if (statusEl) {
+                statusEl.innerText = 'Banking and payout details updated successfully!';
+                statusEl.className = 'text-xs font-semibold text-emerald-400 block';
+                statusEl.classList.remove('hidden');
+            }
+            alert('Banking and payout details updated successfully!');
+            // Prefill sell page inputs
+            const sellHolder = document.getElementById('sellAccountHolderName');
+            const sellUpi = document.getElementById('sellUpiId');
+            if (sellHolder) sellHolder.value = holderName;
+            if (sellUpi) sellUpi.value = upiId;
             closeProfileModal();
-            fetchSession();
+            await fetchSession();
         } else {
+            if (statusEl) {
+                statusEl.innerText = data.error || 'Failed to update details.';
+                statusEl.className = 'text-xs font-semibold text-red-400 block';
+                statusEl.classList.remove('hidden');
+            }
             alert(data.error || 'Failed to update details.');
         }
     } catch (e) {
+        if (statusEl) {
+            statusEl.innerText = 'Network error updating profile. Please retry.';
+            statusEl.className = 'text-xs font-semibold text-red-400 block';
+            statusEl.classList.remove('hidden');
+        }
         alert('Network error updating profile.');
+    } finally {
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.innerText = 'Save Payout Details';
+        }
     }
 }
 
@@ -2800,11 +2912,26 @@ async function handleTpinUpdate(e) {
         if (e.stopPropagation) e.stopPropagation();
     }
     const tpinInput = document.getElementById('profNewTpin');
+    const statusEl = document.getElementById('profTpinStatus');
+    const tpinBtn = document.getElementById('profileTpinBtn');
     const tpin = tpinInput ? tpinInput.value.trim() : '';
 
     if (!tpin || tpin.length < 4 || tpin.length > 6 || isNaN(tpin)) {
+        if (statusEl) {
+            statusEl.innerText = 'TPIN must be a 4 to 6 digit numeric PIN.';
+            statusEl.className = 'text-xs font-semibold text-red-400 block';
+            statusEl.classList.remove('hidden');
+        }
         alert('TPIN must be a 4 to 6 digit numeric PIN.');
+        if (tpinInput) tpinInput.focus();
         return;
+    }
+
+    if (tpinBtn) tpinBtn.disabled = true;
+    if (statusEl) {
+        statusEl.innerText = 'Saving Selling TPIN...';
+        statusEl.className = 'text-xs font-semibold text-slate-400 block';
+        statusEl.classList.remove('hidden');
     }
 
     let data;
@@ -2817,12 +2944,23 @@ async function handleTpinUpdate(e) {
         data = await res.json();
     } catch (netErr) {
         console.error('Network error configuring TPIN:', netErr);
+        if (statusEl) {
+            statusEl.innerText = 'Network error configuring TPIN. Please check connection.';
+            statusEl.className = 'text-xs font-semibold text-red-400 block';
+            statusEl.classList.remove('hidden');
+        }
         alert('Network error configuring TPIN. Please check your connection and retry.');
+        if (tpinBtn) tpinBtn.disabled = false;
         return;
     }
 
     if (data && data.success) {
         if (tpinInput) tpinInput.value = '';
+        if (statusEl) {
+            statusEl.innerText = 'Selling TPIN configured successfully!';
+            statusEl.className = 'text-xs font-semibold text-emerald-400 block';
+            statusEl.classList.remove('hidden');
+        }
         alert('Selling TPIN configured successfully! You can now authorize sell listings.');
         try {
             await fetchSession();
@@ -2830,13 +2968,64 @@ async function handleTpinUpdate(e) {
             console.warn('Session refresh after TPIN update skipped:', syncErr);
         }
     } else {
-        alert((data && data.error) ? data.error : 'Failed to configure TPIN.');
+        const err = (data && data.error) ? data.error : 'Failed to configure TPIN.';
+        if (statusEl) {
+            statusEl.innerText = err;
+            statusEl.className = 'text-xs font-semibold text-red-400 block';
+            statusEl.classList.remove('hidden');
+        }
+        alert(err);
+    }
+    if (tpinBtn) tpinBtn.disabled = false;
+}
+
+function copyReferralCode() {
+    let code = '';
+    const refCodeEl = document.getElementById('profileRefCodeDisplay');
+    if (refCodeEl && refCodeEl.innerText && refCodeEl.innerText !== '-') {
+        code = refCodeEl.innerText.trim();
+    } else if (currentUser && currentUser.referral_code) {
+        code = currentUser.referral_code;
+    }
+
+    if (!code) {
+        alert('Referral code not available yet.');
+        return;
+    }
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(code).then(() => {
+            alert(`Referral code "${code}" copied to clipboard!`);
+        }).catch(() => {
+            copyToClipboard(code);
+        });
+    } else {
+        copyToClipboard(code);
     }
 }
 
 function copyToClipboard(text) {
-    navigator.clipboard.writeText(text);
-    alert('Copied to clipboard: ' + text);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+            alert('Copied to clipboard: ' + text);
+        }).catch(() => {
+            const temp = document.createElement('textarea');
+            temp.value = text;
+            document.body.appendChild(temp);
+            temp.select();
+            document.execCommand('copy');
+            document.body.removeChild(temp);
+            alert('Copied to clipboard: ' + text);
+        });
+    } else {
+        const temp = document.createElement('textarea');
+        temp.value = text;
+        document.body.appendChild(temp);
+        temp.select();
+        document.execCommand('copy');
+        document.body.removeChild(temp);
+        alert('Copied to clipboard: ' + text);
+    }
 }
 
 function escapeHtml(str) {
@@ -2858,11 +3047,13 @@ async function handlePasswordChange(e) {
 
     const curInput = document.getElementById('currentPasswordInput');
     const newInput = document.getElementById('newPasswordInput');
+    const confirmInput = document.getElementById('confirmPasswordInput');
     const statusEl = document.getElementById('changePasswordStatus');
     const submitBtn = document.getElementById('changePasswordBtn');
 
     const current_password = curInput ? curInput.value : '';
     const new_password = newInput ? newInput.value : '';
+    const confirm_password = confirmInput ? confirmInput.value : '';
 
     if (!current_password || !new_password) {
         if (statusEl) {
@@ -2878,6 +3069,15 @@ async function handlePasswordChange(e) {
             statusEl.className = 'text-xs font-semibold text-red-400 block';
             statusEl.classList.remove('hidden');
         }
+        return;
+    }
+    if (confirmInput && new_password !== confirm_password) {
+        if (statusEl) {
+            statusEl.innerText = 'New passwords do not match. Please re-enter.';
+            statusEl.className = 'text-xs font-semibold text-red-400 block';
+            statusEl.classList.remove('hidden');
+        }
+        confirmInput.focus();
         return;
     }
 
@@ -2903,6 +3103,7 @@ async function handlePasswordChange(e) {
             }
             if (curInput) curInput.value = '';
             if (newInput) newInput.value = '';
+            if (confirmInput) confirmInput.value = '';
             alert('Account password updated successfully!');
         } else {
             if (statusEl) {

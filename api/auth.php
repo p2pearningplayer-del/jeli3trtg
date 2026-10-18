@@ -99,8 +99,9 @@ switch ($action) {
 
         $upiId = $input['upi_id'] ?? '';
         $holderName = $input['account_holder_name'] ?? '';
+        $email = array_key_exists('email', $input) ? (string)$input['email'] : null;
 
-        $res = Auth::updateProfile($user['id'], $upiId, $holderName);
+        $res = Auth::updateProfile($user['id'], $upiId, $holderName, $email);
         if ($res['success']) {
             jsonResponse(true, ['message' => $res['message']]);
         } else {

@@ -249,7 +249,7 @@ class Auth {
     /**
      * Update user UPI profile details
      */
-    public static function updateProfile(int $userId, string $upiId, string $holderName): array {
+    public static function updateProfile(int $userId, string $upiId, string $holderName, ?string $email = null): array {
         $trimmedUpi = trim($upiId);
         $trimmedName = trim($holderName);
 
@@ -262,8 +262,18 @@ class Auth {
         }
 
         $pdo = Database::getConnection();
-        $stmt = $pdo->prepare("UPDATE users SET upi_id = ?, account_holder_name = ? WHERE id = ?");
-        $stmt->execute([$trimmedUpi, $trimmedName, $userId]);
+
+        if ($email !== null) {
+            $trimmedEmail = trim($email);
+            if ($trimmedEmail !== '' && !filter_var($trimmedEmail, FILTER_VALIDATE_EMAIL)) {
+                return ['success' => false, 'error' => 'Please provide a valid email address.'];
+            }
+            $stmt = $pdo->prepare("UPDATE users SET upi_id = ?, account_holder_name = ?, email = ? WHERE id = ?");
+            $stmt->execute([$trimmedUpi, $trimmedName, $trimmedEmail ?: null, $userId]);
+        } else {
+            $stmt = $pdo->prepare("UPDATE users SET upi_id = ?, account_holder_name = ? WHERE id = ?");
+            $stmt->execute([$trimmedUpi, $trimmedName, $userId]);
+        }
 
         return ['success' => true, 'message' => 'Banking details updated successfully.'];
     }

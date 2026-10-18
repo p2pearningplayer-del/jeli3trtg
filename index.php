@@ -39,6 +39,7 @@ $isMaintenance = ($platformSettings['maintenance_mode'] ?? '0') === '1';
 $maintenanceMsg = htmlspecialchars($platformSettings['maintenance_message'] ?? 'Platform is temporarily offline for scheduled system optimization.');
 $announcementActive = ($platformSettings['announcement_banner_active'] ?? '0') === '1';
 $announcementText = htmlspecialchars($platformSettings['announcement_banner_text'] ?? '');
+$telegramSupportUrl = htmlspecialchars($platformSettings['telegram_support_url'] ?? 'https://t.me/jelipay_support');
 $isAdminUser = $currentUser && ($currentUser['role'] === 'admin' || !empty($currentUser['real_admin_id']));
 
 // Maintenance Mode Enforcement for non-admins
@@ -253,6 +254,16 @@ endif;
                         <button onclick="switchTab('appeals')" class="relative p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl border border-slate-700 transition" title="Dispute & Appeal Center">
                             <svg class="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3"/></svg>
                             <span id="appealsBadge" class="absolute -top-1 -right-1 bg-amber-500 text-slate-950 text-[10px] font-bold rounded-full h-4 w-4 flex items-center justify-center hidden">0</span>
+                        </button>
+
+                        <!-- Dedicated Profile Navigation Button -->
+                        <button onclick="switchTab('profile')" class="flex items-center gap-2 p-1.5 sm:px-2.5 sm:py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl border border-slate-700 transition cursor-pointer" title="My Profile & Settings">
+                            <div class="w-6 h-6 rounded-lg bg-indigo-600/30 text-indigo-400 flex items-center justify-center font-bold text-xs" id="headerProfileInitial">
+                                <?= strtoupper(substr($currentUser['account_holder_name'] ?? ($currentUser['phone'] ?? 'U'), 0, 1)) ?>
+                            </div>
+                            <span class="text-xs font-semibold hidden md:inline" id="headerProfileName">
+                                <?= htmlspecialchars(!empty($currentUser['account_holder_name']) ? explode(' ', $currentUser['account_holder_name'])[0] : 'Profile') ?>
+                            </span>
                         </button>
 
                         <?php if ($isAdminUser): ?>
@@ -717,112 +728,258 @@ endif;
         <!-- TAB 5: PROFILE (Account, TPIN, Bank Details & Complete History) -->
         <!-- ========================================== -->
         <section id="view-profile" class="tab-view space-y-6 hidden">
-            <!-- Profile Info & Account Security -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <!-- Selling TPIN Configuration -->
-                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-                    <div class="border-b border-slate-800 pb-3">
-                        <span class="text-xs uppercase font-bold text-amber-400 tracking-wider">Security Protection</span>
-                        <h3 class="text-lg font-bold text-white mt-1" id="profileTpinHeader">Selling Transaction PIN (TPIN)</h3>
-                        <p class="text-xs text-slate-400">Secondary 4–6 digit PIN required to authorize every sell order listing</p>
-                    </div>
-
-                    <form onsubmit="event.preventDefault(); handleTpinUpdate(event); return false;" class="space-y-3">
-                        <div>
-                            <label class="text-xs font-semibold text-slate-300 block mb-1" id="profileTpinLabel">Set New Selling TPIN (4-6 Digits)</label>
-                            <input type="password" id="profNewTpin" required maxlength="6" placeholder="••••" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white font-mono tracking-widest focus:border-amber-500 focus:outline-none">
-                            <span class="text-[11px] text-slate-500 mt-1 block">Bcrypt hashed. Never stored in plaintext.</span>
+            <!-- 1. Profile Hero Summary Header Card -->
+            <div class="relative overflow-hidden bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-xl">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
+                    <div class="flex items-center gap-4">
+                        <div class="w-16 h-16 rounded-2xl bg-gradient-to-tr from-indigo-600 to-violet-500 border-2 border-indigo-400/40 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-indigo-600/30 flex-shrink-0" id="profileAvatarInitial">
+                            <?= strtoupper(substr($currentUser['account_holder_name'] ?? ($currentUser['phone'] ?? 'U'), 0, 1)) ?>
                         </div>
-                        <button type="button" onclick="handleTpinUpdate(event)" id="profileTpinBtn" class="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition">
-                            Save Selling TPIN
-                        </button>
-                    </form>
-                </div>
-
-                <!-- Account Credentials & Identification -->
-                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-                    <div class="border-b border-slate-800 pb-3">
-                        <span class="text-xs uppercase font-bold text-indigo-400 tracking-wider">Account Overview</span>
-                        <h3 class="text-lg font-bold text-white mt-1">Account & Referral Details</h3>
-                        <p class="text-xs text-slate-400">Your single unified identity for trading tokens, rewards, and commissions</p>
-                    </div>
-
-                    <div class="bg-slate-950 border border-slate-800 rounded-xl p-4 text-xs space-y-3">
-                        <div class="flex justify-between items-center text-slate-400 border-b border-slate-800/80 pb-2">
-                            <span>Phone Number:</span>
-                            <span class="text-white font-mono font-bold" id="profilePhoneDisplay">-</span>
-                        </div>
-                        <div class="flex justify-between items-center text-slate-400 border-b border-slate-800/80 pb-2">
-                            <span>Referral Code:</span>
-                            <span class="text-indigo-400 font-mono font-bold" id="profileRefCodeDisplay">-</span>
-                        </div>
-                        <div class="flex justify-between items-center text-slate-400 border-b border-slate-800/80 pb-2">
-                            <span>Health Score:</span>
-                            <span class="font-mono font-bold text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" id="profileHealthScoreDisplay">100 / 100</span>
-                        </div>
-                        <div class="flex justify-between items-center text-slate-400">
-                            <span>Account Status:</span>
-                            <span class="text-emerald-400 font-bold uppercase text-[11px] bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20" id="profileStatusDisplay">Active Verified</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Change Password Configuration (Item 7) -->
-                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 md:col-span-2">
-                    <div class="border-b border-slate-800 pb-3">
-                        <span class="text-xs uppercase font-bold text-indigo-400 tracking-wider">Security Credentials</span>
-                        <h3 class="text-lg font-bold text-white mt-1">Change Account Password</h3>
-                        <p class="text-xs text-slate-400">Update your sign-in password to keep your unified wallet secure</p>
-                    </div>
-
-                    <form onsubmit="event.preventDefault(); handlePasswordChange(event); return false;" class="max-w-xl space-y-3">
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div>
-                                <label class="text-xs font-semibold text-slate-300 block mb-1">Current Password</label>
-                                <input type="password" id="currentPasswordInput" required placeholder="••••••••" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:border-indigo-500 focus:outline-none">
+                        <div class="space-y-1">
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <h2 class="text-xl sm:text-2xl font-extrabold text-white" id="profileNameDisplay"><?= htmlspecialchars($currentUser['account_holder_name'] ?? 'Verified Trader') ?></h2>
+                                <span class="text-emerald-400 font-bold uppercase text-[10px] sm:text-[11px] bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/20" id="profileStatusDisplay"><?= htmlspecialchars($currentUser['account_status'] === 'suspended' ? 'Suspended' : 'Active Verified') ?></span>
                             </div>
-                            <div>
-                                <label class="text-xs font-semibold text-slate-300 block mb-1">New Password (Min 6 chars)</label>
-                                <input type="password" id="newPasswordInput" required minlength="6" placeholder="••••••••" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:border-indigo-500 focus:outline-none">
+                            <div class="flex items-center gap-3 text-xs text-slate-400 flex-wrap">
+                                <span class="flex items-center gap-1 font-mono text-slate-300">
+                                    <svg class="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/></svg>
+                                    <span id="profilePhoneDisplay"><?= htmlspecialchars($currentUser['phone'] ?? '-') ?></span>
+                                </span>
+                                <span class="text-slate-600">&bull;</span>
+                                <span class="flex items-center gap-1 text-slate-400">
+                                    <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                                    <span id="profileEmailDisplay"><?= htmlspecialchars($currentUser['email'] ?? 'Email not linked') ?></span>
+                                </span>
                             </div>
                         </div>
-                        <div id="changePasswordStatus" class="text-xs font-semibold hidden"></div>
-                        <button type="submit" id="changePasswordBtn" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-6 py-2.5 rounded-xl text-xs uppercase tracking-wider transition shadow-md shadow-indigo-600/30">
-                            Update Password
-                        </button>
-                    </form>
+                    </div>
+
+                    <div class="flex items-center gap-3 sm:gap-4 flex-wrap sm:flex-nowrap">
+                        <!-- Health Score Badge -->
+                        <div class="bg-slate-950/80 border border-slate-800 rounded-2xl p-3 sm:px-4 sm:py-3 text-center min-w-[110px]">
+                            <span class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold block">Health Score</span>
+                            <span class="font-mono font-black text-sm text-emerald-400 mt-0.5 block" id="profileHealthScoreDisplay"><?= (int)($currentUser['health_score'] ?? 100) ?> / 100</span>
+                        </div>
+
+                        <!-- Referral Code Quick Copy -->
+                        <div class="bg-slate-950/80 border border-slate-800 rounded-2xl p-3 sm:px-4 sm:py-3 text-center min-w-[130px]">
+                            <span class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold block">Referral Code</span>
+                            <div class="flex items-center justify-center gap-1.5 mt-0.5">
+                                <span class="font-mono font-bold text-sm text-indigo-400" id="profileRefCodeDisplay"><?= htmlspecialchars($currentUser['referral_code'] ?? '-') ?></span>
+                                <button type="button" onclick="copyReferralCode()" class="text-slate-400 hover:text-white transition p-0.5" title="Copy Referral Code">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <!-- Transaction History Card with Check Link (Item 7) -->
-            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 flex items-center justify-between shadow-sm">
-                <div>
-                    <h3 class="text-base font-bold text-white">Complete Wallet Audit History</h3>
-                    <p class="text-xs text-slate-400">Review all historical credits, debits, orders, and settlements</p>
+            <!-- 2. Main 2x2 Grid: Banking Details, Account Info, Selling TPIN, Change Password -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+                <!-- CARD A: Banking & UPI Payout Details (Direct Seller Payouts) -->
+                <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-7 space-y-4 shadow-sm flex flex-col justify-between">
+                    <div>
+                        <div class="border-b border-slate-800 pb-3 flex items-center justify-between">
+                            <div>
+                                <span class="text-xs uppercase font-bold text-emerald-400 tracking-wider">Direct Payouts</span>
+                                <h3 class="text-lg font-bold text-white mt-1">Bank & UPI Payout Details</h3>
+                                <p class="text-xs text-slate-400">Buyers will transfer funds directly to this UPI ID when you sell tokens</p>
+                            </div>
+                            <div class="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center flex-shrink-0">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg>
+                            </div>
+                        </div>
+
+                        <form onsubmit="handleProfileUpdate(event); return false;" class="space-y-4 mt-4">
+                            <div>
+                                <label class="text-xs font-semibold text-slate-300 block mb-1">Account Holder Full Name</label>
+                                <input type="text" id="profHolderName" required placeholder="e.g. Rahul Sharma" value="<?= htmlspecialchars($currentUser['account_holder_name'] ?? '') ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:border-emerald-500 focus:outline-none transition">
+                                <span class="text-[11px] text-slate-500 mt-1 block">Must match the registered name on your UPI banking app.</span>
+                            </div>
+
+                            <div>
+                                <label class="text-xs font-semibold text-slate-300 block mb-1">UPI ID / VPA Address</label>
+                                <input type="text" id="profUpiId" required placeholder="e.g. rahul@okaxis, mobile@upi" value="<?= htmlspecialchars($currentUser['upi_id'] ?? '') ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white font-mono focus:border-emerald-500 focus:outline-none transition">
+                                <span class="text-[11px] text-slate-500 mt-1 block">Your valid Virtual Payment Address (contains '@').</span>
+                            </div>
+
+                            <div>
+                                <label class="text-xs font-semibold text-slate-300 block mb-1">Email Address (Optional)</label>
+                                <input type="email" id="profEmail" placeholder="e.g. trader@example.com" value="<?= htmlspecialchars($currentUser['email'] ?? '') ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:border-emerald-500 focus:outline-none transition">
+                                <span class="text-[11px] text-slate-500 mt-1 block">For order alerts, dispute notices, and account security.</span>
+                            </div>
+
+                            <div id="profUpdateStatus" class="text-xs font-semibold hidden"></div>
+
+                            <button type="submit" id="profUpdateBtn" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition shadow-md shadow-emerald-600/20">
+                                Save Payout Details
+                            </button>
+                        </form>
+                    </div>
                 </div>
-                <button onclick="openHistoryModal()" class="text-indigo-400 hover:text-indigo-300 text-sm font-bold flex items-center gap-1.5 hover:underline px-3 py-1.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 transition">
-                    <span>Check</span>
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                </button>
-            <!-- Progressive Web App Install Card (Part 9, Item 3) -->
-            <div id="pwaProfileCard" class="bg-gradient-to-br from-slate-900 to-indigo-950/40 border border-indigo-500/30 rounded-2xl p-5 sm:p-6 flex items-center justify-between shadow-sm">
+
+                <!-- CARD B: Account Overview & Referral Details -->
+                <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-7 space-y-4 shadow-sm flex flex-col justify-between">
+                    <div>
+                        <div class="border-b border-slate-800 pb-3 flex items-center justify-between">
+                            <div>
+                                <span class="text-xs uppercase font-bold text-indigo-400 tracking-wider">Account Overview</span>
+                                <h3 class="text-lg font-bold text-white mt-1">Identity & Referral Hub</h3>
+                                <p class="text-xs text-slate-400">Single unified identity for token trading, commissions, and rewards</p>
+                            </div>
+                            <div class="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center flex-shrink-0">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                            </div>
+                        </div>
+
+                        <div class="bg-slate-950 border border-slate-800 rounded-2xl p-4 text-xs space-y-3 mt-4">
+                            <div class="flex justify-between items-center text-slate-400 border-b border-slate-800/80 pb-2.5">
+                                <span>User ID:</span>
+                                <span class="text-white font-mono font-bold" id="profileUserIdDisplay">#<?= htmlspecialchars($currentUser['id'] ?? '-') ?></span>
+                            </div>
+                            <div class="flex justify-between items-center text-slate-400 border-b border-slate-800/80 pb-2.5">
+                                <span>Registered Phone:</span>
+                                <span class="text-white font-mono font-bold"><?= htmlspecialchars($currentUser['phone'] ?? '-') ?></span>
+                            </div>
+                            <div class="flex justify-between items-center text-slate-400 border-b border-slate-800/80 pb-2.5">
+                                <span>Referral Code:</span>
+                                <div class="flex items-center gap-1.5">
+                                    <span class="text-indigo-400 font-mono font-bold"><?= htmlspecialchars($currentUser['referral_code'] ?? '-') ?></span>
+                                    <button type="button" onclick="copyReferralCode()" class="text-slate-400 hover:text-white transition" title="Copy">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="flex justify-between items-center text-slate-400 border-b border-slate-800/80 pb-2.5">
+                                <span>Account Health Score:</span>
+                                <span class="font-mono font-bold text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">100 / 100</span>
+                            </div>
+                            <div class="flex justify-between items-center text-slate-400">
+                                <span>Platform Role:</span>
+                                <span class="text-indigo-400 font-bold uppercase text-[11px] bg-indigo-500/10 px-2 py-0.5 rounded-full border border-indigo-500/20"><?= htmlspecialchars(strtoupper($currentUser['role'] ?? 'USER')) ?></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="pt-2">
+                        <button onclick="switchTab('refer')" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition border border-slate-700 flex items-center justify-center gap-2">
+                            <span>Open 2-Tier Referral Dashboard</span>
+                            <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- CARD C: Selling TPIN Configuration -->
+                <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-7 space-y-4 shadow-sm flex flex-col justify-between">
+                    <div>
+                        <div class="border-b border-slate-800 pb-3 flex items-center justify-between">
+                            <div>
+                                <span class="text-xs uppercase font-bold text-amber-400 tracking-wider">Security Protection</span>
+                                <h3 class="text-lg font-bold text-white mt-1" id="profileTpinHeader">Selling Transaction PIN (TPIN)</h3>
+                                <p class="text-xs text-slate-400">Secondary 4–6 digit PIN required to authorize every sell order listing</p>
+                            </div>
+                            <div class="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center flex-shrink-0">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                            </div>
+                        </div>
+
+                        <form onsubmit="event.preventDefault(); handleTpinUpdate(event); return false;" class="space-y-4 mt-4">
+                            <div>
+                                <label class="text-xs font-semibold text-slate-300 block mb-1" id="profileTpinLabel">Set New Selling TPIN (4-6 Digits)</label>
+                                <input type="password" id="profNewTpin" required maxlength="6" inputmode="numeric" pattern="[0-9]*" placeholder="••••" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white font-mono tracking-widest focus:border-amber-500 focus:outline-none transition">
+                                <span class="text-[11px] text-slate-500 mt-1 block">Bcrypt hashed. Never stored in plaintext. Required to create sell orders.</span>
+                            </div>
+
+                            <div id="profTpinStatus" class="text-xs font-semibold hidden"></div>
+
+                            <button type="button" onclick="handleTpinUpdate(event)" id="profileTpinBtn" class="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition shadow-md shadow-amber-600/20">
+                                Save Selling TPIN
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- CARD D: Change Password Configuration -->
+                <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-7 space-y-4 shadow-sm flex flex-col justify-between">
+                    <div>
+                        <div class="border-b border-slate-800 pb-3 flex items-center justify-between">
+                            <div>
+                                <span class="text-xs uppercase font-bold text-indigo-400 tracking-wider">Security Credentials</span>
+                                <h3 class="text-lg font-bold text-white mt-1">Change Account Password</h3>
+                                <p class="text-xs text-slate-400">Update your sign-in password to keep your unified wallet secure</p>
+                            </div>
+                            <div class="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center flex-shrink-0">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
+                            </div>
+                        </div>
+
+                        <form onsubmit="event.preventDefault(); handlePasswordChange(event); return false;" class="space-y-3 mt-4">
+                            <div>
+                                <label class="text-xs font-semibold text-slate-300 block mb-1">Current Password</label>
+                                <input type="password" id="currentPasswordInput" required placeholder="••••••••" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:border-indigo-500 focus:outline-none transition">
+                            </div>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label class="text-xs font-semibold text-slate-300 block mb-1">New Password</label>
+                                    <input type="password" id="newPasswordInput" required minlength="6" placeholder="Min 6 chars" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:border-indigo-500 focus:outline-none transition">
+                                </div>
+                                <div>
+                                    <label class="text-xs font-semibold text-slate-300 block mb-1">Confirm New Password</label>
+                                    <input type="password" id="confirmPasswordInput" required minlength="6" placeholder="Re-enter password" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:border-indigo-500 focus:outline-none transition">
+                                </div>
+                            </div>
+                            <div id="changePasswordStatus" class="text-xs font-semibold hidden"></div>
+                            <button type="submit" id="changePasswordBtn" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition shadow-md shadow-indigo-600/30">
+                                Update Password
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- 3. Complete Wallet Audit & Dedicated History Hub Card -->
+            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
+                <div class="space-y-1">
+                    <span class="text-xs uppercase font-bold text-indigo-400 tracking-wider">Accounting & Verification</span>
+                    <h3 class="text-base sm:text-lg font-bold text-white">Complete Wallet Audit & Transaction History</h3>
+                    <p class="text-xs text-slate-400">Review all historical credits, debits, purchase orders, sell portions, and escrow settlements</p>
+                </div>
+                <div class="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                    <button type="button" onclick="openHistoryModal('buy')" class="text-slate-300 hover:text-white text-xs font-bold px-3 py-2 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 transition">
+                        Buy History
+                    </button>
+                    <button type="button" onclick="openHistoryModal('sell')" class="text-slate-300 hover:text-white text-xs font-bold px-3 py-2 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 transition">
+                        Sell History
+                    </button>
+                    <button type="button" onclick="openHistoryModal('ledger')" class="text-indigo-400 hover:text-indigo-300 text-xs font-bold flex items-center gap-1.5 hover:underline px-3.5 py-2 rounded-xl bg-indigo-500/10 border border-indigo-500/20 transition">
+                        <span>Check Wallet Audit</span>
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 4. Progressive Web App Install Card (Part 9, Item 3) -->
+            <div id="pwaProfileCard" class="bg-gradient-to-br from-slate-900 to-indigo-950/40 border border-indigo-500/30 rounded-3xl p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
                 <div class="flex items-center gap-3.5">
-                    <div class="w-11 h-11 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 flex-shrink-0">
+                    <div class="w-12 h-12 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 flex-shrink-0">
                         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
                     </div>
                     <div>
-                        <h3 class="text-base font-bold text-white">Install JeliPay Mobile App</h3>
-                        <p class="text-xs text-slate-400">Add to your Home Screen for fast native app experience & trade notifications</p>
+                        <h3 class="text-base font-bold text-white">Install <?= $siteName ?> Mobile App</h3>
+                        <p class="text-xs text-slate-400">Add to your device home screen for fast native app experience & trade notifications</p>
                     </div>
                 </div>
-                <button type="button" onclick="triggerPwaInstall()" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-4 py-2.5 rounded-xl text-xs uppercase tracking-wider transition shadow-md shadow-indigo-600/30 whitespace-nowrap flex items-center gap-1.5 flex-shrink-0">
+                <button type="button" onclick="triggerPwaInstall()" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-4 py-2.5 rounded-xl text-xs uppercase tracking-wider transition shadow-md shadow-indigo-600/30 whitespace-nowrap flex items-center justify-center gap-1.5 flex-shrink-0">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                     <span>Install App</span>
                 </button>
             </div>
 
-            <!-- Customer Support & Helpdesk Hub (Part 8, Item 3) -->
-            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 space-y-4 shadow-sm">
+            <!-- 5. Customer Support & Helpdesk Hub (Part 8, Item 3) -->
+            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 space-y-4 shadow-sm">
                 <div class="border-b border-slate-800 pb-3 flex items-center justify-between">
                     <div>
                         <span class="text-xs uppercase font-bold text-indigo-400 tracking-wider">Help & Assistance</span>
@@ -832,24 +989,24 @@ endif;
                     <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse hidden sm:block" title="Support Online"></span>
                 </div>
                 <div class="pt-1">
-                    <a href="https://t.me/jelipay_support" target="_blank" rel="noopener noreferrer" class="bg-[#229ED9]/15 hover:bg-[#229ED9]/25 text-[#229ED9] border border-[#229ED9]/30 rounded-xl p-3.5 flex items-center justify-between transition group">
+                    <a href="<?= $telegramSupportUrl ?>" target="_blank" rel="noopener noreferrer" class="bg-[#229ED9]/15 hover:bg-[#229ED9]/25 text-[#229ED9] border border-[#229ED9]/30 rounded-2xl p-4 flex items-center justify-between transition group">
                         <div class="flex items-center gap-3">
-                            <div class="w-8 h-8 rounded-lg bg-[#229ED9]/20 flex items-center justify-center">
-                                <svg class="w-4 h-4 fill-current" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.52 2.77-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/></svg>
+                            <div class="w-10 h-10 rounded-xl bg-[#229ED9]/20 flex items-center justify-center flex-shrink-0">
+                                <svg class="w-5 h-5 fill-current" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.52 2.77-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/></svg>
                             </div>
                             <div>
-                                <h4 class="text-xs font-bold text-white">Telegram Support</h4>
-                                <p class="text-[10px] text-slate-400">Join official channel & alerts</p>
+                                <h4 class="text-sm font-bold text-white">Telegram Support Channel</h4>
+                                <p class="text-xs text-slate-400">Join official channel & contact verified support agents</p>
                             </div>
                         </div>
-                        <span class="text-xs font-bold text-slate-400 group-hover:text-white">&rarr;</span>
+                        <span class="text-sm font-bold text-slate-400 group-hover:text-white">&rarr;</span>
                     </a>
                 </div>
             </div>
 
-            <!-- Clean Logout Button at Very Bottom (Item 7) -->
+            <!-- 6. Clean Logout Button at Very Bottom -->
             <div class="pt-2">
-                <button onclick="logout()" class="w-full bg-slate-900 hover:bg-red-500/20 text-red-400 hover:text-red-300 border border-slate-800 hover:border-red-500/40 font-bold py-3.5 rounded-2xl transition flex items-center justify-center gap-2 text-sm shadow-md">
+                <button type="button" onclick="logout()" class="w-full bg-slate-900 hover:bg-red-500/20 text-red-400 hover:text-red-300 border border-slate-800 hover:border-red-500/40 font-bold py-3.5 rounded-2xl transition flex items-center justify-center gap-2 text-sm shadow-md">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
                     <span>Sign Out of Account</span>
                 </button>
