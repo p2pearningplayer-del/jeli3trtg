@@ -458,6 +458,67 @@ switch ($action) {
         }
         break;
 
+    case 'fraud_assessments':
+    case 'fraud_list':
+        // Requirement 9: Fraud Dashboard assessment listing
+        if (!AdminManager::checkPermission($admin, 'fraud_view')) {
+            jsonError('Permission denied: fraud_view permission required.', 403);
+        }
+
+        $query = $_GET['query'] ?? '';
+        $decision = $_GET['decision'] ?? 'all';
+        $riskLevel = $_GET['risk_level'] ?? 'all';
+        $limit = max(1, min(100, (int)($_GET['limit'] ?? 50)));
+        $offset = max(0, (int)($_GET['offset'] ?? 0));
+
+        $res = AdminManager::getFraudAssessments($query, $decision, $riskLevel, $limit, $offset);
+        jsonResponse(true, $res);
+        break;
+
+    case 'fraud_detail':
+        // Requirement 9: Fraud assessment detail
+        if (!AdminManager::checkPermission($admin, 'fraud_view')) {
+            jsonError('Permission denied: fraud_view permission required.', 403);
+        }
+
+        $assessmentId = (int)($_GET['id'] ?? $input['id'] ?? 0);
+        if ($assessmentId <= 0) {
+            jsonError('Assessment ID is required.');
+        }
+
+        $detail = AdminManager::getFraudAssessmentDetail($assessmentId);
+        if (!$detail) {
+            jsonError('Fraud assessment record not found.', 404);
+        }
+        jsonResponse(true, ['assessment' => $detail]);
+        break;
+
+    case 'fraud_review':
+        // Requirement 9: Admin fraud assessment review/override action
+        if (!AdminManager::checkPermission($admin, 'fraud_review')) {
+            jsonError('Permission denied: fraud_review permission required.', 403);
+        }
+
+        $assessmentId = (int)($input['assessment_id'] ?? 0);
+        $reviewAction = trim($input['review_decision'] ?? $input['action'] ?? '');
+        $notes = trim($input['notes'] ?? $input['reason'] ?? '');
+
+        if ($assessmentId <= 0 || empty($reviewAction)) {
+            jsonError('Assessment ID and review action are required.');
+        }
+
+        if (empty($notes)) {
+            jsonError('Mandatory review notes are required to document decision reasons.');
+        }
+
+        $res = AdminManager::reviewFraudAssessment($assessmentId, $adminId, $reviewAction, $notes);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
     default:
         jsonError("Unknown action '{$action}'.", 404);
 }

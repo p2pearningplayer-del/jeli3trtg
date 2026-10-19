@@ -65,27 +65,27 @@ class AdminManager {
         $rolePermissions = [
             'order_manager' => [
                 'dashboard_view', 'users_view', 'orders_view', 'orders_manage',
-                'reports_view', 'disputes_view', 'settings_view'
+                'reports_view', 'disputes_view', 'settings_view', 'fraud_view', 'fraud_review'
             ],
             'dispute_manager' => [
                 'dashboard_view', 'users_view', 'disputes_view', 'disputes_arbitrate',
-                'evidence_request', 'refund_track', 'reports_view'
+                'evidence_request', 'refund_track', 'reports_view', 'fraud_view', 'fraud_review'
             ],
             'support_agent' => [
                 'dashboard_view', 'users_view', 'disputes_view', 'disputes_arbitrate',
-                'evidence_request', 'refund_track', 'reports_view'
+                'evidence_request', 'refund_track', 'reports_view', 'fraud_view', 'fraud_review'
             ],
             'support_team' => [
                 'dashboard_view', 'users_view', 'disputes_view', 'disputes_arbitrate',
-                'evidence_request', 'refund_track', 'reports_view'
+                'evidence_request', 'refund_track', 'reports_view', 'fraud_view', 'fraud_review'
             ],
             'finance_manager' => [
                 'dashboard_view', 'users_view', 'wallets_manage', 'adjust_balance',
-                'reports_view', 'ledger_view'
+                'reports_view', 'ledger_view', 'fraud_view', 'fraud_review'
             ],
             'finance_team' => [
                 'dashboard_view', 'users_view', 'wallets_manage', 'adjust_balance',
-                'reports_view', 'ledger_view'
+                'reports_view', 'ledger_view', 'fraud_view', 'fraud_review'
             ]
         ];
 
@@ -1417,5 +1417,123 @@ class AdminManager {
         );
 
         return ['success' => true, 'message' => 'Administrator login password changed successfully.'];
+    }
+
+    /**
+     * Search, filter, and list fraud assessments (Fraud Dashboard API)
+     */
+    public static function getFraudAssessments(string $query = '', string $decision = 'all', string $riskLevel = 'all', int $limit = 50, int $offset = 0): array {
+        $pdo = Database::getConnection();
+        $where = ["1=1"];
+        $params = [];
+
+        if (!empty(trim($query))) {
+            $q = '%' . trim($query) . '%';
+            $where[] = "(fa.claimed_utr LIKE ? OR u.phone LIKE ? OR CAST(fa.child_order_id AS CHAR) = ? OR CAST(fa.buyer_id AS CHAR) = ? OR fa.reason_codes LIKE ?)";
+            $params[] = $q;
+            $params[] = $q;
+            $params[] = trim($query);
+            $params[] = trim($query);
+            $params[] = $q;
+        }
+
+        if ($decision !== 'all') {
+            $where[] = "fa.decision = ?";
+            $params[] = $decision;
+        }
+
+        if ($riskLevel !== 'all') {
+            $where[] = "fa.risk_level = ?";
+            $params[] = $riskLevel;
+        }
+
+        $whereClause = implode(" AND ", $where);
+
+        $countStmt = $pdo->prepare("
+            SELECT COUNT(*)
+            FROM fraud_assessments fa
+            LEFT JOIN users u ON fa.buyer_id = u.id
+            WHERE {$whereClause}
+        ");
+        $countStmt->execute($params);
+        $total = (int)$countStmt->fetchColumn();
+
+        $sql = "
+            SELECT fa.*,
+                   u.phone as buyer_phone, u.account_holder_name as buyer_name,
+                   c.status as order_status, c.seller_id,
+                   p.screenshot_path,
+                   admin_u.phone as reviewer_phone, admin_u.account_holder_name as reviewer_name
+            FROM fraud_assessments fa
+            LEFT JOIN users u ON fa.buyer_id = u.id
+            LEFT JOIN child_orders c ON fa.child_order_id = c.id
+            LEFT JOIN payment_proofs p ON fa.child_order_id = p.child_order_id
+            LEFT JOIN users admin_u ON fa.reviewed_by_admin_id = admin_u.id
+            WHERE {$whereClause}
+            ORDER BY fa.id DESC
+            LIMIT ? OFFSET ?
+        ";
+        $stmt = $pdo->prepare($sql);
+        $idx = 1;
+        foreach ($params as $p) {
+            $stmt->bindValue($idx++, $p);
+        }
+        $stmt->bindValue($idx++, $limit, PDO::PARAM_INT);
+        $stmt->bindValue($idx++, $offset, PDO::PARAM_INT);
+        $stmt->execute();
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        foreach ($rows as &$r) {
+            $r['reason_codes_array'] = json_decode($r['reason_codes'] ?: '[]', true) ?: [];
+            $r['ocr_data_parsed'] = json_decode($r['ocr_data'] ?: '{}', true) ?: [];
+            $r['image_analysis_parsed'] = json_decode($r['image_analysis'] ?: '{}', true) ?: [];
+            $r['claimed_amount'] = (float)$r['claimed_amount'];
+            $r['risk_score'] = (int)$r['risk_score'];
+        }
+
+        return [
+            'total' => $total,
+            'assessments' => $rows
+        ];
+    }
+
+    /**
+     * Get single fraud assessment full detail
+     */
+    public static function getFraudAssessmentDetail(int $assessmentId): ?array {
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare("
+            SELECT fa.*,
+                   u.phone as buyer_phone, u.account_holder_name as buyer_name,
+                   c.status as order_status, c.seller_id,
+                   p.screenshot_path, p.created_at as proof_created_at,
+                   admin_u.phone as reviewer_phone, admin_u.account_holder_name as reviewer_name
+            FROM fraud_assessments fa
+            LEFT JOIN users u ON fa.buyer_id = u.id
+            LEFT JOIN child_orders c ON fa.child_order_id = c.id
+            LEFT JOIN payment_proofs p ON fa.child_order_id = p.child_order_id
+            LEFT JOIN users admin_u ON fa.reviewed_by_admin_id = admin_u.id
+            WHERE fa.id = ?
+            LIMIT 1
+        ");
+        $stmt->execute([$assessmentId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) return null;
+
+        $row['reason_codes_array'] = json_decode($row['reason_codes'] ?: '[]', true) ?: [];
+        $row['ocr_data_parsed'] = json_decode($row['ocr_data'] ?: '{}', true) ?: [];
+        $row['image_analysis_parsed'] = json_decode($row['image_analysis'] ?: '{}', true) ?: [];
+        $row['claimed_amount'] = (float)$row['claimed_amount'];
+        $row['risk_score'] = (int)$row['risk_score'];
+
+        return $row;
+    }
+
+    /**
+     * Admin review action on a fraud assessment
+     */
+    public static function reviewFraudAssessment(int $assessmentId, int $adminId, string $action, string $notes): array {
+        $pdo = Database::getConnection();
+        return \Fraud\FraudDecisionEngine::recordAdminReview($pdo, $assessmentId, $adminId, $action, $notes);
     }
 }

@@ -236,6 +236,60 @@ class SchemaInstaller {
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (request_id) REFERENCES support_requests(id) ON DELETE CASCADE
         );
+
+        CREATE TABLE IF NOT EXISTS payment_fingerprints (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            child_order_id INTEGER NOT NULL,
+            buyer_id INTEGER NOT NULL,
+            utr_raw TEXT NOT NULL,
+            utr_normalized TEXT NOT NULL,
+            utr_hash TEXT NOT NULL,
+            image_sha256 TEXT NOT NULL,
+            image_phash TEXT,
+            file_path TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (child_order_id) REFERENCES child_orders(id) ON DELETE CASCADE,
+            FOREIGN KEY (buyer_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_fp_utr_hash ON payment_fingerprints(utr_hash);
+        CREATE INDEX IF NOT EXISTS idx_fp_image_sha256 ON payment_fingerprints(image_sha256);
+        CREATE INDEX IF NOT EXISTS idx_fp_buyer_id ON payment_fingerprints(buyer_id);
+
+        CREATE TABLE IF NOT EXISTS fraud_assessments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            child_order_id INTEGER NOT NULL,
+            buyer_id INTEGER NOT NULL,
+            decision TEXT NOT NULL DEFAULT 'PENDING_REVIEW',
+            risk_score INTEGER NOT NULL DEFAULT 0,
+            risk_level TEXT NOT NULL DEFAULT 'low',
+            reason_codes TEXT NOT NULL,
+            ocr_data TEXT,
+            image_analysis TEXT,
+            claimed_amount NUMERIC NOT NULL,
+            claimed_utr TEXT NOT NULL,
+            reviewed_by_admin_id INTEGER,
+            review_decision TEXT,
+            review_notes TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (child_order_id) REFERENCES child_orders(id) ON DELETE CASCADE,
+            FOREIGN KEY (buyer_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_fa_order ON fraud_assessments(child_order_id);
+        CREATE INDEX IF NOT EXISTS idx_fa_buyer ON fraud_assessments(buyer_id);
+        CREATE INDEX IF NOT EXISTS idx_fa_decision ON fraud_assessments(decision);
+
+        CREATE TABLE IF NOT EXISTS user_risk_profiles (
+            user_id INTEGER PRIMARY KEY,
+            total_submissions INTEGER NOT NULL DEFAULT 0,
+            failed_submissions INTEGER NOT NULL DEFAULT 0,
+            duplicate_attempts INTEGER NOT NULL DEFAULT 0,
+            fraud_score_avg NUMERIC NOT NULL DEFAULT 0.0,
+            last_risk_level TEXT NOT NULL DEFAULT 'low',
+            is_auto_flagged INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
         ";
 
         $pdo->exec($schema);
@@ -390,10 +444,134 @@ class SchemaInstaller {
         } catch (Exception $e) {
             // Table creation handled
         }
+
+        // Fraud Detection & AI Inspection tables
+        try {
+            if ($driver === 'sqlite') {
+                $pdo->exec("
+                    CREATE TABLE IF NOT EXISTS payment_fingerprints (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        child_order_id INTEGER NOT NULL,
+                        buyer_id INTEGER NOT NULL,
+                        utr_raw TEXT NOT NULL,
+                        utr_normalized TEXT NOT NULL,
+                        utr_hash TEXT NOT NULL,
+                        image_sha256 TEXT NOT NULL,
+                        image_phash TEXT,
+                        file_path TEXT NOT NULL,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (child_order_id) REFERENCES child_orders(id) ON DELETE CASCADE,
+                        FOREIGN KEY (buyer_id) REFERENCES users(id) ON DELETE CASCADE
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_fp_utr_hash ON payment_fingerprints(utr_hash);
+                    CREATE INDEX IF NOT EXISTS idx_fp_image_sha256 ON payment_fingerprints(image_sha256);
+                    CREATE INDEX IF NOT EXISTS idx_fp_buyer_id ON payment_fingerprints(buyer_id);
+
+                    CREATE TABLE IF NOT EXISTS fraud_assessments (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        child_order_id INTEGER NOT NULL,
+                        buyer_id INTEGER NOT NULL,
+                        decision TEXT NOT NULL DEFAULT 'PENDING_REVIEW',
+                        risk_score INTEGER NOT NULL DEFAULT 0,
+                        risk_level TEXT NOT NULL DEFAULT 'low',
+                        reason_codes TEXT NOT NULL,
+                        ocr_data TEXT,
+                        image_analysis TEXT,
+                        claimed_amount NUMERIC NOT NULL,
+                        claimed_utr TEXT NOT NULL,
+                        reviewed_by_admin_id INTEGER,
+                        review_decision TEXT,
+                        review_notes TEXT,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (child_order_id) REFERENCES child_orders(id) ON DELETE CASCADE,
+                        FOREIGN KEY (buyer_id) REFERENCES users(id) ON DELETE CASCADE
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_fa_order ON fraud_assessments(child_order_id);
+                    CREATE INDEX IF NOT EXISTS idx_fa_buyer ON fraud_assessments(buyer_id);
+                    CREATE INDEX IF NOT EXISTS idx_fa_decision ON fraud_assessments(decision);
+
+                    CREATE TABLE IF NOT EXISTS user_risk_profiles (
+                        user_id INTEGER PRIMARY KEY,
+                        total_submissions INTEGER NOT NULL DEFAULT 0,
+                        failed_submissions INTEGER NOT NULL DEFAULT 0,
+                        duplicate_attempts INTEGER NOT NULL DEFAULT 0,
+                        fraud_score_avg NUMERIC NOT NULL DEFAULT 0.0,
+                        last_risk_level TEXT NOT NULL DEFAULT 'low',
+                        is_auto_flagged INTEGER NOT NULL DEFAULT 0,
+                        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                    );
+                ");
+            } else {
+                $pdo->exec("
+                    CREATE TABLE IF NOT EXISTS `payment_fingerprints` (
+                      `id` INT AUTO_INCREMENT PRIMARY KEY,
+                      `child_order_id` INT NOT NULL,
+                      `buyer_id` INT NOT NULL,
+                      `utr_raw` VARCHAR(100) NOT NULL,
+                      `utr_normalized` VARCHAR(100) NOT NULL,
+                      `utr_hash` VARCHAR(64) NOT NULL,
+                      `image_sha256` VARCHAR(64) NOT NULL,
+                      `image_phash` VARCHAR(64) DEFAULT NULL,
+                      `file_path` VARCHAR(255) NOT NULL,
+                      `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                      INDEX `idx_fp_utr_hash` (`utr_hash`),
+                      INDEX `idx_fp_image_sha256` (`image_sha256`),
+                      INDEX `idx_fp_buyer_id` (`buyer_id`),
+                      CONSTRAINT `fk_fp_child_order` FOREIGN KEY (`child_order_id`) REFERENCES `child_orders` (`id`) ON DELETE CASCADE,
+                      CONSTRAINT `fk_fp_buyer` FOREIGN KEY (`buyer_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+                    CREATE TABLE IF NOT EXISTS `fraud_assessments` (
+                      `id` INT AUTO_INCREMENT PRIMARY KEY,
+                      `child_order_id` INT NOT NULL,
+                      `buyer_id` INT NOT NULL,
+                      `decision` ENUM('VERIFIED', 'PENDING_REVIEW', 'REJECTED', 'FAILED') NOT NULL DEFAULT 'PENDING_REVIEW',
+                      `risk_score` INT NOT NULL DEFAULT 0,
+                      `risk_level` ENUM('low', 'medium', 'high', 'critical') NOT NULL DEFAULT 'low',
+                      `reason_codes` TEXT NOT NULL,
+                      `ocr_data` JSON DEFAULT NULL,
+                      `image_analysis` JSON DEFAULT NULL,
+                      `claimed_amount` DECIMAL(12, 2) NOT NULL,
+                      `claimed_utr` VARCHAR(100) NOT NULL,
+                      `reviewed_by_admin_id` INT DEFAULT NULL,
+                      `review_decision` VARCHAR(50) DEFAULT NULL,
+                      `review_notes` TEXT DEFAULT NULL,
+                      `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                      `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                      INDEX `idx_fa_order` (`child_order_id`),
+                      INDEX `idx_fa_buyer` (`buyer_id`),
+                      INDEX `idx_fa_decision` (`decision`),
+                      CONSTRAINT `fk_fa_child_order` FOREIGN KEY (`child_order_id`) REFERENCES `child_orders` (`id`) ON DELETE CASCADE,
+                      CONSTRAINT `fk_fa_buyer` FOREIGN KEY (`buyer_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+                    CREATE TABLE IF NOT EXISTS `user_risk_profiles` (
+                      `user_id` INT PRIMARY KEY,
+                      `total_submissions` INT NOT NULL DEFAULT 0,
+                      `failed_submissions` INT NOT NULL DEFAULT 0,
+                      `duplicate_attempts` INT NOT NULL DEFAULT 0,
+                      `fraud_score_avg` DECIMAL(5, 2) NOT NULL DEFAULT 0.00,
+                      `last_risk_level` VARCHAR(20) NOT NULL DEFAULT 'low',
+                      `is_auto_flagged` TINYINT(1) NOT NULL DEFAULT 0,
+                      `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                      CONSTRAINT `fk_urp_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                ");
+            }
+        } catch (Exception $e) {
+            // Tables already exist or migration handled
+        }
     }
 
     public static function seedPlatformSettings(PDO $pdo): void {
         $settings = [
+            ['fraud_detection_enabled', '1', 'AI and rule-based fraud detection engine status (1=Active, 0=Disabled)'],
+            ['fraud_auto_reject_score', '75', 'Risk score threshold at or above which submissions are automatically rejected'],
+            ['fraud_review_threshold', '25', 'Risk score threshold at or above which submissions are marked PENDING_REVIEW'],
+            ['fraud_gemini_api_key', '', 'Optional Google Gemini Vision API key for enhanced OCR screenshot inspection'],
+            ['fraud_perceptual_hash_tolerance', '5', 'Max Hamming distance threshold for perceptual duplicate detection'],
             ['site_name', 'JeliPay', 'Website and platform public brand name'],
             ['site_tagline', 'Unified Peer-to-Peer Token Trading Platform', 'Platform sub-header description'],
             ['token_rate_inr', '1', 'Base value of 1 token in INR'],

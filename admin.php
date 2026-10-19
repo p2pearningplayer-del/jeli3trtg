@@ -104,6 +104,10 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
                     <span>Disputes</span>
                 </button>
+                <button onclick="switchAdminTab('fraud')" id="adminNav-fraud" class="admin-nav-item px-3.5 py-2 rounded-lg flex items-center gap-1.5 whitespace-nowrap text-slate-400 hover:text-white">
+                    <svg class="w-4 h-4 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+                    <span>Fraud & AI Security</span>
+                </button>
                 <button onclick="switchAdminTab('rewards')" id="adminNav-rewards" class="admin-nav-item px-3.5 py-2 rounded-lg flex items-center gap-1.5 whitespace-nowrap text-slate-400 hover:text-white">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                     <span>Rewards & Fees</span>
@@ -765,6 +769,93 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
             </div>
         </section>
 
+        <!-- ========================================== -->
+        <!-- VIEW 10: AI-POWERED FRAUD & FORENSICS (Requirement 9) -->
+        <!-- ========================================== -->
+        <section id="adminView-fraud" class="admin-view space-y-6 hidden">
+            <!-- Header & Action Bar -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <span class="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse"></span>
+                            <h3 class="text-lg font-bold text-white">AI-Powered Fraud & Forensic Intelligence</h3>
+                            <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20 uppercase tracking-wider">Zero-Trust Engine</span>
+                        </div>
+                        <p class="text-xs text-slate-400 mt-1">Multi-signal payment verification: Perceptual dHash, cryptographic SHA-256 deduplication, canonical UTR normalization, OCR cross-match, and explainable risk scoring.</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button onclick="loadAdminFraudAssessments()" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold border border-slate-700 transition flex items-center gap-1.5">
+                            <svg class="w-4 h-4 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                            <span>Refresh Intelligence</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Filters & Search Controls -->
+                <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                    <div class="sm:col-span-2 relative">
+                        <input type="text" id="fraudSearchInput" onkeyup="if(event.key === 'Enter') loadAdminFraudAssessments();" oninput="debounceFraudSearch()"
+                               placeholder="Search by Order ID, Buyer Phone, UTR, or Reason Code..."
+                               class="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-rose-500 font-mono">
+                        <svg class="w-4 h-4 text-slate-500 absolute left-3 top-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                    </div>
+                    <div>
+                        <select id="fraudDecisionFilter" onchange="loadAdminFraudAssessments()" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-rose-500">
+                            <option value="all">All Engine Decisions</option>
+                            <option value="pending_review">Flagged (Pending Review)</option>
+                            <option value="rejected">Auto-Rejected / Blocked</option>
+                            <option value="verified">Verified (Passed)</option>
+                            <option value="failed">System Exception (Failed)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <select id="fraudRiskFilter" onchange="loadAdminFraudAssessments()" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-rose-500">
+                            <option value="all">All Risk Levels</option>
+                            <option value="high">High Risk (Score ≥ 75)</option>
+                            <option value="medium">Medium Risk (Score 40–74)</option>
+                            <option value="low">Low Risk (Score &lt; 40)</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Fraud Forensics Table -->
+            <div class="overflow-x-auto bg-slate-900 border border-slate-800 rounded-2xl shadow-sm">
+                <table class="w-full text-left text-xs">
+                    <thead class="bg-slate-950 text-slate-400 text-[11px] uppercase border-b border-slate-800 tracking-wider">
+                        <tr>
+                            <th class="p-3">ID / Order</th>
+                            <th class="p-3">Buyer</th>
+                            <th class="p-3">Claimed Amount</th>
+                            <th class="p-3">Normalized UTR</th>
+                            <th class="p-3">Risk Assessment</th>
+                            <th class="p-3">Engine Decision</th>
+                            <th class="p-3">Signals & Reason Codes</th>
+                            <th class="p-3">Analyzed (UTC)</th>
+                            <th class="p-3 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="adminFraudTableBody" class="divide-y divide-slate-800/60 font-mono">
+                        <tr>
+                            <td colspan="9" class="p-8 text-center text-slate-500 font-sans">
+                                Loading fraud and forensic records...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Pagination Bar -->
+            <div class="flex items-center justify-between text-xs text-slate-400 px-2">
+                <span id="fraudPaginationInfo">Showing 0 of 0 assessments</span>
+                <div class="flex items-center gap-2">
+                    <button id="fraudPrevBtn" onclick="changeFraudPage(-1)" disabled class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-slate-800 text-slate-300 transition">Previous</button>
+                    <button id="fraudNextBtn" onclick="changeFraudPage(1)" disabled class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-slate-800 text-slate-300 transition">Next</button>
+                </div>
+            </div>
+        </section>
+
     </main>
 
     <!-- ========================================== -->
@@ -973,6 +1064,103 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                 <button id="lightboxNextBtn" onclick="navigateLightbox(1)" class="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-slate-900/80 hover:bg-slate-800 border border-slate-700 text-white flex items-center justify-center shadow-lg transition hidden" title="Next Image">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/></svg>
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MODAL 5: FRAUD FORENSIC INSPECTION & OVERRIDE (Requirement 9) -->
+    <!-- ========================================== -->
+    <div id="fraudInspectionModal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-6 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-4xl w-full max-h-[92vh] overflow-y-auto p-6 shadow-2xl relative space-y-6">
+            <button onclick="closeFraudInspectionModal()" class="absolute right-4 top-4 text-slate-400 hover:text-white transition">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+
+            <!-- Modal Header -->
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-4 gap-2">
+                <div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-lg font-black text-white" id="fraudModalTitle">Fraud Assessment #0</span>
+                        <span id="fraudModalDecisionBadge" class="px-2 py-0.5 rounded text-xs font-bold font-mono bg-rose-500/20 text-rose-400 border border-rose-500/30">PENDING_REVIEW</span>
+                    </div>
+                    <p class="text-xs text-slate-400 mt-1 font-mono">
+                        Target Order: <strong class="text-indigo-400" id="fraudModalOrderId">#0</strong> &bull;
+                        Buyer Phone: <strong class="text-slate-200" id="fraudModalBuyerPhone">-</strong> &bull;
+                        Analyzed: <span id="fraudModalAnalyzedAt" class="text-slate-400">-</span>
+                    </p>
+                </div>
+                <div class="flex items-center gap-3">
+                    <div class="text-right">
+                        <span class="text-[10px] text-slate-500 block uppercase font-bold">Calculated Risk Score</span>
+                        <span class="text-2xl font-black font-mono text-rose-400" id="fraudModalScore">0 / 100</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Risk Score Progress Bar -->
+            <div class="space-y-1">
+                <div class="w-full bg-slate-950 rounded-full h-2.5 overflow-hidden border border-slate-800">
+                    <div id="fraudModalScoreBar" class="h-2.5 bg-rose-500 transition-all duration-500" style="width: 0%"></div>
+                </div>
+                <div class="flex justify-between text-[10px] text-slate-500 font-mono">
+                    <span>Low Risk (0–39)</span>
+                    <span>Review Threshold (40–74)</span>
+                    <span>Auto-Reject (≥75)</span>
+                </div>
+            </div>
+
+            <!-- Forensics Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
+                <!-- Payment Reference & OCR Comparison -->
+                <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2.5">
+                    <span class="text-indigo-400 font-bold block uppercase tracking-wider font-sans text-xs">Payment & OCR Discrepancy Matrix</span>
+                    <div class="flex justify-between"><span class="text-slate-500 font-sans">Claimed Amount:</span> <strong class="text-white" id="fraudModalClaimedAmount">₹0.00</strong></div>
+                    <div class="flex justify-between"><span class="text-slate-500 font-sans">Extracted OCR Amount:</span> <strong class="text-emerald-400" id="fraudModalOcrAmount">-</strong></div>
+                    <div class="flex justify-between"><span class="text-slate-500 font-sans">Claimed UTR:</span> <strong class="text-slate-200 break-all" id="fraudModalClaimedUtr">-</strong></div>
+                    <div class="flex justify-between"><span class="text-slate-500 font-sans">Extracted OCR UTR:</span> <strong class="text-indigo-300 break-all" id="fraudModalOcrUtr">-</strong></div>
+                    <div class="flex justify-between"><span class="text-slate-500 font-sans">Normalized UTR:</span> <strong class="text-amber-400 break-all" id="fraudModalNormalizedUtr">-</strong></div>
+                    <div class="flex justify-between"><span class="text-slate-500 font-sans">OCR Detected Status:</span> <strong class="text-slate-300" id="fraudModalOcrStatus">-</strong></div>
+                </div>
+
+                <!-- Image Fingerprint & Perceptual Hash Details -->
+                <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2.5">
+                    <span class="text-amber-400 font-bold block uppercase tracking-wider font-sans text-xs">Visual & Cryptographic Evidence</span>
+                    <div class="flex justify-between"><span class="text-slate-500 font-sans">SHA-256 Checksum:</span> <span class="text-slate-400 break-all text-[11px]" id="fraudModalSha256">-</span></div>
+                    <div class="flex justify-between"><span class="text-slate-500 font-sans">Perceptual dHash:</span> <span class="text-slate-300 break-all text-[11px]" id="fraudModalPhash">-</span></div>
+                    <div class="flex justify-between"><span class="text-slate-500 font-sans">Editing Tool Flags:</span> <strong class="text-rose-400" id="fraudModalEditingTools">None Detected</strong></div>
+                    <div class="flex justify-between"><span class="text-slate-500 font-sans">Screenshot View:</span> <button type="button" onclick="inspectModalEvidence()" class="text-indigo-400 hover:underline">View in Lightbox &rarr;</button></div>
+                    <div class="flex justify-between"><span class="text-slate-500 font-sans">Reviewer Log:</span> <span class="text-slate-400 font-sans" id="fraudModalReviewerInfo">Not Reviewed</span></div>
+                </div>
+            </div>
+
+            <!-- Reason Codes Explanation Breakdown -->
+            <div class="space-y-2">
+                <span class="text-xs font-bold text-slate-300 uppercase tracking-wider block font-sans">Detected Anomaly Signals & Reason Codes</span>
+                <div id="fraudModalReasonList" class="flex flex-wrap gap-1.5 p-3 bg-slate-950 rounded-xl border border-slate-800 min-h-[44px]"></div>
+            </div>
+
+            <!-- Admin Review & Audit Form -->
+            <div class="bg-slate-950/80 p-4 rounded-xl border border-slate-800 space-y-3 font-sans">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold text-slate-300 uppercase tracking-wider">Administrative Adjudication & Audit Override</span>
+                    <span class="text-[11px] text-slate-500 font-mono">Requires fraud_review Permission</span>
+                </div>
+                <div>
+                    <textarea id="fraudReviewNotes" rows="2" placeholder="Mandatory adjudication notes documenting the operational rationale for this review/override..."
+                              class="w-full bg-slate-900 border border-slate-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-rose-500"></textarea>
+                </div>
+                <div class="flex flex-wrap items-center justify-end gap-2.5">
+                    <button type="button" onclick="submitFraudReview('dismissed')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition">
+                        Dismiss Alert
+                    </button>
+                    <button type="button" onclick="submitFraudReview('rejected')" class="px-4 py-2 bg-rose-600/20 hover:bg-rose-600/30 text-rose-400 border border-rose-500/30 font-bold text-xs rounded-xl transition">
+                        Confirm Fraud (Block & Reject)
+                    </button>
+                    <button type="button" onclick="submitFraudReview('override_verified')" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition shadow-md shadow-emerald-600/20">
+                        Override & Approve Verification
+                    </button>
+                </div>
             </div>
         </div>
     </div>

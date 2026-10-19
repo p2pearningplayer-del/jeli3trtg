@@ -13,7 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(periodicAdminSync, 10000);
     window.addEventListener('hashchange', () => {
         const hashTab = window.location.hash.replace('#', '');
-        const validTabs = ['dashboard', 'users', 'orders', 'disputes', 'rewards', 'content', 'reports', 'audit', 'admins'];
+        const validTabs = ['dashboard', 'users', 'orders', 'disputes', 'fraud', 'rewards', 'content', 'reports', 'audit', 'admins'];
         if (hashTab && validTabs.includes(hashTab) && hashTab !== currentAdminTab) {
             switchAdminTab(hashTab);
         }
@@ -25,7 +25,7 @@ async function initAdmin() {
     const tabParam = urlParams.get('tab');
     const hashTab = window.location.hash.replace('#', '');
     const savedTab = localStorage.getItem('adminActiveTab');
-    const validTabs = ['dashboard', 'users', 'orders', 'disputes', 'rewards', 'content', 'reports', 'audit', 'admins'];
+    const validTabs = ['dashboard', 'users', 'orders', 'disputes', 'fraud', 'rewards', 'content', 'reports', 'audit', 'admins'];
 
     let initialTab = 'dashboard';
     if (tabParam && validTabs.includes(tabParam)) {
@@ -40,7 +40,7 @@ async function initAdmin() {
 }
 
 function switchAdminTab(tabId, filterOptions = null) {
-    const validTabs = ['dashboard', 'users', 'orders', 'disputes', 'rewards', 'content', 'reports', 'audit', 'admins'];
+    const validTabs = ['dashboard', 'users', 'orders', 'disputes', 'fraud', 'rewards', 'content', 'reports', 'audit', 'admins'];
     if (!validTabs.includes(tabId)) {
         tabId = 'dashboard';
     }
@@ -105,6 +105,7 @@ function switchAdminTab(tabId, filterOptions = null) {
     if (tabId === 'users') loadAdminUsers();
     if (tabId === 'orders') loadAdminOrders();
     if (tabId === 'disputes') loadAdminDisputes();
+    if (tabId === 'fraud') loadAdminFraudAssessments();
     if (tabId === 'rewards') loadAdminRewardSettings();
     if (tabId === 'content') loadAdminContentSettings();
     if (tabId === 'reports') loadAdminReports();
@@ -1369,4 +1370,325 @@ document.addEventListener('keydown', (e) => {
         if (e.key === 'ArrowRight') navigateLightbox(1);
     }
 });
+
+// -------------------------------------------------------------
+// TAB 10: FRAUD & AI SECURITY DASHBOARD (Requirement 9)
+// -------------------------------------------------------------
+
+let currentFraudPage = 1;
+const fraudPageSize = 25;
+let fraudDebounceTimer = null;
+let activeInspectAssessment = null;
+
+function debounceFraudSearch() {
+    clearTimeout(fraudDebounceTimer);
+    fraudDebounceTimer = setTimeout(() => {
+        currentFraudPage = 1;
+        loadAdminFraudAssessments();
+    }, 350);
+}
+
+function changeFraudPage(direction) {
+    currentFraudPage = Math.max(1, currentFraudPage + direction);
+    loadAdminFraudAssessments();
+}
+
+async function loadAdminFraudAssessments(silent = false) {
+    const tbody = document.getElementById('adminFraudTableBody');
+    if (!tbody) return;
+
+    if (!silent) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="9" class="p-8 text-center text-slate-500 font-sans">
+                    <div class="inline-flex items-center gap-2">
+                        <svg class="animate-spin h-4 w-4 text-rose-500" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
+                        <span>Scanning forensic ledger & risk profiles...</span>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }
+
+    const query = document.getElementById('fraudSearchInput')?.value?.trim() || '';
+    const decision = document.getElementById('fraudDecisionFilter')?.value || 'all';
+    const riskLevel = document.getElementById('fraudRiskFilter')?.value || 'all';
+    const offset = (currentFraudPage - 1) * fraudPageSize;
+
+    try {
+        const url = `/api/admin.php?action=fraud_assessments&query=${encodeURIComponent(query)}&decision=${encodeURIComponent(decision)}&risk_level=${encodeURIComponent(riskLevel)}&limit=${fraudPageSize}&offset=${offset}`;
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (!data.success) {
+            tbody.innerHTML = `<tr><td colspan="9" class="p-6 text-center text-rose-400 font-sans">${escapeHtml(data.error || 'Failed to fetch fraud assessments.')}</td></tr>`;
+            return;
+        }
+
+        const total = data.total || 0;
+        const assessments = data.assessments || [];
+
+        // Update pagination controls
+        const pageInfo = document.getElementById('fraudPaginationInfo');
+        if (pageInfo) {
+            const start = total === 0 ? 0 : offset + 1;
+            const end = Math.min(offset + fraudPageSize, total);
+            pageInfo.innerText = `Showing ${start}–${end} of ${total} assessments`;
+        }
+
+        const prevBtn = document.getElementById('fraudPrevBtn');
+        const nextBtn = document.getElementById('fraudNextBtn');
+        if (prevBtn) prevBtn.disabled = currentFraudPage <= 1;
+        if (nextBtn) nextBtn.disabled = (offset + fraudPageSize) >= total;
+
+        if (assessments.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="9" class="p-8 text-center text-slate-500 font-sans">
+                        No fraud assessments found matching the active search & risk criteria.
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        tbody.innerHTML = assessments.map(a => {
+            // Risk Level Styling
+            let riskClass = 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
+            if (a.risk_level === 'high') {
+                riskClass = 'bg-rose-500/20 text-rose-400 border border-rose-500/30';
+            } else if (a.risk_level === 'medium') {
+                riskClass = 'bg-amber-500/20 text-amber-400 border border-amber-500/30';
+            }
+
+            // Decision Badge Styling
+            let decisionClass = 'bg-slate-800 text-slate-300 border border-slate-700';
+            if (a.decision === 'VERIFIED') {
+                decisionClass = 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
+            } else if (a.decision === 'PENDING_REVIEW') {
+                decisionClass = 'bg-amber-500/10 text-amber-400 border border-amber-500/20';
+            } else if (a.decision === 'REJECTED') {
+                decisionClass = 'bg-rose-500/10 text-rose-400 border border-rose-500/20';
+            } else if (a.decision === 'FAILED') {
+                decisionClass = 'bg-slate-700/40 text-slate-400 border border-slate-600';
+            }
+
+            // Reason Codes (first 2 chips)
+            const reasonBadges = (a.reason_codes_array || []).slice(0, 2).map(r => `
+                <span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-mono bg-slate-800 text-slate-300 border border-slate-700">${escapeHtml(r)}</span>
+            `).join(' ');
+            const extraCount = (a.reason_codes_array || []).length > 2 ? `<span class="text-[10px] text-slate-500">+${(a.reason_codes_array.length - 2)} more</span>` : '';
+
+            return `
+                <tr class="hover:bg-slate-800/40 transition">
+                    <td class="p-3">
+                        <span class="text-white font-bold block">#${a.id}</span>
+                        <span class="text-[11px] text-indigo-400 cursor-pointer hover:underline" onclick="switchAdminTab('orders', { query: '${a.child_order_id}' })">Order #${a.child_order_id}</span>
+                    </td>
+                    <td class="p-3 font-sans">
+                        <span class="text-white block font-mono text-xs">${escapeHtml(a.buyer_phone || 'User #' + a.buyer_id)}</span>
+                        <span class="text-[11px] text-slate-500 block truncate max-w-[120px]">${escapeHtml(a.buyer_name || '-')}</span>
+                    </td>
+                    <td class="p-3">
+                        <span class="text-emerald-400 font-bold">₹${Number(a.claimed_amount || 0).toLocaleString()}</span>
+                    </td>
+                    <td class="p-3">
+                        <span class="text-slate-300 text-xs select-all">${escapeHtml(a.normalized_utr || a.claimed_utr || '-')}</span>
+                    </td>
+                    <td class="p-3">
+                        <div class="flex items-center gap-2">
+                            <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase ${riskClass}">${escapeHtml(a.risk_level)}</span>
+                            <span class="font-bold text-white text-xs">${a.risk_score}<span class="text-slate-500 text-[10px]">/100</span></span>
+                        </div>
+                    </td>
+                    <td class="p-3">
+                        <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase ${decisionClass}">${escapeHtml(a.decision)}</span>
+                    </td>
+                    <td class="p-3 font-sans">
+                        <div class="flex flex-wrap items-center gap-1">
+                            ${reasonBadges || '<span class="text-slate-600 text-[11px]">CLEAN_RECORD</span>'}
+                            ${extraCount}
+                        </div>
+                    </td>
+                    <td class="p-3 text-[11px] text-slate-400 font-mono">
+                        ${escapeHtml(a.created_at || '-')}
+                    </td>
+                    <td class="p-3 text-right">
+                        <button onclick="inspectFraudAssessment(${a.id})" class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-lg text-xs font-semibold border border-slate-700 transition flex items-center gap-1.5 ml-auto">
+                            <svg class="w-3.5 h-3.5 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                            <span>Inspect</span>
+                        </button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="9" class="p-6 text-center text-rose-400 font-sans">Communication error loading fraud ledger.</td></tr>`;
+    }
+}
+
+async function inspectFraudAssessment(id) {
+    try {
+        const res = await fetch(`/api/admin.php?action=fraud_detail&id=${id}`);
+        const data = await res.json();
+        if (!data.success || !data.assessment) {
+            alert(data.error || 'Unable to retrieve fraud assessment forensics.');
+            return;
+        }
+
+        const a = data.assessment;
+        activeInspectAssessment = a;
+
+        // Populate Modal Fields
+        document.getElementById('fraudModalTitle').innerText = `Fraud Assessment #${a.id}`;
+        document.getElementById('fraudModalOrderId').innerText = `#${a.child_order_id}`;
+        document.getElementById('fraudModalBuyerPhone').innerText = a.buyer_phone || `User #${a.buyer_id}`;
+        document.getElementById('fraudModalAnalyzedAt').innerText = `${a.created_at} UTC`;
+
+        // Decision Badge
+        const badge = document.getElementById('fraudModalDecisionBadge');
+        if (badge) {
+            badge.innerText = a.decision;
+            badge.className = 'px-2 py-0.5 rounded text-xs font-bold font-mono ' + (
+                a.decision === 'VERIFIED' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                a.decision === 'PENDING_REVIEW' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
+                a.decision === 'REJECTED' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' :
+                'bg-slate-700/50 text-slate-300 border border-slate-600'
+            );
+        }
+
+        // Risk Score & Bar
+        const scoreEl = document.getElementById('fraudModalScore');
+        const scoreBar = document.getElementById('fraudModalScoreBar');
+        if (scoreEl) scoreEl.innerText = `${a.risk_score} / 100`;
+        if (scoreBar) {
+            scoreBar.style.width = `${Math.min(100, Math.max(0, a.risk_score))}%`;
+            scoreBar.className = 'h-2.5 transition-all duration-500 ' + (
+                a.risk_score >= 75 ? 'bg-rose-500' :
+                a.risk_score >= 40 ? 'bg-amber-500' :
+                'bg-emerald-500'
+            );
+        }
+
+        // Matrix Comparison
+        document.getElementById('fraudModalClaimedAmount').innerText = `₹${Number(a.claimed_amount || 0).toLocaleString()}`;
+        document.getElementById('fraudModalOcrAmount').innerText = a.ocr_data_parsed.detected_amount ? `₹${Number(a.ocr_data_parsed.detected_amount).toLocaleString()}` : 'N/A (Unrecognized)';
+        document.getElementById('fraudModalClaimedUtr').innerText = a.claimed_utr || '-';
+        document.getElementById('fraudModalOcrUtr').innerText = a.ocr_data_parsed.detected_utr || 'N/A (Unrecognized)';
+        document.getElementById('fraudModalNormalizedUtr').innerText = a.normalized_utr || '-';
+        document.getElementById('fraudModalOcrStatus').innerText = a.ocr_data_parsed.detected_status || 'Uncertain / Standard Verification';
+
+        // Forensic Hashes
+        document.getElementById('fraudModalSha256').innerText = a.image_analysis_parsed.sha256 || 'N/A';
+        document.getElementById('fraudModalPhash').innerText = a.image_analysis_parsed.phash || 'N/A';
+
+        const tools = a.image_analysis_parsed.editing_tools_detected || [];
+        const toolsEl = document.getElementById('fraudModalEditingTools');
+        if (toolsEl) {
+            if (tools.length > 0) {
+                toolsEl.innerText = tools.join(', ');
+                toolsEl.className = 'text-rose-400 font-bold';
+            } else {
+                toolsEl.innerText = 'None Detected (Clean Exif/Header)';
+                toolsEl.className = 'text-emerald-400';
+            }
+        }
+
+        // Reviewer Info
+        const reviewerEl = document.getElementById('fraudModalReviewerInfo');
+        if (reviewerEl) {
+            if (a.review_status && a.review_status !== 'pending') {
+                reviewerEl.innerText = `${a.review_status.toUpperCase()} by ${a.reviewer_phone || 'Admin #' + a.reviewed_by_admin_id} on ${a.reviewed_at}`;
+            } else {
+                reviewerEl.innerText = 'Pending Review';
+            }
+        }
+
+        // Reason Codes List
+        const reasonContainer = document.getElementById('fraudModalReasonList');
+        if (reasonContainer) {
+            const reasons = a.reason_codes_array || [];
+            if (reasons.length === 0) {
+                reasonContainer.innerHTML = '<span class="text-xs text-slate-500 font-sans">No anomalous risk triggers detected. Standard transaction verification.</span>';
+            } else {
+                reasonContainer.innerHTML = reasons.map(r => `
+                    <span class="px-2 py-1 rounded bg-slate-900 border border-rose-500/30 text-rose-300 text-xs font-mono">
+                        ${escapeHtml(r)}
+                    </span>
+                `).join('');
+            }
+        }
+
+        // Reset Notes input
+        const notesEl = document.getElementById('fraudReviewNotes');
+        if (notesEl) notesEl.value = a.review_notes || '';
+
+        // Open Modal
+        const modal = document.getElementById('fraudInspectionModal');
+        if (modal) modal.classList.remove('hidden');
+    } catch (e) {
+        alert('Communication error while loading fraud assessment forensics.');
+    }
+}
+
+function closeFraudInspectionModal() {
+    const modal = document.getElementById('fraudInspectionModal');
+    if (modal) modal.classList.add('hidden');
+    activeInspectAssessment = null;
+}
+
+function inspectModalEvidence() {
+    if (!activeInspectAssessment) return;
+    const path = activeInspectAssessment.screenshot_path;
+    if (!path) {
+        alert('No payment proof screenshot attached to this assessment.');
+        return;
+    }
+    openAdminLightbox(path, `Forensic Evidence - Order #${activeInspectAssessment.child_order_id}`);
+}
+
+async function submitFraudReview(action) {
+    if (!activeInspectAssessment) {
+        alert('No active fraud assessment selected.');
+        return;
+    }
+
+    const notesEl = document.getElementById('fraudReviewNotes');
+    const notes = notesEl?.value?.trim() || '';
+
+    if (!notes) {
+        alert('Mandatory adjudication notes are required to document the operational rationale for this decision.');
+        notesEl?.focus();
+        return;
+    }
+
+    if (!confirm(`Are you sure you want to execute adjudication '${action.toUpperCase()}' on Assessment #${activeInspectAssessment.id}?`)) {
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/admin.php?action=fraud_review', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                assessment_id: activeInspectAssessment.id,
+                action: action,
+                notes: notes
+            })
+        });
+
+        const data = await res.json();
+        if (!data.success) {
+            alert(data.error || 'Failed to submit fraud review.');
+            return;
+        }
+
+        alert(data.message || 'Fraud review successfully recorded and audited.');
+        closeFraudInspectionModal();
+        loadAdminFraudAssessments();
+    } catch (e) {
+        alert('Communication error submitting fraud review.');
+    }
+}
+
 

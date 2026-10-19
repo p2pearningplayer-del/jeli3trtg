@@ -157,13 +157,7 @@ class StateMachine {
         $cleanUtr = trim($utr);
         $pdo = Database::getConnection();
 
-        // Check global UTR uniqueness (FR-009)
-        $utrChk = $pdo->prepare("SELECT id FROM payment_proofs WHERE utr_number = ?");
-        $utrChk->execute([$cleanUtr]);
-        if ($utrChk->fetch()) {
-            return ['success' => false, 'error' => 'This UTR number has already been submitted for another order. Duplicate payment proofs are strictly rejected.'];
-        }
-
+        // 1. Order ownership and state validation
         $orderStmt = $pdo->prepare("SELECT * FROM child_orders WHERE id = ?");
         $orderStmt->execute([$childOrderId]);
         $order = $orderStmt->fetch();
@@ -180,7 +174,7 @@ class StateMachine {
             return ['success' => false, 'error' => "Cannot submit proof. Current order status is '{$order['status']}'."];
         }
 
-        // Validate 10-minute server UTC deadline
+        // 2. Validate 10-minute server UTC deadline
         $nowTimestamp = time();
         $deadlineTimestamp = strtotime($order['payment_deadline'] . ' UTC');
 
@@ -192,6 +186,35 @@ class StateMachine {
             ];
         }
 
+        // 3. AI & Rule-Based Fraud Detection Pipeline
+        $fraudAssessment = \Fraud\FraudDecisionEngine::evaluatePaymentProof(
+            $pdo,
+            $childOrderId,
+            $buyerId,
+            $cleanUtr,
+            $screenshotPath,
+            $notes
+        );
+
+        if (!$fraudAssessment['can_proceed'] || $fraudAssessment['decision'] === 'REJECTED') {
+            return [
+                'success' => false,
+                'error' => $fraudAssessment['error'] ?: 'Payment proof was rejected by the automated fraud detection system.',
+                'decision' => $fraudAssessment['decision'],
+                'risk_score' => $fraudAssessment['risk_score'] ?? 100,
+                'reason_codes' => $fraudAssessment['reason_codes'] ?? ['AUTO_REJECTED']
+            ];
+        }
+
+        if ($fraudAssessment['decision'] === 'FAILED') {
+            return [
+                'success' => false,
+                'error' => $fraudAssessment['error'] ?: 'Failed to process screenshot file verification.'
+            ];
+        }
+
+        // Use normalized UTR for consistent database storage
+        $normalizedUtr = !empty($fraudAssessment['utr_normalized']) ? $fraudAssessment['utr_normalized'] : $cleanUtr;
         $proofSubmittedUtc = gmdate('Y-m-d H:i:s');
         $verifyDeadlineUtc = gmdate('Y-m-d H:i:s', time() + SELLER_VERIFY_WINDOW_SECONDS);
 
@@ -201,7 +224,7 @@ class StateMachine {
                 INSERT INTO payment_proofs (child_order_id, buyer_id, utr_number, screenshot_path, notes, created_at)
                 VALUES (?, ?, ?, ?, ?, ?)
             ");
-            $insertProof->execute([$childOrderId, $buyerId, $cleanUtr, $screenshotPath, $notes, $proofSubmittedUtc]);
+            $insertProof->execute([$childOrderId, $buyerId, $normalizedUtr, $screenshotPath, $notes, $proofSubmittedUtc]);
 
             $updateOrder = $pdo->prepare("
                 UPDATE child_orders
@@ -212,11 +235,16 @@ class StateMachine {
             ");
             $updateOrder->execute([$proofSubmittedUtc, $verifyDeadlineUtc, $childOrderId]);
 
+            $isFlaggedReview = ($fraudAssessment['decision'] === 'PENDING_REVIEW' && ($fraudAssessment['risk_score'] ?? 0) >= 25);
+            $sellerNotice = $isFlaggedReview
+                ? "Buyer submitted UPI proof (UTR: {$normalizedUtr}) for order #{$childOrderId}. Note: Visual verification suggested. Please verify in your bank account."
+                : "Buyer submitted UPI proof (UTR: {$normalizedUtr}) for order #{$childOrderId}. Please verify in your bank account within 15 minutes.";
+
             $notif = $pdo->prepare("INSERT INTO notifications (user_id, title, message, type, reference_id, created_at) VALUES (?, ?, ?, 'order', ?, ?)");
             $notif->execute([
                 $order['seller_id'],
                 'Payment Proof Received',
-                "Buyer submitted UPI proof (UTR: {$cleanUtr}) for order #{$childOrderId}. Please verify in your bank account within 15 minutes.",
+                $sellerNotice,
                 $childOrderId,
                 $proofSubmittedUtc
             ]);
@@ -227,7 +255,10 @@ class StateMachine {
                 'success' => true,
                 'message' => 'Payment proof submitted successfully. Waiting for seller confirmation.',
                 'verification_deadline' => $verifyDeadlineUtc,
-                'seconds_remaining' => SELLER_VERIFY_WINDOW_SECONDS
+                'seconds_remaining' => SELLER_VERIFY_WINDOW_SECONDS,
+                'fraud_decision' => $fraudAssessment['decision'],
+                'risk_score' => $fraudAssessment['risk_score'] ?? 0,
+                'risk_level' => $fraudAssessment['risk_level'] ?? 'low'
             ];
         } catch (Exception $e) {
             $pdo->rollBack();

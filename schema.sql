@@ -277,6 +277,63 @@ CREATE TABLE `support_messages` (
   CONSTRAINT `fk_msg_req` FOREIGN KEY (`request_id`) REFERENCES `support_requests` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 14. PAYMENT FINGERPRINTS
+CREATE TABLE IF NOT EXISTS `payment_fingerprints` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `child_order_id` INT NOT NULL,
+  `buyer_id` INT NOT NULL,
+  `utr_raw` VARCHAR(100) NOT NULL,
+  `utr_normalized` VARCHAR(100) NOT NULL,
+  `utr_hash` VARCHAR(64) NOT NULL,
+  `image_sha256` VARCHAR(64) NOT NULL,
+  `image_phash` VARCHAR(64) DEFAULT NULL,
+  `file_path` VARCHAR(255) NOT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_fp_utr_hash` (`utr_hash`),
+  INDEX `idx_fp_image_sha256` (`image_sha256`),
+  INDEX `idx_fp_buyer_id` (`buyer_id`),
+  CONSTRAINT `fk_fp_child_order` FOREIGN KEY (`child_order_id`) REFERENCES `child_orders` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_fp_buyer` FOREIGN KEY (`buyer_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 15. FRAUD ASSESSMENTS
+CREATE TABLE IF NOT EXISTS `fraud_assessments` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `child_order_id` INT NOT NULL,
+  `buyer_id` INT NOT NULL,
+  `decision` ENUM('VERIFIED', 'PENDING_REVIEW', 'REJECTED', 'FAILED') NOT NULL DEFAULT 'PENDING_REVIEW',
+  `risk_score` INT NOT NULL DEFAULT 0,
+  `risk_level` ENUM('low', 'medium', 'high', 'critical') NOT NULL DEFAULT 'low',
+  `reason_codes` TEXT NOT NULL,
+  `ocr_data` JSON DEFAULT NULL,
+  `image_analysis` JSON DEFAULT NULL,
+  `claimed_amount` DECIMAL(12, 2) NOT NULL,
+  `claimed_utr` VARCHAR(100) NOT NULL,
+  `reviewed_by_admin_id` INT DEFAULT NULL,
+  `review_decision` VARCHAR(50) DEFAULT NULL,
+  `review_notes` TEXT DEFAULT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX `idx_fa_order` (`child_order_id`),
+  INDEX `idx_fa_buyer` (`buyer_id`),
+  INDEX `idx_fa_decision` (`decision`),
+  CONSTRAINT `fk_fa_child_order` FOREIGN KEY (`child_order_id`) REFERENCES `child_orders` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_fa_buyer` FOREIGN KEY (`buyer_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 16. USER RISK PROFILES
+CREATE TABLE IF NOT EXISTS `user_risk_profiles` (
+  `user_id` INT PRIMARY KEY,
+  `total_submissions` INT NOT NULL DEFAULT 0,
+  `failed_submissions` INT NOT NULL DEFAULT 0,
+  `duplicate_attempts` INT NOT NULL DEFAULT 0,
+  `fraud_score_avg` DECIMAL(5, 2) NOT NULL DEFAULT 0.00,
+  `last_risk_level` VARCHAR(20) NOT NULL DEFAULT 'low',
+  `is_auto_flagged` TINYINT(1) NOT NULL DEFAULT 0,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_urp_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- ====================================================================
 -- DEFAULT CONFIGURATION SEEDS
 -- ====================================================================
