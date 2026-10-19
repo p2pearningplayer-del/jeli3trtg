@@ -789,6 +789,29 @@ class AdminManager {
         $pdo = Database::getConnection();
         $nowUtc = gmdate('Y-m-d H:i:s');
 
+        // Normalize Telegram Support Link & Username
+        if ($key === 'telegram_support_url') {
+            $trimmed = trim($value);
+            if (!empty($trimmed)) {
+                if (preg_match('#^https?://#i', $trimmed)) {
+                    $value = $trimmed;
+                } elseif (str_starts_with($trimmed, 't.me/')) {
+                    $value = 'https://' . $trimmed;
+                } elseif (str_starts_with($trimmed, '@')) {
+                    $value = 'https://t.me/' . ltrim($trimmed, '@');
+                } else {
+                    $value = 'https://t.me/' . ltrim($trimmed, '/');
+                }
+            }
+        } elseif ($key === 'telegram_support_username') {
+            $trimmed = trim($value);
+            if (!empty($trimmed)) {
+                $handle = preg_replace('#^https?://t\.me/#i', '', $trimmed);
+                $handle = preg_replace('#^t\.me/#i', '', $handle);
+                $value = '@' . ltrim($handle, '@/');
+            }
+        }
+
         $curStmt = $pdo->prepare("SELECT setting_value FROM platform_settings WHERE setting_key = ?");
         $curStmt->execute([$key]);
         $curr = $curStmt->fetch();
@@ -808,6 +831,25 @@ class AdminManager {
                 VALUES (?, ?, ?, ?)
             ");
             $ins->execute([$key, $value, $adminId, $nowUtc]);
+        }
+
+        // Keep telegram_support_username automatically synced if telegram_support_url was updated
+        if ($key === 'telegram_support_url' && !empty($value)) {
+            $handle = preg_replace('#^https?://t\.me/#i', '', $value);
+            $handle = preg_replace('#^t\.me/#i', '', $handle);
+            $handle = ltrim($handle, '@/');
+            if (!empty($handle)) {
+                $syncedUser = '@' . $handle;
+                $chkUser = $pdo->prepare("SELECT setting_value FROM platform_settings WHERE setting_key = 'telegram_support_username'");
+                $chkUser->execute();
+                if ($chkUser->fetch()) {
+                    $updUser = $pdo->prepare("UPDATE platform_settings SET setting_value = ?, updated_by = ?, updated_at = ? WHERE setting_key = 'telegram_support_username'");
+                    $updUser->execute([$syncedUser, $adminId, $nowUtc]);
+                } else {
+                    $insUser = $pdo->prepare("INSERT INTO platform_settings (setting_key, setting_value, updated_by, updated_at) VALUES ('telegram_support_username', ?, ?, ?)");
+                    $insUser->execute([$syncedUser, $adminId, $nowUtc]);
+                }
+            }
         }
 
         self::logAudit(

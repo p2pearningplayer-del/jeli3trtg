@@ -419,8 +419,8 @@ class SchemaInstaller {
             ['support_contact_info', 'support@jelipay.in', 'Official administrative support contact details'],
             ['approved_upi_config', 'jelipay@upi', 'Approved default UPI gateway reference'],
             ['reward_eligible_types', 'ALL', 'Eligible transaction types for reward calculation'],
-            ['telegram_support_url', 'https://t.me/jelipay_support', 'Official Telegram Support Channel or Username URL'],
-            ['telegram_support_username', '@jelipay_support', 'Official Telegram Support handle/username'],
+            ['telegram_support_url', 'https://t.me/amilacorp', 'Official Telegram Support Channel or Username URL'],
+            ['telegram_support_username', '@amilacorp', 'Official Telegram Support handle/username'],
             ['platform_mode', 'live', 'Platform operating mode (live / test)'],
             ['allow_user_registration', '1', 'Allow public user registrations (1=Active, 0=Disabled)'],
             ['allow_sell_listings', '1', 'Allow peer users to list new sell orders (1=Active, 0=Disabled)'],
@@ -437,6 +437,26 @@ class SchemaInstaller {
             if (!$stmt->fetch()) {
                 $ins->execute($s);
             }
+        }
+
+        // Migrate placeholder telegram link if not customized
+        try {
+            $chk = $pdo->query("SELECT setting_value FROM platform_settings WHERE setting_key = 'telegram_support_url'");
+            if ($chk) {
+                $curVal = $chk->fetchColumn();
+                if ($curVal === 'https://t.me/jelipay_support' || $curVal === 't.me/jelipay_support' || empty($curVal)) {
+                    $pdo->exec("UPDATE platform_settings SET setting_value = 'https://t.me/amilacorp' WHERE setting_key = 'telegram_support_url'");
+                }
+            }
+            $chkUser = $pdo->query("SELECT setting_value FROM platform_settings WHERE setting_key = 'telegram_support_username'");
+            if ($chkUser) {
+                $curUser = $chkUser->fetchColumn();
+                if ($curUser === '@jelipay_support' || $curUser === 'jelipay_support' || empty($curUser)) {
+                    $pdo->exec("UPDATE platform_settings SET setting_value = '@amilacorp' WHERE setting_key = 'telegram_support_username'");
+                }
+            }
+        } catch (Exception $e) {
+            // Ignore migration exception
         }
     }
 

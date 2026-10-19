@@ -767,13 +767,21 @@ async function loadAdminContentSettings() {
 
 async function saveQuickTelegramUrl() {
     const input = document.getElementById('quickTelegramUrlInput');
-    const val = input ? input.value.trim() : '';
-    if (!val || (!val.startsWith('https://t.me/') && !val.startsWith('http://t.me/') && !val.startsWith('@'))) {
-        alert('Please enter a valid Telegram link (e.g. https://t.me/jelipay_support) or username.');
+    let val = input ? input.value.trim() : '';
+    if (!val) {
+        alert('Please enter a valid Telegram link (e.g. t.me/amilacorp or https://t.me/amilacorp) or username.');
         return;
     }
 
-    const fullUrl = val.startsWith('@') ? `https://t.me/${val.replace('@', '')}` : val;
+    // Normalize to complete clickable https:// URL
+    let fullUrl = val;
+    if (fullUrl.startsWith('@')) {
+        fullUrl = `https://t.me/${fullUrl.substring(1)}`;
+    } else if (fullUrl.startsWith('t.me/')) {
+        fullUrl = `https://${fullUrl}`;
+    } else if (!fullUrl.startsWith('http://') && !fullUrl.startsWith('https://')) {
+        fullUrl = `https://t.me/${fullUrl.replace(/^\/+/, '')}`;
+    }
 
     try {
         const res = await fetch('/api/admin.php?action=settings', {
@@ -787,8 +795,11 @@ async function saveQuickTelegramUrl() {
         });
         const data = await res.json();
         if (data.success) {
+            if (input) input.value = fullUrl;
             const testBtn = document.getElementById('quickTelegramTestBtn');
             if (testBtn) testBtn.href = fullUrl;
+            const gridInp = document.getElementById('settingInput_telegram_support_url');
+            if (gridInp) gridInp.value = fullUrl;
             alert('Official Telegram Support link updated successfully! It is now live across the platform.');
             loadAdminContentSettings();
         } else {
@@ -858,7 +869,18 @@ async function loadSettingsIntoGrid(containerId, keys) {
 
 async function saveGlobalSetting(key) {
     const input = document.getElementById(`settingInput_${key}`);
-    const val = input ? input.value : '';
+    let val = input ? input.value : '';
+    if (key === 'telegram_support_url' && val) {
+        let normVal = val.trim();
+        if (normVal.startsWith('@')) {
+            normVal = `https://t.me/${normVal.substring(1)}`;
+        } else if (normVal.startsWith('t.me/')) {
+            normVal = `https://${normVal}`;
+        } else if (!normVal.startsWith('http://') && !normVal.startsWith('https://')) {
+            normVal = `https://t.me/${normVal.replace(/^\/+/, '')}`;
+        }
+        val = normVal;
+    }
     let reason = prompt(`Enter reason for modifying setting '${key}' (optional):`, 'Admin configuration change');
     if (reason === null) {
         return; // User clicked Cancel
@@ -875,6 +897,7 @@ async function saveGlobalSetting(key) {
         });
         const data = await res.json();
         if (data.success) {
+            if (input) input.value = val;
             if (key === 'telegram_support_url') {
                 const quickInp = document.getElementById('quickTelegramUrlInput');
                 const testBtn = document.getElementById('quickTelegramTestBtn');

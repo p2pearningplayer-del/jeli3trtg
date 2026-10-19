@@ -39,7 +39,11 @@ $isMaintenance = ($platformSettings['maintenance_mode'] ?? '0') === '1';
 $maintenanceMsg = htmlspecialchars($platformSettings['maintenance_message'] ?? 'Platform is temporarily offline for scheduled system optimization.');
 $announcementActive = ($platformSettings['announcement_banner_active'] ?? '0') === '1';
 $announcementText = htmlspecialchars($platformSettings['announcement_banner_text'] ?? '');
-$telegramSupportUrl = htmlspecialchars($platformSettings['telegram_support_url'] ?? 'https://t.me/jelipay_support');
+$rawTgUrl = $platformSettings['telegram_support_url'] ?? 'https://t.me/amilacorp';
+if (!preg_match('#^https?://#i', $rawTgUrl)) {
+    $rawTgUrl = str_starts_with($rawTgUrl, 't.me/') ? ('https://' . $rawTgUrl) : ('https://t.me/' . ltrim($rawTgUrl, '@/'));
+}
+$telegramSupportUrl = htmlspecialchars($rawTgUrl);
 $isAdminUser = $currentUser && ($currentUser['role'] === 'admin' || !empty($currentUser['real_admin_id']));
 
 // Maintenance Mode Enforcement for non-admins
@@ -989,7 +993,7 @@ endif;
                     <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse hidden sm:block" title="Support Online"></span>
                 </div>
                 <div class="pt-1">
-                    <a href="<?= $telegramSupportUrl ?>" target="_blank" rel="noopener noreferrer" class="bg-[#229ED9]/15 hover:bg-[#229ED9]/25 text-[#229ED9] border border-[#229ED9]/30 rounded-2xl p-4 flex items-center justify-between transition group">
+                    <a id="profileTelegramSupportLink" href="<?= $telegramSupportUrl ?>" target="_blank" rel="noopener noreferrer" class="bg-[#229ED9]/15 hover:bg-[#229ED9]/25 text-[#229ED9] border border-[#229ED9]/30 rounded-2xl p-4 flex items-center justify-between transition group">
                         <div class="flex items-center gap-3">
                             <div class="w-10 h-10 rounded-xl bg-[#229ED9]/20 flex items-center justify-center flex-shrink-0">
                                 <svg class="w-5 h-5 fill-current" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.52 2.77-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/></svg>
@@ -1651,7 +1655,7 @@ endif;
             <p class="text-[11px] text-slate-400 leading-relaxed">Need help with payments, disputes, or account setup? Connect directly with our official support team:</p>
             <div class="space-y-2 pt-1">
                 <!-- Telegram Support Button -->
-                <a id="supportTelegramLink" href="https://t.me/jelipay_support" target="_blank" rel="noopener noreferrer" class="w-full bg-[#229ED9]/15 hover:bg-[#229ED9]/25 text-[#229ED9] border border-[#229ED9]/30 rounded-xl px-3.5 py-2.5 text-xs font-bold flex items-center justify-between transition group">
+                <a id="supportTelegramLink" href="<?= $telegramSupportUrl ?>" target="_blank" rel="noopener noreferrer" class="w-full bg-[#229ED9]/15 hover:bg-[#229ED9]/25 text-[#229ED9] border border-[#229ED9]/30 rounded-xl px-3.5 py-2.5 text-xs font-bold flex items-center justify-between transition group">
                     <div class="flex items-center gap-2.5">
                         <svg class="w-4 h-4 fill-current flex-shrink-0" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.52 2.77-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/></svg>
                         <span>Telegram Support</span>

@@ -45,7 +45,10 @@ switch ($action) {
         $stmt = $pdo->prepare("SELECT setting_value FROM platform_settings WHERE setting_key = 'telegram_support_url'");
         $stmt->execute();
         $row = $stmt->fetch();
-        $telegramUrl = $row['setting_value'] ?? 'https://t.me/jelipay_support';
+        $telegramUrl = $row['setting_value'] ?? 'https://t.me/amilacorp';
+        if (!preg_match('#^https?://#i', $telegramUrl)) {
+            $telegramUrl = str_starts_with($telegramUrl, 't.me/') ? ('https://' . $telegramUrl) : ('https://t.me/' . ltrim($telegramUrl, '@/'));
+        }
 
         jsonResponse(true, [
             'telegram_support_url' => $telegramUrl,
@@ -54,6 +57,17 @@ switch ($action) {
             'average_response_minutes' => 2
         ]);
         break;
+
+    case 'telegram':
+        $stmt = $pdo->prepare("SELECT setting_value FROM platform_settings WHERE setting_key = 'telegram_support_url'");
+        $stmt->execute();
+        $row = $stmt->fetch();
+        $telegramUrl = $row['setting_value'] ?? 'https://t.me/amilacorp';
+        if (!preg_match('#^https?://#i', $telegramUrl)) {
+            $telegramUrl = str_starts_with($telegramUrl, 't.me/') ? ('https://' . $telegramUrl) : ('https://t.me/' . ltrim($telegramUrl, '@/'));
+        }
+        header("Location: " . $telegramUrl, true, 302);
+        exit;
 
     // -------------------------------------------------------------
     // USER: GET OR START ACTIVE CHAT SESSION

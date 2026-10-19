@@ -856,8 +856,14 @@ async function loadSupportConfig() {
         const res = await fetch('/api/support.php?action=config');
         const data = await res.json();
         if (data.success && data.telegram_support_url) {
+            let tg = data.telegram_support_url;
+            if (!tg.startsWith('http://') && !tg.startsWith('https://')) {
+                tg = tg.startsWith('t.me/') ? ('https://' + tg) : ('https://t.me/' + tg.replace(/^[@/]+/, ''));
+            }
             const tgLink = document.getElementById('supportTelegramLink');
-            if (tgLink) tgLink.href = data.telegram_support_url;
+            if (tgLink) tgLink.href = tg;
+            const profTgLink = document.getElementById('profileTelegramSupportLink');
+            if (profTgLink) profTgLink.href = tg;
         }
     } catch (e) {
         // Fallback default url is already in HTML

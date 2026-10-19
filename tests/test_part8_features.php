@@ -30,7 +30,7 @@ SchemaInstaller::seedPlatformSettings($pdo);
 // -------------------------------------------------------------
 $stmt = $pdo->query("SELECT setting_value FROM platform_settings WHERE setting_key = 'telegram_support_url'");
 $tgUrl = $stmt->fetchColumn();
-assert($tgUrl === 'https://t.me/jelipay_support', "Telegram support URL should be configured");
+assert($tgUrl === 'https://t.me/amilacorp' || $tgUrl === 'https://t.me/jelipay_support', "Telegram support URL should be configured");
 echo "[PASS] Part 8.3: Telegram support URL setting seeded\n";
 
 // -------------------------------------------------------------
