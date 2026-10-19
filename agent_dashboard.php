@@ -22,6 +22,7 @@ if (!$agent) {
 
 $agentId = (int)$agent['id'];
 $stats = AgentManager::getAgentDashboardStats($agentId);
+$isAgentImpersonating = !empty($_SESSION['is_agent_impersonating']);
 ?>
 <!DOCTYPE html>
 <html lang="en" class="h-full bg-slate-950">
@@ -43,6 +44,22 @@ $stats = AgentManager::getAgentDashboardStats($agentId);
     </style>
 </head>
 <body class="h-full text-slate-100 flex flex-col antialiased selection:bg-amber-500 selection:text-black">
+
+    <!-- Admin Support Mode Banner -->
+    <?php if ($isAgentImpersonating): ?>
+    <div class="bg-amber-500 text-slate-950 px-4 py-2.5 text-xs sm:text-sm font-bold flex items-center justify-between shadow-lg sticky top-0 z-50">
+        <div class="flex items-center gap-2">
+            <svg class="w-5 h-5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+            </svg>
+            <span>ADMIN SUPPORT MODE ACTIVE &bull; Viewing Agent <?= htmlspecialchars($agent['agent_code']) ?> in read-only mode. All modifications are locked.</span>
+        </div>
+        <button onclick="exitAgentSupportMode()" class="bg-slate-950 text-white px-3.5 py-1.5 rounded-lg hover:bg-slate-800 transition text-xs font-bold shadow flex items-center gap-1.5">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+            <span>Exit Support Mode</span>
+        </button>
+    </div>
+    <?php endif; ?>
 
     <!-- Top Navigation Bar -->
     <header class="bg-slate-900/90 backdrop-blur border-b border-slate-800 sticky top-0 z-40">
@@ -66,6 +83,13 @@ $stats = AgentManager::getAgentDashboardStats($agentId);
 
                 <!-- Right Actions -->
                 <div class="flex items-center gap-2 sm:gap-3">
+                    <?php if ($isAgentImpersonating): ?>
+                    <button onclick="exitAgentSupportMode()"
+                            class="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold shadow-md flex items-center gap-1.5 transition">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+                        <span>Exit Support Mode</span>
+                    </button>
+                    <?php else: ?>
                     <button onclick="openChangePasswordModal()"
                             class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold border border-slate-700 flex items-center gap-1.5 transition">
                         <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
@@ -76,6 +100,7 @@ $stats = AgentManager::getAgentDashboardStats($agentId);
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
                         <span>Logout</span>
                     </button>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
@@ -605,8 +630,30 @@ $stats = AgentManager::getAgentDashboardStats($agentId);
             }
         }
 
-        // Modals
+        // Modals & Support Mode
+        async function exitAgentSupportMode() {
+            try {
+                const res = await fetch('/api/agent.php?action=exit_impersonation', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await res.json();
+                if (data && data.success && data.data && data.data.redirect) {
+                    window.location.href = data.data.redirect;
+                } else {
+                    window.location.href = '/admin.php#agents';
+                }
+            } catch (e) {
+                window.location.href = '/admin.php#agents';
+            }
+        }
+
         function openChangePasswordModal() {
+            const isImpersonating = <?= $isAgentImpersonating ? 'true' : 'false' ?>;
+            if (isImpersonating) {
+                alert('Password changes are strictly disabled in Admin Support Mode.');
+                return;
+            }
             document.getElementById('pwdAlert').classList.add('hidden');
             document.getElementById('curPassword').value = '';
             document.getElementById('newPassword').value = '';
@@ -633,6 +680,11 @@ $stats = AgentManager::getAgentDashboardStats($agentId);
 
         async function submitChangePassword(e) {
             e.preventDefault();
+            const isImpersonating = <?= $isAgentImpersonating ? 'true' : 'false' ?>;
+            if (isImpersonating) {
+                alert('Password changes are strictly disabled in Admin Support Mode.');
+                return;
+            }
             const alertBox = document.getElementById('pwdAlert');
             const btn = document.getElementById('btnSubmitPwd');
 

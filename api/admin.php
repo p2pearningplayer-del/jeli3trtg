@@ -165,6 +165,32 @@ switch ($action) {
         jsonResponse(true, ['message' => 'Support mode exited.']);
         break;
 
+    case 'impersonate_agent':
+        $targetAgentId = (int)($input['agent_id'] ?? 0);
+        if ($targetAgentId <= 0) {
+            jsonError('Target Agent ID required.');
+        }
+
+        $res = AgentManager::startAgentImpersonation((int)$adminId, $targetAgentId);
+        if ($res['success']) {
+            jsonResponse(true, [
+                'message' => 'Agent support mode started.',
+                'agent' => $res['agent'],
+                'redirect' => $res['redirect']
+            ]);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
+    case 'exit_agent_impersonate':
+        $res = AgentManager::exitAgentImpersonation();
+        jsonResponse(true, [
+            'message' => 'Agent support mode exited.',
+            'redirect' => $res['redirect']
+        ]);
+        break;
+
     case 'orders':
         // Requirement 3: Control all buy and sell orders
         $status = $_GET['status'] ?? 'all';

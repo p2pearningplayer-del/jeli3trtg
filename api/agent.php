@@ -40,6 +40,14 @@ if ($action === 'logout') {
     jsonResponse(true, ['message' => 'Agent session ended.', 'redirect' => '/agent/login']);
 }
 
+if ($action === 'exit_impersonation') {
+    $res = AgentManager::exitAgentImpersonation();
+    jsonResponse(true, [
+        'message' => 'Agent support mode exited.',
+        'redirect' => $res['redirect'] ?? '/admin.php#agents'
+    ]);
+}
+
 // For all other actions, require an authenticated agent session
 $agent = AgentManager::getCurrentAgent();
 if (!$agent) {
@@ -60,7 +68,8 @@ switch ($action) {
                 'commission_rate' => (float)$agent['commission_rate'],
                 'eligible_levels' => $agent['eligible_levels'],
                 'must_change_password' => (int)$agent['must_change_password'],
-                'last_login_at' => $agent['last_login_at']
+                'last_login_at' => $agent['last_login_at'],
+                'is_impersonating' => !empty($_SESSION['is_agent_impersonating'])
             ]
         ]);
         break;
@@ -90,6 +99,10 @@ switch ($action) {
         break;
 
     case 'change_password':
+        if (!empty($_SESSION['is_agent_impersonating'])) {
+            jsonError('Password modifications are strictly disabled in Admin Support Mode.', 403);
+        }
+
         $currentPassword = (string)($input['current_password'] ?? '');
         $newPassword = (string)($input['new_password'] ?? '');
         $totpCode = trim((string)($input['totp_code'] ?? ''));

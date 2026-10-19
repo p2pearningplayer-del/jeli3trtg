@@ -824,7 +824,8 @@ class AgentManager {
 
         $agentId = (int)$_SESSION['agent_id'];
         $pdo = Database::getConnection();
-        $stmt = $pdo->prepare("SELECT * FROM agents WHERE id = ? AND status = 'active'");
+        $statusCondition = !empty($_SESSION['is_agent_impersonating']) ? "" : " AND status = 'active'";
+        $stmt = $pdo->prepare("SELECT * FROM agents WHERE id = ?" . $statusCondition);
         $stmt->execute([$agentId]);
         $agent = $stmt->fetch();
 
@@ -837,9 +838,140 @@ class AgentManager {
     }
 
     /**
+     * Start Admin Impersonation Support Session for Agent Dashboard.
+     * Allows authenticated administrator to inspect the Agent's portal in read-only mode.
+     */
+    public static function startAgentImpersonation(int $adminId, int $targetAgentId): array {
+        if ($adminId <= 0) {
+            return ['success' => false, 'error' => 'Administrator authentication required.'];
+        }
+
+        if ($targetAgentId <= 0) {
+            return ['success' => false, 'error' => 'Target Agent ID required.'];
+        }
+
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare("SELECT * FROM agents WHERE id = ?");
+        $stmt->execute([$targetAgentId]);
+        $agent = $stmt->fetch();
+
+        if (!$agent) {
+            return ['success' => false, 'error' => 'Target Agent not found.'];
+        }
+
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+
+        // Preserve real administrator identity
+        if (empty($_SESSION['real_admin_id'])) {
+            $_SESSION['real_admin_id'] = $adminId;
+        }
+
+        // Unset any user impersonation flags if active
+        unset($_SESSION['is_impersonating']);
+
+        // Set agent impersonation session flags
+        $_SESSION['is_agent_impersonating'] = true;
+        $_SESSION['agent_id'] = (int)$agent['id'];
+        $_SESSION['agent_code'] = $agent['agent_code'];
+        $_SESSION['agent_name'] = $agent['name'];
+        $_SESSION['agent_logged_in'] = true;
+        $_SESSION['agent_last_activity'] = time();
+
+        // Audit logging in agent audit ledger
+        self::logAudit(
+            'admin',
+            $adminId,
+            $targetAgentId,
+            'start_agent_impersonation',
+            "Support inspection mode activated for agent {$agent['agent_code']}"
+        );
+
+        // Audit logging in platform admin ledger
+        if (class_exists('AdminManager')) {
+            AdminManager::logAudit(
+                $adminId,
+                'IMPERSONATE_AGENT',
+                'agents',
+                (string)$targetAgentId,
+                null,
+                ['impersonating_agent_code' => $agent['agent_code'], 'agent_id' => $targetAgentId],
+                'Support inspection mode activated for agent'
+            );
+        }
+
+        return [
+            'success' => true,
+            'agent' => $agent,
+            'redirect' => '/agent/dashboard'
+        ];
+    }
+
+    /**
+     * Exit Admin Impersonation Support Session for Agent Dashboard.
+     * Restores the administrator session and redirects to Admin Panel agents section.
+     */
+    public static function exitAgentImpersonation(): array {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+
+        $adminId = $_SESSION['real_admin_id'] ?? null;
+        $targetAgentId = $_SESSION['agent_id'] ?? null;
+
+        if ($adminId && $targetAgentId) {
+            self::logAudit(
+                'admin',
+                (int)$adminId,
+                (int)$targetAgentId,
+                'exit_agent_impersonation',
+                'Support inspection mode exited'
+            );
+            if (class_exists('AdminManager')) {
+                AdminManager::logAudit(
+                    (int)$adminId,
+                    'EXIT_IMPERSONATE_AGENT',
+                    'agents',
+                    (string)$targetAgentId,
+                    null,
+                    ['agent_id' => $targetAgentId],
+                    'Support inspection mode exited for agent'
+                );
+            }
+        }
+
+        // Clear agent session variables
+        unset(
+            $_SESSION['agent_id'],
+            $_SESSION['agent_code'],
+            $_SESSION['agent_name'],
+            $_SESSION['agent_logged_in'],
+            $_SESSION['agent_last_activity'],
+            $_SESSION['is_agent_impersonating']
+        );
+
+        // Restore administrator session
+        if ($adminId) {
+            $_SESSION['user_id'] = (int)$adminId;
+            $_SESSION['role'] = 'admin';
+            unset($_SESSION['real_admin_id']);
+        }
+
+        return [
+            'success' => true,
+            'redirect' => '/admin.php#agents'
+        ];
+    }
+
+    /**
      * Change Agent Password from Agent Dashboard.
      */
     public static function agentChangePassword(int $agentId, string $currentPassword, string $newPassword, string $totpCode, ?int $timestamp = null): array {
+        if (!empty($_SESSION['is_agent_impersonating'])) {
+            return ['success' => false, 'error' => 'Password modifications are strictly disabled in Admin Support Mode.'];
+        }
+
         $pdo = Database::getConnection();
 
         $stmt = $pdo->prepare("SELECT * FROM agents WHERE id = ?");
@@ -892,7 +1024,14 @@ class AgentManager {
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
         }
-        unset($_SESSION['agent_id'], $_SESSION['agent_code'], $_SESSION['agent_name'], $_SESSION['agent_logged_in'], $_SESSION['agent_last_activity']);
+        unset(
+            $_SESSION['agent_id'],
+            $_SESSION['agent_code'],
+            $_SESSION['agent_name'],
+            $_SESSION['agent_logged_in'],
+            $_SESSION['agent_last_activity'],
+            $_SESSION['is_agent_impersonating']
+        );
     }
 
     // ====================================================================
