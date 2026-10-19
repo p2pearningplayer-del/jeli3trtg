@@ -1651,7 +1651,18 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
         </div>
     </div>
 
-    <!-- Dedicated Admin Controller -->
-    <script src="/public/js/admin.js"></script>
+    <!-- Global Formatting Fallback (Protects against stale CDN/browser JS caches) -->
+    <script>
+        if (typeof window.formatCurrency !== 'function') {
+            window.formatCurrency = function(val) {
+                return Number(val || 0).toLocaleString('en-IN', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                });
+            };
+        }
+    </script>
+    <!-- Dedicated Admin Controller with Dynamic Timestamp Cache Buster -->
+    <script src="/public/js/admin.js?v=<?= file_exists(__DIR__ . '/public/js/admin.js') ? filemtime(__DIR__ . '/public/js/admin.js') : time() ?>"></script>
 </body>
 </html>
