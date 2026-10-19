@@ -462,16 +462,16 @@ $stats = AgentManager::getAgentDashboardStats($agentId);
             if (dateTo) params.append('date_to', dateTo);
 
             try {
-                const res = await fetch(`/api/agent?${params.toString()}`);
+                const res = await fetch(`/api/agent.php?${params.toString()}`);
                 const data = await res.json();
 
                 if (!data.success) {
-                    tbody.innerHTML = `<tr><td colspan="8" class="px-4 py-8 text-center text-rose-400 font-sans">${data.error || 'Failed to load purchases'}</td></tr>`;
+                    tbody.innerHTML = `<tr><td colspan="8" class="px-4 py-8 text-center text-rose-400 font-sans">${escapeHtml(data.error || 'Failed to load purchases')}</td></tr>`;
                     return;
                 }
 
-                totalPurchasesCount = data.total;
-                const rows = data.purchases;
+                totalPurchasesCount = data.total || 0;
+                const rows = Array.isArray(data.purchases) ? data.purchases : [];
 
                 if (rows.length === 0) {
                     tbody.innerHTML = '<tr><td colspan="8" class="px-4 py-8 text-center text-slate-500 font-sans">No purchase records found matching criteria.</td></tr>';
@@ -480,19 +480,19 @@ $stats = AgentManager::getAgentDashboardStats($agentId);
                         <tr class="hover:bg-slate-800/40 transition">
                             <td class="px-4 py-3 font-bold text-white">#${r.child_order_id}</td>
                             <td class="px-4 py-3 text-slate-300">
-                                <div>${escapeHtml(r.buyer_masked_phone)}</div>
-                                <div class="text-[10px] text-slate-500 font-sans">${escapeHtml(r.buyer_masked_name)}</div>
+                                <div>${escapeHtml(r.buyer_masked_phone || '')}</div>
+                                <div class="text-[10px] text-slate-500 font-sans">${escapeHtml(r.buyer_masked_name || '')}</div>
                             </td>
                             <td class="px-4 py-3 text-right text-white font-semibold">₹${formatCurrency(r.purchase_amount)}</td>
-                            <td class="px-4 py-3 text-right text-slate-400">${Number(r.commission_rate).toFixed(2)}%</td>
+                            <td class="px-4 py-3 text-right text-slate-400">${Number(r.commission_rate || 0).toFixed(2)}%</td>
                             <td class="px-4 py-3 text-right font-bold text-amber-400">+₹${formatCurrency(r.commission_amount)}</td>
                             <td class="px-4 py-3 text-center">
                                 <span class="px-2 py-0.5 rounded bg-slate-800 text-amber-300 border border-slate-700 font-bold">
-                                    Level ${r.referral_level}
+                                    Level ${escapeHtml(r.referral_level || 'A')}
                                 </span>
-                                <span class="text-[10px] text-slate-500 block font-sans">Depth ${r.referral_depth}</span>
+                                <span class="text-[10px] text-slate-500 block font-sans">Depth ${r.referral_depth || 1}</span>
                             </td>
-                            <td class="px-4 py-3 text-slate-400 text-[11px]">${r.completed_at}</td>
+                            <td class="px-4 py-3 text-slate-400 text-[11px]">${escapeHtml(r.completed_at || '')}</td>
                             <td class="px-4 py-3 text-center">
                                 ${r.status === 'earned'
                                     ? '<span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-sans font-bold">Earned</span>'
@@ -505,7 +505,8 @@ $stats = AgentManager::getAgentDashboardStats($agentId);
 
                 updatePaginationUI();
             } catch (e) {
-                tbody.innerHTML = '<tr><td colspan="8" class="px-4 py-8 text-center text-rose-400 font-sans">Server communication error.</td></tr>';
+                console.error('loadPurchases error:', e);
+                tbody.innerHTML = `<tr><td colspan="8" class="px-4 py-8 text-center text-rose-400 font-sans">Server communication error (${escapeHtml(e.message || 'Network/Server Error')}).</td></tr>`;
             }
         }
 
@@ -543,15 +544,15 @@ $stats = AgentManager::getAgentDashboardStats($agentId);
             tbody.innerHTML = '<tr><td colspan="9" class="px-4 py-8 text-center text-slate-500 font-sans">Loading statements...</td></tr>';
 
             try {
-                const res = await fetch('/api/agent?action=statements');
+                const res = await fetch('/api/agent.php?action=statements');
                 const data = await res.json();
 
                 if (!data.success) {
-                    tbody.innerHTML = `<tr><td colspan="9" class="px-4 py-8 text-center text-rose-400 font-sans">${data.error || 'Failed to load statements'}</td></tr>`;
+                    tbody.innerHTML = `<tr><td colspan="9" class="px-4 py-8 text-center text-rose-400 font-sans">${escapeHtml(data.error || 'Failed to load statements')}</td></tr>`;
                     return;
                 }
 
-                const rows = data.statements;
+                const rows = Array.isArray(data.statements) ? data.statements : [];
                 if (rows.length === 0) {
                     tbody.innerHTML = '<tr><td colspan="9" class="px-4 py-8 text-center text-slate-500 font-sans">No weekly statements generated yet. Statements are compiled every Monday 00:00 UTC.</td></tr>';
                 } else {
@@ -565,35 +566,42 @@ $stats = AgentManager::getAgentDashboardStats($agentId);
                             statusBadge = '<span class="px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30 text-[10px] font-sans font-bold">Pending Review</span>';
                         }
 
-                        const startFmt = new Date(s.start_date + ' UTC').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                        const endFmt = new Date(s.end_date + ' UTC').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                        const parseDate = (d) => {
+                            if (!d) return '—';
+                            const clean = d.replace(' ', 'T') + (d.includes('Z') ? '' : 'Z');
+                            const dt = new Date(clean);
+                            return isNaN(dt.getTime()) ? d : dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                        };
+                        const startFmt = parseDate(s.start_date);
+                        const endFmt = parseDate(s.end_date);
 
                         return `
                             <tr class="hover:bg-slate-800/40 transition">
-                                <td class="px-4 py-3 font-bold text-white">${escapeHtml(s.statement_code)}</td>
+                                <td class="px-4 py-3 font-bold text-white">${escapeHtml(s.statement_code || '')}</td>
                                 <td class="px-4 py-3 text-slate-300">
                                     <div>${startFmt} - ${endFmt}</div>
                                     <div class="text-[10px] text-slate-500 font-sans">Week ${s.week_number}, ${s.week_year}</div>
                                 </td>
-                                <td class="px-4 py-3 text-right text-slate-300">${s.total_orders}</td>
+                                <td class="px-4 py-3 text-right text-slate-300">${s.total_orders || 0}</td>
                                 <td class="px-4 py-3 text-right text-slate-300">₹${formatCurrency(s.total_volume)}</td>
                                 <td class="px-4 py-3 text-right text-slate-300">₹${formatCurrency(s.gross_commission)}</td>
-                                <td class="px-4 py-3 text-right ${Number(s.adjustment_amount) !== 0 ? 'text-amber-400 font-bold' : 'text-slate-500'}"
+                                <td class="px-4 py-3 text-right ${Number(s.adjustment_amount || 0) !== 0 ? 'text-amber-400 font-bold' : 'text-slate-500'}"
                                     title="${escapeHtml(s.adjustment_reason || '')}">
-                                    ${Number(s.adjustment_amount) > 0 ? '+' : ''}₹${formatCurrency(s.adjustment_amount)}
+                                    ${Number(s.adjustment_amount || 0) > 0 ? '+' : ''}₹${formatCurrency(s.adjustment_amount)}
                                 </td>
                                 <td class="px-4 py-3 text-right font-black text-amber-400 text-sm">₹${formatCurrency(s.net_commission)}</td>
                                 <td class="px-4 py-3 text-center">${statusBadge}</td>
                                 <td class="px-4 py-3 text-slate-300 text-[11px]">
                                     ${s.payout_reference ? `<div class="font-bold text-slate-200">Ref: ${escapeHtml(s.payout_reference)}</div>` : '<div class="text-slate-600">—</div>'}
-                                    ${s.paid_at ? `<div class="text-[10px] text-slate-500 font-sans">${s.paid_at}</div>` : ''}
+                                    ${s.paid_at ? `<div class="text-[10px] text-slate-500 font-sans">${escapeHtml(s.paid_at)}</div>` : ''}
                                 </td>
                             </tr>
                         `;
                     }).join('');
                 }
             } catch (e) {
-                tbody.innerHTML = '<tr><td colspan="9" class="px-4 py-8 text-center text-rose-400 font-sans">Server communication error.</td></tr>';
+                console.error('loadStatements error:', e);
+                tbody.innerHTML = `<tr><td colspan="9" class="px-4 py-8 text-center text-rose-400 font-sans">Server communication error (${escapeHtml(e.message || 'Network/Server Error')}).</td></tr>`;
             }
         }
 
@@ -639,7 +647,7 @@ $stats = AgentManager::getAgentDashboardStats($agentId);
             };
 
             try {
-                const res = await fetch('/api/agent?action=change_password', {
+                const res = await fetch('/api/agent.php?action=change_password', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
@@ -673,7 +681,7 @@ $stats = AgentManager::getAgentDashboardStats($agentId);
         async function handleLogout() {
             if (!confirm('Are you sure you want to end your Agent session?')) return;
             try {
-                await fetch('/api/agent?action=logout');
+                await fetch('/api/agent.php?action=logout');
             } catch (e) {}
             window.location.href = '/agent/login';
         }

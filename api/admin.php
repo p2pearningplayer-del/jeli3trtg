@@ -524,8 +524,13 @@ switch ($action) {
         break;
 
     case 'list_agents':
-        $agents = AgentManager::listAgents($_GET);
-        jsonResponse(true, ['agents' => $agents]);
+        try {
+            $agents = AgentManager::listAgents($_GET);
+            jsonResponse(true, ['agents' => $agents]);
+        } catch (Throwable $e) {
+            error_log("api/admin.php list_agents error: " . $e->getMessage());
+            jsonResponse(true, ['agents' => []]);
+        }
         break;
 
     case 'get_agent':
@@ -603,8 +608,13 @@ switch ($action) {
         break;
 
     case 'list_agent_statements':
-        $statements = AgentManager::listAdminStatements($_GET);
-        jsonResponse(true, ['statements' => $statements]);
+        try {
+            $statements = AgentManager::listAdminStatements($_GET);
+            jsonResponse(true, ['statements' => $statements]);
+        } catch (Throwable $e) {
+            error_log("api/admin.php list_agent_statements error: " . $e->getMessage());
+            jsonResponse(true, ['statements' => []]);
+        }
         break;
 
     case 'generate_agent_statements':

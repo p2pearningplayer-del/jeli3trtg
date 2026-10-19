@@ -286,20 +286,45 @@ class AgentManager {
 
         $whereClause = implode(" AND ", $where);
 
-        $stmt = $pdo->prepare("
-            SELECT a.*, u.referral_code as root_referral_code, u.phone as root_phone, u.account_holder_name as root_name,
-                   (SELECT COUNT(*) FROM agent_commissions WHERE agent_id = a.id AND status = 'earned') as total_commission_orders,
-                   (SELECT COALESCE(SUM(purchase_amount), 0) FROM agent_commissions WHERE agent_id = a.id AND status = 'earned') as total_volume,
-                   (SELECT COALESCE(SUM(commission_amount), 0) FROM agent_commissions WHERE agent_id = a.id AND status = 'earned') as total_commission_earned,
-                   (SELECT COALESCE(SUM(net_commission), 0) FROM agent_weekly_statements WHERE agent_id = a.id AND payout_status = 'paid') as total_commission_paid,
-                   (SELECT COALESCE(SUM(net_commission), 0) FROM agent_weekly_statements WHERE agent_id = a.id AND payout_status IN ('pending_review', 'approved')) as total_commission_pending
-            FROM agents a
-            LEFT JOIN users u ON a.root_user_id = u.id
-            WHERE {$whereClause}
-            ORDER BY a.id DESC
-        ");
-        $stmt->execute($params);
-        $agents = $stmt->fetchAll();
+        try {
+            $stmt = $pdo->prepare("
+                SELECT a.*, u.referral_code as root_referral_code, u.phone as root_phone, u.account_holder_name as root_name,
+                       (SELECT COUNT(*) FROM agent_commissions WHERE agent_id = a.id AND status = 'earned') as total_commission_orders,
+                       (SELECT COALESCE(SUM(purchase_amount), 0) FROM agent_commissions WHERE agent_id = a.id AND status = 'earned') as total_volume,
+                       (SELECT COALESCE(SUM(commission_amount), 0) FROM agent_commissions WHERE agent_id = a.id AND status = 'earned') as total_commission_earned,
+                       (SELECT COALESCE(SUM(net_commission), 0) FROM agent_weekly_statements WHERE agent_id = a.id AND payout_status = 'paid') as total_commission_paid,
+                       (SELECT COALESCE(SUM(net_commission), 0) FROM agent_weekly_statements WHERE agent_id = a.id AND payout_status IN ('pending_review', 'approved')) as total_commission_pending
+                FROM agents a
+                LEFT JOIN users u ON a.root_user_id = u.id
+                WHERE {$whereClause}
+                ORDER BY a.id DESC
+            ");
+            $stmt->execute($params);
+            $agents = $stmt->fetchAll();
+        } catch (\PDOException $e) {
+            // Auto self-heal schema migration if tables not yet created
+            require_once __DIR__ . '/../config/schema_installer.php';
+            SchemaInstaller::ensureSchema();
+            try {
+                $stmt = $pdo->prepare("
+                    SELECT a.*, u.referral_code as root_referral_code, u.phone as root_phone, u.account_holder_name as root_name,
+                           (SELECT COUNT(*) FROM agent_commissions WHERE agent_id = a.id AND status = 'earned') as total_commission_orders,
+                           (SELECT COALESCE(SUM(purchase_amount), 0) FROM agent_commissions WHERE agent_id = a.id AND status = 'earned') as total_volume,
+                           (SELECT COALESCE(SUM(commission_amount), 0) FROM agent_commissions WHERE agent_id = a.id AND status = 'earned') as total_commission_earned,
+                           (SELECT COALESCE(SUM(net_commission), 0) FROM agent_weekly_statements WHERE agent_id = a.id AND payout_status = 'paid') as total_commission_paid,
+                           (SELECT COALESCE(SUM(net_commission), 0) FROM agent_weekly_statements WHERE agent_id = a.id AND payout_status IN ('pending_review', 'approved')) as total_commission_pending
+                    FROM agents a
+                    LEFT JOIN users u ON a.root_user_id = u.id
+                    WHERE {$whereClause}
+                    ORDER BY a.id DESC
+                ");
+                $stmt->execute($params);
+                $agents = $stmt->fetchAll();
+            } catch (\PDOException $e2) {
+                error_log("AgentManager::listAgents error: " . $e2->getMessage());
+                return [];
+            }
+        }
 
         $currentWeek = self::getCurrentUtcWeek();
         $startOfWeek = $currentWeek['start_date'];
@@ -1286,21 +1311,26 @@ class AgentManager {
 
         $whereClause = implode(" AND ", $where);
 
-        $stmt = $pdo->prepare("
-            SELECT s.*, a.agent_code, a.name as agent_name, a.commission_rate,
-                   u.referral_code as root_referral_code,
-                   admin_p.account_holder_name as paid_by_name,
-                   admin_a.account_holder_name as approved_by_name
-            FROM agent_weekly_statements s
-            JOIN agents a ON s.agent_id = a.id
-            LEFT JOIN users u ON a.root_user_id = u.id
-            LEFT JOIN users admin_p ON s.paid_by_admin_id = admin_p.id
-            LEFT JOIN users admin_a ON s.approved_by_admin_id = admin_a.id
-            WHERE {$whereClause}
-            ORDER BY s.week_year DESC, s.week_number DESC, s.id DESC
-        ");
-        $stmt->execute($params);
-        return $stmt->fetchAll();
+        try {
+            $stmt = $pdo->prepare("
+                SELECT s.*, a.agent_code, a.name as agent_name, a.commission_rate,
+                       u.referral_code as root_referral_code,
+                       admin_p.account_holder_name as paid_by_name,
+                       admin_a.account_holder_name as approved_by_name
+                FROM agent_weekly_statements s
+                JOIN agents a ON s.agent_id = a.id
+                LEFT JOIN users u ON a.root_user_id = u.id
+                LEFT JOIN users admin_p ON s.paid_by_admin_id = admin_p.id
+                LEFT JOIN users admin_a ON s.approved_by_admin_id = admin_a.id
+                WHERE {$whereClause}
+                ORDER BY s.week_year DESC, s.week_number DESC, s.id DESC
+            ");
+            $stmt->execute($params);
+            return $stmt->fetchAll();
+        } catch (\PDOException $e) {
+            error_log("AgentManager::listAdminStatements error: " . $e->getMessage());
+            return [];
+        }
     }
 
     /**

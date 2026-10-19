@@ -1740,7 +1740,7 @@ async function loadAdminAgents() {
             return;
         }
 
-        const agents = data.agents || [];
+        const agents = Array.isArray(data.agents) ? data.agents : [];
         cachedAdminAgentsList = agents;
 
         // Update Summary Cards
@@ -1752,6 +1752,7 @@ async function loadAdminAgents() {
         let totalPending = 0;
 
         agents.forEach(a => {
+            if (!a) return;
             if (a.status === 'active') totalActive++;
             if (a.status === 'suspended') totalSuspended++;
             totalVol += Number(a.total_volume || 0);
@@ -1781,11 +1782,11 @@ async function loadAdminAgents() {
         tbody.innerHTML = agents.map(a => `
             <tr class="hover:bg-slate-800/40 transition">
                 <td class="p-3.5 font-bold text-white">
-                    <span class="text-amber-400">${escapeHtml(a.agent_code)}</span>
+                    <span class="text-amber-400">${escapeHtml(a.agent_code || '')}</span>
                     <span class="text-[10px] text-slate-500 block font-sans">ID #${a.id}</span>
                 </td>
                 <td class="p-3.5 text-slate-200">
-                    <div class="font-semibold text-white">${escapeHtml(a.name)}</div>
+                    <div class="font-semibold text-white">${escapeHtml(a.name || '')}</div>
                     <div class="text-[11px] text-slate-400 font-sans">
                         ${a.phone ? escapeHtml(a.phone) : ''}
                         ${a.phone && a.email ? ' &bull; ' : ''}
@@ -1795,14 +1796,14 @@ async function loadAdminAgents() {
                 </td>
                 <td class="p-3.5 text-slate-300">
                     <span class="px-2 py-0.5 rounded bg-slate-800 text-indigo-300 font-bold border border-slate-700">
-                        ${escapeHtml(a.root_referral_code)}
+                        ${escapeHtml(a.root_referral_code || 'N/A')}
                     </span>
-                    <span class="text-[10px] text-slate-500 block font-sans">${escapeHtml(a.root_name)}</span>
+                    <span class="text-[10px] text-slate-500 block font-sans">${escapeHtml(a.root_name || '')}</span>
                 </td>
-                <td class="p-3.5 text-right font-black text-amber-400">${Number(a.commission_rate).toFixed(2)}%</td>
+                <td class="p-3.5 text-right font-black text-amber-400">${Number(a.commission_rate || 0).toFixed(2)}%</td>
                 <td class="p-3.5 text-center">
-                    <span class="px-2 py-0.5 rounded bg-slate-950 text-slate-300 border border-slate-800 text-[10px] font-bold" title="${escapeHtml(a.eligible_levels)}">
-                        ${a.eligible_levels.split(',').length === 26 ? 'All (A-Z)' : a.eligible_levels}
+                    <span class="px-2 py-0.5 rounded bg-slate-950 text-slate-300 border border-slate-800 text-[10px] font-bold" title="${escapeHtml(a.eligible_levels || '')}">
+                        ${(a.eligible_levels || '').split(',').length >= 26 ? 'All (A-Z)' : escapeHtml(a.eligible_levels || 'None')}
                     </span>
                 </td>
                 <td class="p-3.5 text-right text-white font-bold">${Number(a.total_referred_users || 0).toLocaleString()}</td>
@@ -1812,7 +1813,7 @@ async function loadAdminAgents() {
                 </td>
                 <td class="p-3.5 text-right">
                     <div class="text-amber-400 font-bold">₹${formatCurrency(a.current_week_commission)}</div>
-                    <div class="text-[10px] text-slate-500 font-sans">${a.current_week_orders} orders</div>
+                    <div class="text-[10px] text-slate-500 font-sans">${Number(a.current_week_orders || 0)} orders</div>
                 </td>
                 <td class="p-3.5 text-center">
                     ${a.status === 'active'
@@ -1826,15 +1827,15 @@ async function loadAdminAgents() {
                                 class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
                         </button>
-                        <button onclick="adminResetAgentPassword(${a.id}, '${escapeHtml(a.agent_code)}')" title="Reset Password"
+                        <button onclick="adminResetAgentPassword(${a.id}, '${escapeHtml(a.agent_code || '')}')" title="Reset Password"
                                 class="p-1.5 rounded-lg bg-slate-800 hover:bg-amber-500/20 text-slate-300 hover:text-amber-400 transition">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
                         </button>
-                        <button onclick="adminResetAgentTotp(${a.id}, '${escapeHtml(a.agent_code)}')" title="Reset Google Authenticator"
+                        <button onclick="adminResetAgentTotp(${a.id}, '${escapeHtml(a.agent_code || '')}')" title="Reset Google Authenticator"
                                 class="p-1.5 rounded-lg bg-slate-800 hover:bg-indigo-500/20 text-slate-300 hover:text-indigo-400 transition">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"/></svg>
                         </button>
-                        <button onclick="adminToggleAgentStatus(${a.id}, '${a.status}')" title="${a.status === 'active' ? 'Suspend Agent' : 'Activate Agent'}"
+                        <button onclick="adminToggleAgentStatus(${a.id}, '${a.status || 'active'}')" title="${a.status === 'active' ? 'Suspend Agent' : 'Activate Agent'}"
                                 class="p-1.5 rounded-lg ${a.status === 'active' ? 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-400' : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400'} transition">
                             ${a.status === 'active'
                                 ? '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>'
@@ -1846,7 +1847,8 @@ async function loadAdminAgents() {
             </tr>
         `).join('');
     } catch (e) {
-        tbody.innerHTML = '<tr><td colspan="10" class="p-8 text-center text-rose-400 font-sans">Server communication error.</td></tr>';
+        console.error('loadAdminAgents error:', e);
+        tbody.innerHTML = `<tr><td colspan="10" class="p-8 text-center text-rose-400 font-sans">Server communication error (${escapeHtml(e.message || 'Network/Server Error')}). <button onclick="loadAdminAgents()" class="underline text-amber-400 ml-2">Retry</button></td></tr>`;
     }
 }
 
@@ -1959,8 +1961,9 @@ async function handleCreateAgentSubmit(e) {
             alertBox.classList.remove('hidden');
         }
     } catch (err) {
+        console.error('handleCreateAgentSubmit error:', err);
         alertBox.className = 'p-3 rounded-xl text-xs bg-rose-500/10 border border-rose-500/30 text-rose-300 flex items-center gap-2';
-        alertBox.textContent = 'Server communication error.';
+        alertBox.textContent = `Server communication error (${err.message || 'Network/Server Error'}).`;
         alertBox.classList.remove('hidden');
     } finally {
         submitBtn.disabled = false;
@@ -2245,28 +2248,34 @@ async function loadAdminWeeklyStatements() {
                 statusBadge = '<span class="px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30 text-[10px] font-sans font-bold">Pending Review</span>';
             }
 
-            const startFmt = new Date(s.start_date + ' UTC').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-            const endFmt = new Date(s.end_date + ' UTC').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            const parseDate = (d) => {
+                if (!d) return '—';
+                const clean = d.replace(' ', 'T') + (d.includes('Z') ? '' : 'Z');
+                const dt = new Date(clean);
+                return isNaN(dt.getTime()) ? d : dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            };
+            const startFmt = parseDate(s.start_date);
+            const endFmt = parseDate(s.end_date);
 
             return `
                 <tr class="hover:bg-slate-900/60 transition">
-                    <td class="p-3 font-bold text-white">${escapeHtml(s.statement_code)}</td>
+                    <td class="p-3 font-bold text-white">${escapeHtml(s.statement_code || '')}</td>
                     <td class="p-3 text-slate-200">
-                        <span class="text-amber-400 font-bold">${escapeHtml(s.agent_code)}</span>
-                        <span class="text-[10px] text-slate-500 block font-sans">${escapeHtml(s.agent_name)}</span>
+                        <span class="text-amber-400 font-bold">${escapeHtml(s.agent_code || '')}</span>
+                        <span class="text-[10px] text-slate-500 block font-sans">${escapeHtml(s.agent_name || '')}</span>
                     </td>
                     <td class="p-3 text-slate-300">
                         <div>${startFmt} - ${endFmt}</div>
                         <div class="text-[10px] text-slate-500 font-sans">Week ${s.week_number}, ${s.week_year}</div>
                     </td>
-                    <td class="p-3 text-right text-slate-300">${s.total_orders}</td>
+                    <td class="p-3 text-right text-slate-300">${s.total_orders || 0}</td>
                     <td class="p-3 text-right text-slate-300">₹${formatCurrency(s.total_volume)}</td>
                     <td class="p-3 text-right text-slate-300">₹${formatCurrency(s.gross_commission)}</td>
-                    <td class="p-3 text-right ${Number(s.adjustment_amount) !== 0 ? 'text-amber-400 font-bold' : 'text-slate-500'}"
+                    <td class="p-3 text-right ${Number(s.adjustment_amount || 0) !== 0 ? 'text-amber-400 font-bold' : 'text-slate-500'}"
                         title="${escapeHtml(s.adjustment_reason || '')}">
-                        ${Number(s.adjustment_amount) > 0 ? '+' : ''}₹${formatCurrency(s.adjustment_amount)}
+                        ${Number(s.adjustment_amount || 0) > 0 ? '+' : ''}₹${formatCurrency(s.adjustment_amount)}
                         ${s.payout_status !== 'paid' ? `
-                            <button onclick="openStatementAdjustmentModal(${s.id}, '${escapeHtml(s.statement_code)}', ${s.gross_commission})" class="text-[10px] text-amber-400 hover:underline block font-sans">
+                            <button onclick="openStatementAdjustmentModal(${s.id}, '${escapeHtml(s.statement_code || '')}', ${Number(s.gross_commission || 0)})" class="text-[10px] text-amber-400 hover:underline block font-sans">
                                 Adjust
                             </button>
                         ` : ''}
@@ -2275,18 +2284,18 @@ async function loadAdminWeeklyStatements() {
                     <td class="p-3 text-center">${statusBadge}</td>
                     <td class="p-3 text-slate-300 text-[11px]">
                         ${s.payout_reference ? `<div class="font-bold text-slate-200">Ref: ${escapeHtml(s.payout_reference)}</div>` : '<div class="text-slate-600">—</div>'}
-                        ${s.paid_at ? `<div class="text-[10px] text-slate-500 font-sans">${s.paid_at}</div>` : ''}
+                        ${s.paid_at ? `<div class="text-[10px] text-slate-500 font-sans">${escapeHtml(s.paid_at)}</div>` : ''}
                     </td>
                     <td class="p-3 text-right font-sans">
                         <div class="flex items-center justify-end gap-1.5">
                             ${s.payout_status === 'pending_review' ? `
-                                <button onclick="adminApproveStatement(${s.id}, '${escapeHtml(s.statement_code)}')"
+                                <button onclick="adminApproveStatement(${s.id}, '${escapeHtml(s.statement_code || '')}')"
                                         class="px-2.5 py-1 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-lg text-[11px] transition shadow">
                                     Approve
                                 </button>
                             ` : ''}
                             ${s.payout_status === 'approved' ? `
-                                <button onclick="openRecordPayoutModal(${s.id}, '${escapeHtml(s.statement_code)}', ${s.net_commission})"
+                                <button onclick="openRecordPayoutModal(${s.id}, '${escapeHtml(s.statement_code || '')}', ${Number(s.net_commission || 0)})"
                                         class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg text-[11px] transition shadow">
                                     Record Payout
                                 </button>
@@ -2303,7 +2312,8 @@ async function loadAdminWeeklyStatements() {
             `;
         }).join('');
     } catch (e) {
-        tbody.innerHTML = '<tr><td colspan="11" class="p-8 text-center text-rose-400 font-sans">Server communication error.</td></tr>';
+        console.error('loadAdminWeeklyStatements error:', e);
+        tbody.innerHTML = `<tr><td colspan="11" class="p-8 text-center text-rose-400 font-sans">Server communication error (${escapeHtml(e.message || 'Network/Server Error')}).</td></tr>`;
     }
 }
 
