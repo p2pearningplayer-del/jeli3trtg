@@ -10,6 +10,7 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/Wallet.php';
 require_once __DIR__ . '/Ledger.php';
 require_once __DIR__ . '/ReferralEngine.php';
+require_once __DIR__ . '/AgentManager.php';
 
 class AdminManager {
     /**
@@ -555,6 +556,9 @@ class AdminManager {
                 // Distribute referral commissions
                 ReferralEngine::distributeCommissions($buyerId, $amount, (string)$childId);
 
+                // Snapshot Agent Commissions for eligible referral hierarchy levels A-Z
+                AgentManager::onOrderCompleted($childId, $buyerId, $amount, $resolvedAt);
+
                 // Update parent order
                 $updParent = $pdo->prepare("UPDATE parent_sell_orders SET completed_amount = completed_amount + ?, reserved_amount = reserved_amount - ? WHERE id = ?");
                 $updParent->execute([$amount, $amount, $dispute['parent_order_id']]);
@@ -580,6 +584,9 @@ class AdminManager {
                 // Payment unverified -> Cancel order and return tokens to seller
                 $updOrder = $pdo->prepare("UPDATE child_orders SET status = 'Cancelled / Reversed' WHERE id = ?");
                 $updOrder->execute([$childId]);
+
+                // Reverse any agent commissions
+                AgentManager::onOrderReversed($childId);
 
                 // Release seller reserved tokens back to available balance
                 Wallet::releaseReserved($sellerId, $amount, (string)$childId, "Dispute #{$disputeId} resolved in favor of seller: " . trim($resolutionNotes));

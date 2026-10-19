@@ -10,6 +10,7 @@ require_once __DIR__ . '/../src/AdminManager.php';
 require_once __DIR__ . '/../src/Wallet.php';
 require_once __DIR__ . '/../src/Ledger.php';
 require_once __DIR__ . '/../src/StateMachine.php';
+require_once __DIR__ . '/../src/AgentManager.php';
 require_once __DIR__ . '/response.php';
 
 $action = $_GET['action'] ?? $_POST['action'] ?? 'stats';
@@ -517,6 +518,149 @@ switch ($action) {
         } else {
             jsonError($res['error']);
         }
+        break;
+
+    case 'list_agents':
+        $agents = AgentManager::listAgents($_GET);
+        jsonResponse(true, ['agents' => $agents]);
+        break;
+
+    case 'get_agent':
+        $agentId = (int)($_GET['agent_id'] ?? $input['agent_id'] ?? 0);
+        if ($agentId <= 0) {
+            jsonError('Agent ID is required.');
+        }
+        $detail = AgentManager::getAgentDetail($agentId);
+        if (!$detail) {
+            jsonError('Agent not found.', 404);
+        }
+        jsonResponse(true, $detail);
+        break;
+
+    case 'create_agent':
+        $res = AgentManager::createAgent($input, $adminId);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
+    case 'update_agent':
+        $agentId = (int)($input['agent_id'] ?? 0);
+        if ($agentId <= 0) {
+            jsonError('Agent ID is required.');
+        }
+        $res = AgentManager::updateAgent($agentId, $input, $adminId);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
+    case 'reset_agent_password':
+        $agentId = (int)($input['agent_id'] ?? 0);
+        if ($agentId <= 0) {
+            jsonError('Agent ID is required.');
+        }
+        $res = AgentManager::resetPassword($agentId, $adminId);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
+    case 'reset_agent_totp':
+        $agentId = (int)($input['agent_id'] ?? 0);
+        if ($agentId <= 0) {
+            jsonError('Agent ID is required.');
+        }
+        $res = AgentManager::resetTotp($agentId, $adminId);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
+    case 'toggle_agent_status':
+        $agentId = (int)($input['agent_id'] ?? 0);
+        $reason = $input['reason'] ?? 'Admin status toggle';
+        if ($agentId <= 0) {
+            jsonError('Agent ID is required.');
+        }
+        $res = AgentManager::toggleStatus($agentId, $adminId, $reason);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
+    case 'list_agent_statements':
+        $statements = AgentManager::listAdminStatements($_GET);
+        jsonResponse(true, ['statements' => $statements]);
+        break;
+
+    case 'generate_agent_statements':
+        $year = !empty($input['year']) ? (int)$input['year'] : null;
+        $week = !empty($input['week']) ? (int)$input['week'] : null;
+        $targetAgentId = !empty($input['agent_id']) ? (int)$input['agent_id'] : null;
+        $res = AgentManager::generateWeeklyStatements($year, $week, $targetAgentId);
+        jsonResponse(true, $res);
+        break;
+
+    case 'adjust_agent_statement':
+        $statementId = (int)($input['statement_id'] ?? 0);
+        $adjAmount = (float)($input['adjustment_amount'] ?? 0);
+        $reason = trim((string)($input['reason'] ?? ''));
+        if ($statementId <= 0 || empty($reason)) {
+            jsonError('Statement ID and mandatory adjustment reason are required.');
+        }
+        $res = AgentManager::adjustStatement($statementId, $adjAmount, $reason, $adminId);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
+    case 'approve_agent_statement':
+        $statementId = (int)($input['statement_id'] ?? 0);
+        if ($statementId <= 0) {
+            jsonError('Statement ID is required.');
+        }
+        $res = AgentManager::approveStatement($statementId, $adminId);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
+    case 'payout_agent_statement':
+        $statementId = (int)($input['statement_id'] ?? 0);
+        $payoutRef = trim((string)($input['payout_reference'] ?? ''));
+        $paidDate = trim((string)($input['paid_date'] ?? ''));
+        $notes = $input['notes'] ?? null;
+        if ($statementId <= 0 || empty($payoutRef)) {
+            jsonError('Statement ID and payout payment reference (UTR) are required.');
+        }
+        $res = AgentManager::recordPayout($statementId, $payoutRef, $paidDate, $adminId, $notes);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
+    case 'agent_audit_logs':
+        $targetAgentId = !empty($_GET['agent_id']) ? (int)$_GET['agent_id'] : null;
+        $limit = !empty($_GET['limit']) ? (int)$_GET['limit'] : 50;
+        $logs = AgentManager::getAuditLogs($targetAgentId, $limit);
+        jsonResponse(true, ['logs' => $logs]);
         break;
 
     default:

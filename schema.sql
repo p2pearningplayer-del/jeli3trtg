@@ -341,6 +341,102 @@ CREATE TABLE IF NOT EXISTS `user_risk_profiles` (
   CONSTRAINT `fk_urp_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 17. AGENTS TABLE
+CREATE TABLE IF NOT EXISTS `agents` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `agent_code` VARCHAR(50) NOT NULL UNIQUE,
+  `name` VARCHAR(100) NOT NULL,
+  `phone` VARCHAR(20) DEFAULT NULL,
+  `email` VARCHAR(100) DEFAULT NULL,
+  `password_hash` VARCHAR(255) NOT NULL,
+  `root_user_id` INT NOT NULL,
+  `commission_rate` DECIMAL(5,2) NOT NULL DEFAULT 0.00,
+  `eligible_levels` VARCHAR(255) NOT NULL DEFAULT 'A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z',
+  `totp_secret` TEXT NOT NULL,
+  `totp_last_timestamp` BIGINT NOT NULL DEFAULT 0,
+  `status` ENUM('active', 'suspended') NOT NULL DEFAULT 'active',
+  `must_change_password` TINYINT(1) NOT NULL DEFAULT 1,
+  `created_by_admin_id` INT DEFAULT NULL,
+  `last_login_at` DATETIME DEFAULT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX `idx_agents_code` (`agent_code`),
+  INDEX `idx_agents_root` (`root_user_id`),
+  INDEX `idx_agents_status` (`status`),
+  CONSTRAINT `fk_agents_root_user` FOREIGN KEY (`root_user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 18. AGENT COMMISSIONS TABLE (Idempotent base purchase token commission ledger)
+CREATE TABLE IF NOT EXISTS `agent_commissions` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `agent_id` INT NOT NULL,
+  `child_order_id` INT NOT NULL,
+  `buyer_id` INT NOT NULL,
+  `purchase_amount` DECIMAL(16,2) NOT NULL,
+  `commission_rate` DECIMAL(5,2) NOT NULL,
+  `commission_amount` DECIMAL(16,2) NOT NULL,
+  `referral_level` VARCHAR(5) NOT NULL,
+  `referral_depth` INT NOT NULL,
+  `statement_id` INT DEFAULT NULL,
+  `status` ENUM('earned', 'reversed') NOT NULL DEFAULT 'earned',
+  `order_completed_at` DATETIME NOT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY `uk_agent_child_order` (`agent_id`, `child_order_id`),
+  INDEX `idx_ac_agent` (`agent_id`),
+  INDEX `idx_ac_order` (`child_order_id`),
+  INDEX `idx_ac_buyer` (`buyer_id`),
+  INDEX `idx_ac_statement` (`statement_id`),
+  INDEX `idx_ac_completed` (`order_completed_at`),
+  CONSTRAINT `fk_ac_agent` FOREIGN KEY (`agent_id`) REFERENCES `agents` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_ac_child_order` FOREIGN KEY (`child_order_id`) REFERENCES `child_orders` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_ac_buyer` FOREIGN KEY (`buyer_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 19. AGENT WEEKLY STATEMENTS TABLE (Monday 00:00:00 to Sunday 23:59:59 UTC cycles)
+CREATE TABLE IF NOT EXISTS `agent_weekly_statements` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `statement_code` VARCHAR(50) NOT NULL UNIQUE,
+  `agent_id` INT NOT NULL,
+  `week_number` INT NOT NULL,
+  `week_year` INT NOT NULL,
+  `start_date` DATETIME NOT NULL,
+  `end_date` DATETIME NOT NULL,
+  `total_volume` DECIMAL(16,2) NOT NULL DEFAULT 0.00,
+  `total_orders` INT NOT NULL DEFAULT 0,
+  `gross_commission` DECIMAL(16,2) NOT NULL DEFAULT 0.00,
+  `adjustment_amount` DECIMAL(16,2) NOT NULL DEFAULT 0.00,
+  `adjustment_reason` TEXT DEFAULT NULL,
+  `net_commission` DECIMAL(16,2) NOT NULL DEFAULT 0.00,
+  `payout_status` ENUM('draft', 'pending_review', 'approved', 'paid', 'cancelled') NOT NULL DEFAULT 'pending_review',
+  `payout_reference` VARCHAR(100) DEFAULT NULL,
+  `paid_at` DATETIME DEFAULT NULL,
+  `paid_by_admin_id` INT DEFAULT NULL,
+  `approved_at` DATETIME DEFAULT NULL,
+  `approved_by_admin_id` INT DEFAULT NULL,
+  `notes` TEXT DEFAULT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY `uk_aws_agent_week` (`agent_id`, `week_year`, `week_number`),
+  INDEX `idx_aws_agent` (`agent_id`),
+  INDEX `idx_aws_status` (`payout_status`),
+  CONSTRAINT `fk_aws_agent` FOREIGN KEY (`agent_id`) REFERENCES `agents` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 20. AGENT AUDIT LOGS TABLE
+CREATE TABLE IF NOT EXISTS `agent_audit_logs` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `actor_type` VARCHAR(20) NOT NULL,
+  `actor_id` INT NOT NULL,
+  `agent_id` INT NOT NULL,
+  `action` VARCHAR(50) NOT NULL,
+  `details` TEXT DEFAULT NULL,
+  `ip_address` VARCHAR(50) DEFAULT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_aal_agent` (`agent_id`),
+  INDEX `idx_aal_action` (`action`),
+  CONSTRAINT `fk_aal_agent` FOREIGN KEY (`agent_id`) REFERENCES `agents` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- ====================================================================
 -- DEFAULT CONFIGURATION SEEDS
 -- ====================================================================

@@ -13,7 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(periodicAdminSync, 10000);
     window.addEventListener('hashchange', () => {
         const hashTab = window.location.hash.replace('#', '');
-        const validTabs = ['dashboard', 'users', 'orders', 'disputes', 'fraud', 'rewards', 'content', 'reports', 'audit', 'admins'];
+        const validTabs = ['dashboard', 'users', 'orders', 'disputes', 'fraud', 'rewards', 'content', 'reports', 'audit', 'admins', 'agents'];
         if (hashTab && validTabs.includes(hashTab) && hashTab !== currentAdminTab) {
             switchAdminTab(hashTab);
         }
@@ -25,7 +25,7 @@ async function initAdmin() {
     const tabParam = urlParams.get('tab');
     const hashTab = window.location.hash.replace('#', '');
     const savedTab = localStorage.getItem('adminActiveTab');
-    const validTabs = ['dashboard', 'users', 'orders', 'disputes', 'fraud', 'rewards', 'content', 'reports', 'audit', 'admins'];
+    const validTabs = ['dashboard', 'users', 'orders', 'disputes', 'fraud', 'rewards', 'content', 'reports', 'audit', 'admins', 'agents'];
 
     let initialTab = 'dashboard';
     if (tabParam && validTabs.includes(tabParam)) {
@@ -40,7 +40,7 @@ async function initAdmin() {
 }
 
 function switchAdminTab(tabId, filterOptions = null) {
-    const validTabs = ['dashboard', 'users', 'orders', 'disputes', 'fraud', 'rewards', 'content', 'reports', 'audit', 'admins'];
+    const validTabs = ['dashboard', 'users', 'orders', 'disputes', 'fraud', 'rewards', 'content', 'reports', 'audit', 'admins', 'agents'];
     if (!validTabs.includes(tabId)) {
         tabId = 'dashboard';
     }
@@ -111,6 +111,7 @@ function switchAdminTab(tabId, filterOptions = null) {
     if (tabId === 'reports') loadAdminReports();
     if (tabId === 'audit') loadAdminAuditLogs();
     if (tabId === 'admins') loadAdminDirectory();
+    if (tabId === 'agents') loadAdminAgents();
 }
 
 function periodicAdminSync() {
@@ -1690,5 +1691,769 @@ async function submitFraudReview(action) {
         alert('Communication error submitting fraud review.');
     }
 }
+
+// ====================================================================
+// TAB 11: AGENT MANAGEMENT SYSTEM CONTROLLER
+// ====================================================================
+
+let latestCreatedAgentCreds = null;
+let agentSearchTimer = null;
+let cachedAdminAgentsList = [];
+
+function debounceAgentSearch() {
+    clearTimeout(agentSearchTimer);
+    agentSearchTimer = setTimeout(() => {
+        loadAdminAgents();
+    }, 300);
+}
+
+async function loadAdminAgents() {
+    const tbody = document.getElementById('adminAgentsTableBody');
+    if (!tbody) return;
+
+    tbody.innerHTML = '<tr><td colspan="10" class="p-8 text-center text-slate-500 font-sans">Loading agent accounts...</td></tr>';
+
+    const search = document.getElementById('agentSearchInput')?.value.trim() || '';
+    const status = document.getElementById('agentStatusFilter')?.value || 'all';
+
+    const params = new URLSearchParams({
+        action: 'list_agents',
+        query: search,
+        status: status
+    });
+
+    try {
+        const res = await fetch(`/api/admin.php?${params.toString()}`);
+        const data = await res.json();
+
+        if (!data.success) {
+            tbody.innerHTML = `<tr><td colspan="10" class="p-8 text-center text-rose-400 font-sans">${data.error || 'Failed to load agents'}</td></tr>`;
+            return;
+        }
+
+        const agents = data.agents || [];
+        cachedAdminAgentsList = agents;
+
+        // Update Summary Cards
+        let totalActive = 0;
+        let totalSuspended = 0;
+        let totalVol = 0;
+        let totalWeekComm = 0;
+        let totalPaid = 0;
+        let totalPending = 0;
+
+        agents.forEach(a => {
+            if (a.status === 'active') totalActive++;
+            if (a.status === 'suspended') totalSuspended++;
+            totalVol += Number(a.total_volume || 0);
+            totalWeekComm += Number(a.current_week_commission || 0);
+            totalPaid += Number(a.total_commission_paid || 0);
+            totalPending += Number(a.total_commission_pending || 0);
+        });
+
+        const setTxt = (id, val) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = val;
+        };
+
+        setTxt('agentTotalCount', agents.length);
+        setTxt('agentActiveCount', totalActive);
+        setTxt('agentSuspendedCount', totalSuspended);
+        setTxt('agentTotalVolume', '₹' + formatCurrency(totalVol));
+        setTxt('agentWeekCommission', '₹' + formatCurrency(totalWeekComm));
+        setTxt('agentPaidCommission', '₹' + formatCurrency(totalPaid));
+        setTxt('agentPendingCommission', '₹' + formatCurrency(totalPending));
+
+        if (agents.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="10" class="p-8 text-center text-slate-500 font-sans">No agent accounts found matching criteria. Click "Create Agent" above to add one.</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = agents.map(a => `
+            <tr class="hover:bg-slate-800/40 transition">
+                <td class="p-3.5 font-bold text-white">
+                    <span class="text-amber-400">${escapeHtml(a.agent_code)}</span>
+                    <span class="text-[10px] text-slate-500 block font-sans">ID #${a.id}</span>
+                </td>
+                <td class="p-3.5 text-slate-200">
+                    <div class="font-semibold text-white">${escapeHtml(a.name)}</div>
+                    <div class="text-[11px] text-slate-400 font-sans">
+                        ${a.phone ? escapeHtml(a.phone) : ''}
+                        ${a.phone && a.email ? ' &bull; ' : ''}
+                        ${a.email ? escapeHtml(a.email) : ''}
+                        ${!a.phone && !a.email ? '<span class="text-slate-600">No contact provided</span>' : ''}
+                    </div>
+                </td>
+                <td class="p-3.5 text-slate-300">
+                    <span class="px-2 py-0.5 rounded bg-slate-800 text-indigo-300 font-bold border border-slate-700">
+                        ${escapeHtml(a.root_referral_code)}
+                    </span>
+                    <span class="text-[10px] text-slate-500 block font-sans">${escapeHtml(a.root_name)}</span>
+                </td>
+                <td class="p-3.5 text-right font-black text-amber-400">${Number(a.commission_rate).toFixed(2)}%</td>
+                <td class="p-3.5 text-center">
+                    <span class="px-2 py-0.5 rounded bg-slate-950 text-slate-300 border border-slate-800 text-[10px] font-bold" title="${escapeHtml(a.eligible_levels)}">
+                        ${a.eligible_levels.split(',').length === 26 ? 'All (A-Z)' : a.eligible_levels}
+                    </span>
+                </td>
+                <td class="p-3.5 text-right text-white font-bold">${Number(a.total_referred_users || 0).toLocaleString()}</td>
+                <td class="p-3.5 text-right">
+                    <div class="text-white font-semibold">₹${formatCurrency(a.total_volume)}</div>
+                    <div class="text-[10px] text-emerald-400 font-bold">+₹${formatCurrency(a.total_commission_earned)} comm</div>
+                </td>
+                <td class="p-3.5 text-right">
+                    <div class="text-amber-400 font-bold">₹${formatCurrency(a.current_week_commission)}</div>
+                    <div class="text-[10px] text-slate-500 font-sans">${a.current_week_orders} orders</div>
+                </td>
+                <td class="p-3.5 text-center">
+                    ${a.status === 'active'
+                        ? '<span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] font-sans font-bold">Active</span>'
+                        : '<span class="px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/30 text-[10px] font-sans font-bold">Suspended</span>'
+                    }
+                </td>
+                <td class="p-3.5 text-right font-sans">
+                    <div class="flex items-center justify-end gap-1.5">
+                        <button onclick="openEditAgentModal(${a.id})" title="Edit Settings & Commission"
+                                class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                        </button>
+                        <button onclick="adminResetAgentPassword(${a.id}, '${escapeHtml(a.agent_code)}')" title="Reset Password"
+                                class="p-1.5 rounded-lg bg-slate-800 hover:bg-amber-500/20 text-slate-300 hover:text-amber-400 transition">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
+                        </button>
+                        <button onclick="adminResetAgentTotp(${a.id}, '${escapeHtml(a.agent_code)}')" title="Reset Google Authenticator"
+                                class="p-1.5 rounded-lg bg-slate-800 hover:bg-indigo-500/20 text-slate-300 hover:text-indigo-400 transition">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"/></svg>
+                        </button>
+                        <button onclick="adminToggleAgentStatus(${a.id}, '${a.status}')" title="${a.status === 'active' ? 'Suspend Agent' : 'Activate Agent'}"
+                                class="p-1.5 rounded-lg ${a.status === 'active' ? 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-400' : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400'} transition">
+                            ${a.status === 'active'
+                                ? '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>'
+                                : '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>'
+                            }
+                        </button>
+                    </div>
+                </td>
+            </tr>
+        `).join('');
+    } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="10" class="p-8 text-center text-rose-400 font-sans">Server communication error.</td></tr>';
+    }
+}
+
+// -------------------------------------------------------------
+// CREATE AGENT WORKFLOW & LEVEL CHECKBOXES
+// -------------------------------------------------------------
+
+function renderAgentLevelsGrid(containerId, checkedLevels = null) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    const all = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+    const selected = checkedLevels !== null ? checkedLevels : all;
+
+    container.innerHTML = all.map(l => {
+        const isChecked = selected.includes(l);
+        return `
+            <label class="flex items-center gap-1.5 px-2 py-1 rounded bg-slate-900 border ${isChecked ? 'border-amber-500/40 text-amber-300' : 'border-slate-800 text-slate-400'} cursor-pointer hover:border-slate-700 text-xs font-mono select-none">
+                <input type="checkbox" name="${containerId}Check" value="${l}" ${isChecked ? 'checked' : ''}
+                       class="accent-amber-500 rounded text-xs" onchange="this.parentElement.classList.toggle('border-amber-500/40', this.checked); this.parentElement.classList.toggle('text-amber-300', this.checked);">
+                <span>${l}</span>
+            </label>
+        `;
+    }).join('');
+}
+
+function selectAllAgentLevels(checkAll) {
+    document.querySelectorAll('input[name="agentLevelsGridCheck"]').forEach(cb => {
+        cb.checked = checkAll;
+        cb.parentElement.classList.toggle('border-amber-500/40', checkAll);
+        cb.parentElement.classList.toggle('text-amber-300', checkAll);
+    });
+}
+
+function selectLevelsPreset(presetStr) {
+    const list = presetStr.split(',');
+    document.querySelectorAll('input[name="agentLevelsGridCheck"]').forEach(cb => {
+        const shouldCheck = list.includes(cb.value);
+        cb.checked = shouldCheck;
+        cb.parentElement.classList.toggle('border-amber-500/40', shouldCheck);
+        cb.parentElement.classList.toggle('text-amber-300', shouldCheck);
+    });
+}
+
+function openCreateAgentModal() {
+    renderAgentLevelsGrid('agentLevelsGrid');
+    document.getElementById('createAgentAlert').classList.add('hidden');
+    document.getElementById('newAgentCode').value = '';
+    document.getElementById('newAgentName').value = '';
+    document.getElementById('newAgentPhone').value = '';
+    document.getElementById('newAgentEmail').value = '';
+    document.getElementById('newAgentRootRef').value = '';
+    document.getElementById('newAgentCommissionRate').value = '';
+    document.getElementById('newAgentPassword').value = '';
+
+    document.getElementById('createAgentModal').classList.remove('hidden');
+    document.getElementById('createAgentModal').classList.add('flex');
+}
+
+function closeCreateAgentModal() {
+    document.getElementById('createAgentModal').classList.add('hidden');
+    document.getElementById('createAgentModal').classList.remove('flex');
+}
+
+async function handleCreateAgentSubmit(e) {
+    e.preventDefault();
+    const alertBox = document.getElementById('createAgentAlert');
+    const submitBtn = document.getElementById('btnCreateAgentSubmit');
+
+    alertBox.classList.add('hidden');
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Generating TOTP & Provisioning...';
+
+    const selectedLevels = Array.from(document.querySelectorAll('input[name="agentLevelsGridCheck"]:checked')).map(cb => cb.value);
+    if (selectedLevels.length === 0) {
+        alertBox.className = 'p-3 rounded-xl text-xs bg-rose-500/10 border border-rose-500/30 text-rose-300 flex items-center gap-2';
+        alertBox.textContent = 'Please select at least one eligible referral level.';
+        alertBox.classList.remove('hidden');
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Create Agent & Generate Authenticator';
+        return;
+    }
+
+    const payload = {
+        agent_code: document.getElementById('newAgentCode').value.trim(),
+        name: document.getElementById('newAgentName').value.trim(),
+        phone: document.getElementById('newAgentPhone').value.trim(),
+        email: document.getElementById('newAgentEmail').value.trim(),
+        root_user_id: document.getElementById('newAgentRootRef').value.trim(),
+        commission_rate: parseFloat(document.getElementById('newAgentCommissionRate').value),
+        eligible_levels: selectedLevels.join(','),
+        password: document.getElementById('newAgentPassword').value
+    };
+
+    try {
+        const res = await fetch('/api/admin.php?action=create_agent', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            closeCreateAgentModal();
+            loadAdminAgents();
+            showAgentCredentialsModal(data);
+        } else {
+            alertBox.className = 'p-3 rounded-xl text-xs bg-rose-500/10 border border-rose-500/30 text-rose-300 flex items-center gap-2';
+            alertBox.textContent = data.error || 'Failed to create agent.';
+            alertBox.classList.remove('hidden');
+        }
+    } catch (err) {
+        alertBox.className = 'p-3 rounded-xl text-xs bg-rose-500/10 border border-rose-500/30 text-rose-300 flex items-center gap-2';
+        alertBox.textContent = 'Server communication error.';
+        alertBox.classList.remove('hidden');
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Create Agent & Generate Authenticator';
+    }
+}
+
+// -------------------------------------------------------------
+// ONE-TIME CREDENTIAL PRESENTATION & COPY HANDLERS
+// -------------------------------------------------------------
+
+function showAgentCredentialsModal(creds) {
+    latestCreatedAgentCreds = creds;
+
+    document.getElementById('credAgentCode').textContent = creds.agent_code;
+    document.getElementById('credPassword').textContent = creds.plain_password;
+    document.getElementById('credLoginUrl').textContent = window.location.origin + creds.login_url;
+    document.getElementById('credTotpSecret').textContent = creds.totp_secret;
+
+    const qrContainer = document.getElementById('credQrSvgContainer');
+    qrContainer.innerHTML = creds.qr_svg;
+
+    document.getElementById('agentCredentialsModal').classList.remove('hidden');
+    document.getElementById('agentCredentialsModal').classList.add('flex');
+}
+
+function closeAgentCredentialsModal() {
+    document.getElementById('agentCredentialsModal').classList.add('hidden');
+    document.getElementById('agentCredentialsModal').classList.remove('flex');
+}
+
+function copyCredField(elementId) {
+    const text = document.getElementById(elementId)?.textContent?.trim() || '';
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(() => {
+        alert(`Copied to clipboard: ${text}`);
+    }).catch(() => {
+        prompt('Copy this value:', text);
+    });
+}
+
+function copyAllAgentDetails() {
+    if (!latestCreatedAgentCreds) return;
+    const c = latestCreatedAgentCreds;
+    const text = 
+`=========================================
+ JELIPAY AGENT PORTAL ONBOARDING DETAILS
+=========================================
+Agent User ID   : ${c.agent_code}
+Agent Name      : ${c.name}
+Assigned Tree   : ${c.root_referral_code} (User ID #${c.root_user_id})
+Commission Rate : ${Number(c.commission_rate).toFixed(2)}%
+Eligible Levels : ${c.eligible_levels}
+
+Login Credentials:
+Portal URL      : ${window.location.origin}/agent/login
+Password        : ${c.plain_password}
+
+Google Authenticator 2FA Setup:
+TOTP Secret Key : ${c.totp_secret}
+Issuer / Name   : JeliPay Agent (${c.agent_code})
+
+* IMPORTANT: Add this TOTP key to your Google Authenticator app immediately. You will be required to enter the 6-digit authenticator code on every sign-in.
+=========================================`;
+
+    navigator.clipboard.writeText(text).then(() => {
+        const btn = document.getElementById('btnCopyAllDetails');
+        if (btn) {
+            const orig = btn.innerHTML;
+            btn.innerHTML = '<span>✓ All Credentials Copied to Clipboard!</span>';
+            setTimeout(() => { btn.innerHTML = orig; }, 2500);
+        }
+    }).catch(() => {
+        prompt('Copy all onboarding details below:', text);
+    });
+}
+
+// -------------------------------------------------------------
+// EDIT AGENT SETTINGS
+// -------------------------------------------------------------
+
+function openEditAgentModal(agentId) {
+    const agent = cachedAdminAgentsList.find(a => a.id === agentId);
+    if (!agent) return;
+
+    document.getElementById('editAgentId').value = agent.id;
+    document.getElementById('editAgentTitleCode').textContent = agent.agent_code;
+    document.getElementById('editAgentName').value = agent.name;
+    document.getElementById('editAgentPhone').value = agent.phone || '';
+    document.getElementById('editAgentEmail').value = agent.email || '';
+    document.getElementById('editAgentCommissionRate').value = agent.commission_rate;
+
+    const levels = agent.eligible_levels.split(',');
+    renderAgentLevelsGrid('editAgentLevelsGrid', levels);
+
+    document.getElementById('editAgentModal').classList.remove('hidden');
+    document.getElementById('editAgentModal').classList.add('flex');
+}
+
+function closeEditAgentModal() {
+    document.getElementById('editAgentModal').classList.add('hidden');
+    document.getElementById('editAgentModal').classList.remove('flex');
+}
+
+function selectAllEditAgentLevels(checkAll) {
+    document.querySelectorAll('input[name="editAgentLevelsGridCheck"]').forEach(cb => {
+        cb.checked = checkAll;
+        cb.parentElement.classList.toggle('border-amber-500/40', checkAll);
+        cb.parentElement.classList.toggle('text-amber-300', checkAll);
+    });
+}
+
+async function handleEditAgentSubmit(e) {
+    e.preventDefault();
+    const agentId = parseInt(document.getElementById('editAgentId').value);
+    const selectedLevels = Array.from(document.querySelectorAll('input[name="editAgentLevelsGridCheck"]:checked')).map(cb => cb.value);
+
+    const payload = {
+        agent_id: agentId,
+        name: document.getElementById('editAgentName').value.trim(),
+        phone: document.getElementById('editAgentPhone').value.trim(),
+        email: document.getElementById('editAgentEmail').value.trim(),
+        commission_rate: parseFloat(document.getElementById('editAgentCommissionRate').value),
+        eligible_levels: selectedLevels.join(',')
+    };
+
+    try {
+        const res = await fetch('/api/admin.php?action=update_agent', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            alert('Agent settings updated successfully.');
+            closeEditAgentModal();
+            loadAdminAgents();
+        } else {
+            alert(data.error || 'Failed to update agent.');
+        }
+    } catch (err) {
+        alert('Server communication error.');
+    }
+}
+
+// -------------------------------------------------------------
+// RESET PASSWORD, RESET 2FA, TOGGLE STATUS
+// -------------------------------------------------------------
+
+async function adminResetAgentPassword(agentId, agentCode) {
+    if (!confirm(`Are you sure you want to generate a new temporary password for Agent ${agentCode}?`)) {
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/admin.php?action=reset_agent_password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ agent_id: agentId })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            prompt(`New Temporary Password for Agent ${agentCode} (Copy and share securely):`, data.new_password);
+        } else {
+            alert(data.error || 'Failed to reset password.');
+        }
+    } catch (e) {
+        alert('Server communication error.');
+    }
+}
+
+async function adminResetAgentTotp(agentId, agentCode) {
+    if (!confirm(`Are you sure you want to reset Google Authenticator 2FA for Agent ${agentCode}? The previous QR code will be invalidated.`)) {
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/admin.php?action=reset_agent_totp', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ agent_id: agentId })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            showAgentCredentialsModal({
+                agent_code: agentCode,
+                plain_password: '[Unchanged / Retained]',
+                login_url: '/agent/login',
+                totp_secret: data.totp_secret,
+                qr_svg: data.qr_svg,
+                root_referral_code: '[Retained]',
+                root_user_id: agentId,
+                commission_rate: 0,
+                eligible_levels: 'A-Z',
+                name: agentCode
+            });
+        } else {
+            alert(data.error || 'Failed to reset Authenticator.');
+        }
+    } catch (e) {
+        alert('Server communication error.');
+    }
+}
+
+async function adminToggleAgentStatus(agentId, currentStatus) {
+    const action = currentStatus === 'active' ? 'SUSPEND' : 'ACTIVATE';
+    if (!confirm(`Are you sure you want to ${action} this Agent account?`)) {
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/admin.php?action=toggle_agent_status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ agent_id: agentId })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            loadAdminAgents();
+        } else {
+            alert(data.error || 'Failed to toggle status.');
+        }
+    } catch (e) {
+        alert('Server communication error.');
+    }
+}
+
+// -------------------------------------------------------------
+// WEEKLY PAYOUTS MANAGEMENT CONSOLE
+// -------------------------------------------------------------
+
+function openWeeklyPayoutsModal() {
+    document.getElementById('adminWeeklyPayoutsModal').classList.remove('hidden');
+    document.getElementById('adminWeeklyPayoutsModal').classList.add('flex');
+    loadAdminWeeklyStatements();
+}
+
+function closeWeeklyPayoutsModal() {
+    document.getElementById('adminWeeklyPayoutsModal').classList.add('hidden');
+    document.getElementById('adminWeeklyPayoutsModal').classList.remove('flex');
+}
+
+async function loadAdminWeeklyStatements() {
+    const tbody = document.getElementById('adminStatementsTableBody');
+    if (!tbody) return;
+
+    tbody.innerHTML = '<tr><td colspan="11" class="p-8 text-center text-slate-500 font-sans">Loading statements...</td></tr>';
+
+    const status = document.getElementById('payoutStatusFilter')?.value || 'all';
+    const params = new URLSearchParams({
+        action: 'list_agent_statements',
+        status: status
+    });
+
+    try {
+        const res = await fetch(`/api/admin.php?${params.toString()}`);
+        const data = await res.json();
+
+        if (!data.success) {
+            tbody.innerHTML = `<tr><td colspan="11" class="p-8 text-center text-rose-400 font-sans">${data.error || 'Failed to load statements'}</td></tr>`;
+            return;
+        }
+
+        const statements = data.statements || [];
+
+        if (statements.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="11" class="p-8 text-center text-slate-500 font-sans">No statements found. Click "Compile / Sync Statements" to compile the latest weekly records.</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = statements.map(s => {
+            let statusBadge = '';
+            if (s.payout_status === 'paid') {
+                statusBadge = '<span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] font-sans font-bold">Paid</span>';
+            } else if (s.payout_status === 'approved') {
+                statusBadge = '<span class="px-2 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/30 text-[10px] font-sans font-bold">Approved</span>';
+            } else {
+                statusBadge = '<span class="px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30 text-[10px] font-sans font-bold">Pending Review</span>';
+            }
+
+            const startFmt = new Date(s.start_date + ' UTC').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            const endFmt = new Date(s.end_date + ' UTC').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+            return `
+                <tr class="hover:bg-slate-900/60 transition">
+                    <td class="p-3 font-bold text-white">${escapeHtml(s.statement_code)}</td>
+                    <td class="p-3 text-slate-200">
+                        <span class="text-amber-400 font-bold">${escapeHtml(s.agent_code)}</span>
+                        <span class="text-[10px] text-slate-500 block font-sans">${escapeHtml(s.agent_name)}</span>
+                    </td>
+                    <td class="p-3 text-slate-300">
+                        <div>${startFmt} - ${endFmt}</div>
+                        <div class="text-[10px] text-slate-500 font-sans">Week ${s.week_number}, ${s.week_year}</div>
+                    </td>
+                    <td class="p-3 text-right text-slate-300">${s.total_orders}</td>
+                    <td class="p-3 text-right text-slate-300">₹${formatCurrency(s.total_volume)}</td>
+                    <td class="p-3 text-right text-slate-300">₹${formatCurrency(s.gross_commission)}</td>
+                    <td class="p-3 text-right ${Number(s.adjustment_amount) !== 0 ? 'text-amber-400 font-bold' : 'text-slate-500'}"
+                        title="${escapeHtml(s.adjustment_reason || '')}">
+                        ${Number(s.adjustment_amount) > 0 ? '+' : ''}₹${formatCurrency(s.adjustment_amount)}
+                        ${s.payout_status !== 'paid' ? `
+                            <button onclick="openStatementAdjustmentModal(${s.id}, '${escapeHtml(s.statement_code)}', ${s.gross_commission})" class="text-[10px] text-amber-400 hover:underline block font-sans">
+                                Adjust
+                            </button>
+                        ` : ''}
+                    </td>
+                    <td class="p-3 text-right font-black text-amber-400 text-sm">₹${formatCurrency(s.net_commission)}</td>
+                    <td class="p-3 text-center">${statusBadge}</td>
+                    <td class="p-3 text-slate-300 text-[11px]">
+                        ${s.payout_reference ? `<div class="font-bold text-slate-200">Ref: ${escapeHtml(s.payout_reference)}</div>` : '<div class="text-slate-600">—</div>'}
+                        ${s.paid_at ? `<div class="text-[10px] text-slate-500 font-sans">${s.paid_at}</div>` : ''}
+                    </td>
+                    <td class="p-3 text-right font-sans">
+                        <div class="flex items-center justify-end gap-1.5">
+                            ${s.payout_status === 'pending_review' ? `
+                                <button onclick="adminApproveStatement(${s.id}, '${escapeHtml(s.statement_code)}')"
+                                        class="px-2.5 py-1 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-lg text-[11px] transition shadow">
+                                    Approve
+                                </button>
+                            ` : ''}
+                            ${s.payout_status === 'approved' ? `
+                                <button onclick="openRecordPayoutModal(${s.id}, '${escapeHtml(s.statement_code)}', ${s.net_commission})"
+                                        class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg text-[11px] transition shadow">
+                                    Record Payout
+                                </button>
+                            ` : ''}
+                            ${s.payout_status === 'paid' ? `
+                                <span class="text-emerald-400 text-xs flex items-center gap-1 font-bold">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                                    Settled
+                                </span>
+                            ` : ''}
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="11" class="p-8 text-center text-rose-400 font-sans">Server communication error.</td></tr>';
+    }
+}
+
+async function triggerGenerateStatements() {
+    try {
+        const res = await fetch('/api/admin.php?action=generate_agent_statements', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        });
+        const data = await res.json();
+        if (data.success) {
+            alert(`Generated/Updated statements for ${data.generated_count} agents (${data.week_range}).`);
+            loadAdminWeeklyStatements();
+            loadAdminAgents();
+        } else {
+            alert(data.error || 'Failed to generate statements.');
+        }
+    } catch (e) {
+        alert('Server communication error.');
+    }
+}
+
+// Statement Adjustment
+function openStatementAdjustmentModal(stmtId, code, gross) {
+    document.getElementById('adjStatementId').value = stmtId;
+    document.getElementById('adjStatementCode').textContent = code;
+    document.getElementById('adjAmount').value = '';
+    document.getElementById('adjReason').value = '';
+
+    document.getElementById('statementAdjustmentModal').classList.remove('hidden');
+    document.getElementById('statementAdjustmentModal').classList.add('flex');
+}
+
+function closeStatementAdjustmentModal() {
+    document.getElementById('statementAdjustmentModal').classList.add('hidden');
+    document.getElementById('statementAdjustmentModal').classList.remove('flex');
+}
+
+async function submitStatementAdjustment(e) {
+    e.preventDefault();
+    const statementId = parseInt(document.getElementById('adjStatementId').value);
+    const amount = parseFloat(document.getElementById('adjAmount').value);
+    const reason = document.getElementById('adjReason').value.trim();
+
+    if (isNaN(amount)) {
+        alert('Please enter a valid numeric adjustment amount.');
+        return;
+    }
+    if (!reason) {
+        alert('Mandatory reason must be provided.');
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/admin.php?action=adjust_agent_statement', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                statement_id: statementId,
+                adjustment_amount: amount,
+                reason: reason
+            })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            closeStatementAdjustmentModal();
+            loadAdminWeeklyStatements();
+            loadAdminAgents();
+        } else {
+            alert(data.error || 'Failed to save adjustment.');
+        }
+    } catch (err) {
+        alert('Server communication error.');
+    }
+}
+
+// Statement Approval
+async function adminApproveStatement(stmtId, code) {
+    if (!confirm(`Approve statement ${code} for commission payout?`)) return;
+
+    try {
+        const res = await fetch('/api/admin.php?action=approve_agent_statement', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ statement_id: stmtId })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            loadAdminWeeklyStatements();
+            loadAdminAgents();
+        } else {
+            alert(data.error || 'Failed to approve statement.');
+        }
+    } catch (e) {
+        alert('Server communication error.');
+    }
+}
+
+// Statement Record Payout
+function openRecordPayoutModal(stmtId, code, net) {
+    document.getElementById('payoutModalStatementId').value = stmtId;
+    document.getElementById('payoutModalNetComm').textContent = '₹' + formatCurrency(net);
+    document.getElementById('payoutRef').value = '';
+    document.getElementById('payoutNotes').value = '';
+
+    // Set default date to current local datetime
+    const now = new Date();
+    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+    document.getElementById('payoutDate').value = now.toISOString().slice(0, 16);
+
+    document.getElementById('recordPayoutModal').classList.remove('hidden');
+    document.getElementById('recordPayoutModal').classList.add('flex');
+}
+
+function closeRecordPayoutModal() {
+    document.getElementById('recordPayoutModal').classList.add('hidden');
+    document.getElementById('recordPayoutModal').classList.remove('flex');
+}
+
+async function submitRecordPayout(e) {
+    e.preventDefault();
+    const statementId = parseInt(document.getElementById('payoutModalStatementId').value);
+    const payoutRef = document.getElementById('payoutRef').value.trim();
+    const payoutDate = document.getElementById('payoutDate').value;
+    const notes = document.getElementById('payoutNotes').value.trim();
+
+    if (!payoutRef) {
+        alert('Payment Reference (UTR) is required.');
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/admin.php?action=payout_agent_statement', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                statement_id: statementId,
+                payout_reference: payoutRef,
+                paid_date: payoutDate,
+                notes: notes
+            })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            alert(data.message || 'Payout recorded successfully.');
+            closeRecordPayoutModal();
+            loadAdminWeeklyStatements();
+            loadAdminAgents();
+        } else {
+            alert(data.error || 'Failed to record payout.');
+        }
+    } catch (err) {
+        alert('Server communication error.');
+    }
+}
+
 
 

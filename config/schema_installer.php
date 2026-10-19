@@ -297,6 +297,98 @@ class SchemaInstaller {
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         );
+
+        CREATE TABLE IF NOT EXISTS agents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            agent_code TEXT UNIQUE NOT NULL,
+            name TEXT NOT NULL,
+            phone TEXT,
+            email TEXT,
+            password_hash TEXT NOT NULL,
+            root_user_id INTEGER NOT NULL,
+            commission_rate NUMERIC NOT NULL DEFAULT 0.00,
+            eligible_levels TEXT NOT NULL DEFAULT 'A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z',
+            totp_secret TEXT NOT NULL,
+            totp_last_timestamp INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'active',
+            must_change_password INTEGER NOT NULL DEFAULT 1,
+            created_by_admin_id INTEGER,
+            last_login_at TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (root_user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_agents_code ON agents(agent_code);
+        CREATE INDEX IF NOT EXISTS idx_agents_root ON agents(root_user_id);
+        CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status);
+
+        CREATE TABLE IF NOT EXISTS agent_commissions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            agent_id INTEGER NOT NULL,
+            child_order_id INTEGER NOT NULL,
+            buyer_id INTEGER NOT NULL,
+            purchase_amount NUMERIC NOT NULL,
+            commission_rate NUMERIC NOT NULL,
+            commission_amount NUMERIC NOT NULL,
+            referral_level TEXT NOT NULL,
+            referral_depth INTEGER NOT NULL,
+            statement_id INTEGER,
+            status TEXT NOT NULL DEFAULT 'earned',
+            order_completed_at TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(agent_id, child_order_id),
+            FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+            FOREIGN KEY (child_order_id) REFERENCES child_orders(id) ON DELETE CASCADE,
+            FOREIGN KEY (buyer_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_ac_agent ON agent_commissions(agent_id);
+        CREATE INDEX IF NOT EXISTS idx_ac_order ON agent_commissions(child_order_id);
+        CREATE INDEX IF NOT EXISTS idx_ac_buyer ON agent_commissions(buyer_id);
+        CREATE INDEX IF NOT EXISTS idx_ac_statement ON agent_commissions(statement_id);
+        CREATE INDEX IF NOT EXISTS idx_ac_completed ON agent_commissions(order_completed_at);
+
+        CREATE TABLE IF NOT EXISTS agent_weekly_statements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            statement_code TEXT UNIQUE NOT NULL,
+            agent_id INTEGER NOT NULL,
+            week_number INTEGER NOT NULL,
+            week_year INTEGER NOT NULL,
+            start_date TEXT NOT NULL,
+            end_date TEXT NOT NULL,
+            total_volume NUMERIC NOT NULL DEFAULT 0.00,
+            total_orders INTEGER NOT NULL DEFAULT 0,
+            gross_commission NUMERIC NOT NULL DEFAULT 0.00,
+            adjustment_amount NUMERIC NOT NULL DEFAULT 0.00,
+            adjustment_reason TEXT,
+            net_commission NUMERIC NOT NULL DEFAULT 0.00,
+            payout_status TEXT NOT NULL DEFAULT 'pending_review',
+            payout_reference TEXT,
+            paid_at TEXT,
+            paid_by_admin_id INTEGER,
+            approved_at TEXT,
+            approved_by_admin_id INTEGER,
+            notes TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(agent_id, week_year, week_number),
+            FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_aws_agent ON agent_weekly_statements(agent_id);
+        CREATE INDEX IF NOT EXISTS idx_aws_status ON agent_weekly_statements(payout_status);
+
+        CREATE TABLE IF NOT EXISTS agent_audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            actor_type TEXT NOT NULL,
+            actor_id INTEGER NOT NULL,
+            agent_id INTEGER NOT NULL,
+            action TEXT NOT NULL,
+            details TEXT,
+            ip_address TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_aal_agent ON agent_audit_logs(agent_id);
+        CREATE INDEX IF NOT EXISTS idx_aal_action ON agent_audit_logs(action);
         ";
 
         $pdo->exec($schema);
@@ -578,6 +670,197 @@ class SchemaInstaller {
                       `is_auto_flagged` TINYINT(1) NOT NULL DEFAULT 0,
                       `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                       CONSTRAINT `fk_urp_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                ");
+            }
+
+            // Agent Management System Tables (Additive Migration)
+            if ($driver === 'sqlite') {
+                $pdo->exec("
+                    CREATE TABLE IF NOT EXISTS agents (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        agent_code TEXT UNIQUE NOT NULL,
+                        name TEXT NOT NULL,
+                        phone TEXT,
+                        email TEXT,
+                        password_hash TEXT NOT NULL,
+                        root_user_id INTEGER NOT NULL,
+                        commission_rate NUMERIC NOT NULL DEFAULT 0.00,
+                        eligible_levels TEXT NOT NULL DEFAULT 'A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z',
+                        totp_secret TEXT NOT NULL,
+                        totp_last_timestamp INTEGER NOT NULL DEFAULT 0,
+                        status TEXT NOT NULL DEFAULT 'active',
+                        must_change_password INTEGER NOT NULL DEFAULT 1,
+                        created_by_admin_id INTEGER,
+                        last_login_at TEXT,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (root_user_id) REFERENCES users(id) ON DELETE CASCADE
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_agents_code ON agents(agent_code);
+                    CREATE INDEX IF NOT EXISTS idx_agents_root ON agents(root_user_id);
+                    CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status);
+
+                    CREATE TABLE IF NOT EXISTS agent_commissions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        agent_id INTEGER NOT NULL,
+                        child_order_id INTEGER NOT NULL,
+                        buyer_id INTEGER NOT NULL,
+                        purchase_amount NUMERIC NOT NULL,
+                        commission_rate NUMERIC NOT NULL,
+                        commission_amount NUMERIC NOT NULL,
+                        referral_level TEXT NOT NULL,
+                        referral_depth INTEGER NOT NULL,
+                        statement_id INTEGER,
+                        status TEXT NOT NULL DEFAULT 'earned',
+                        order_completed_at TEXT NOT NULL,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(agent_id, child_order_id),
+                        FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+                        FOREIGN KEY (child_order_id) REFERENCES child_orders(id) ON DELETE CASCADE,
+                        FOREIGN KEY (buyer_id) REFERENCES users(id) ON DELETE CASCADE
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_ac_agent ON agent_commissions(agent_id);
+                    CREATE INDEX IF NOT EXISTS idx_ac_order ON agent_commissions(child_order_id);
+                    CREATE INDEX IF NOT EXISTS idx_ac_buyer ON agent_commissions(buyer_id);
+                    CREATE INDEX IF NOT EXISTS idx_ac_statement ON agent_commissions(statement_id);
+                    CREATE INDEX IF NOT EXISTS idx_ac_completed ON agent_commissions(order_completed_at);
+
+                    CREATE TABLE IF NOT EXISTS agent_weekly_statements (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        statement_code TEXT UNIQUE NOT NULL,
+                        agent_id INTEGER NOT NULL,
+                        week_number INTEGER NOT NULL,
+                        week_year INTEGER NOT NULL,
+                        start_date TEXT NOT NULL,
+                        end_date TEXT NOT NULL,
+                        total_volume NUMERIC NOT NULL DEFAULT 0.00,
+                        total_orders INTEGER NOT NULL DEFAULT 0,
+                        gross_commission NUMERIC NOT NULL DEFAULT 0.00,
+                        adjustment_amount NUMERIC NOT NULL DEFAULT 0.00,
+                        adjustment_reason TEXT,
+                        net_commission NUMERIC NOT NULL DEFAULT 0.00,
+                        payout_status TEXT NOT NULL DEFAULT 'pending_review',
+                        payout_reference TEXT,
+                        paid_at TEXT,
+                        paid_by_admin_id INTEGER,
+                        approved_at TEXT,
+                        approved_by_admin_id INTEGER,
+                        notes TEXT,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(agent_id, week_year, week_number),
+                        FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_aws_agent ON agent_weekly_statements(agent_id);
+                    CREATE INDEX IF NOT EXISTS idx_aws_status ON agent_weekly_statements(payout_status);
+
+                    CREATE TABLE IF NOT EXISTS agent_audit_logs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        actor_type TEXT NOT NULL,
+                        actor_id INTEGER NOT NULL,
+                        agent_id INTEGER NOT NULL,
+                        action TEXT NOT NULL,
+                        details TEXT,
+                        ip_address TEXT,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_aal_agent ON agent_audit_logs(agent_id);
+                    CREATE INDEX IF NOT EXISTS idx_aal_action ON agent_audit_logs(action);
+                ");
+            } else {
+                $pdo->exec("
+                    CREATE TABLE IF NOT EXISTS `agents` (
+                        `id` INT AUTO_INCREMENT PRIMARY KEY,
+                        `agent_code` VARCHAR(50) NOT NULL UNIQUE,
+                        `name` VARCHAR(100) NOT NULL,
+                        `phone` VARCHAR(20) DEFAULT NULL,
+                        `email` VARCHAR(100) DEFAULT NULL,
+                        `password_hash` VARCHAR(255) NOT NULL,
+                        `root_user_id` INT NOT NULL,
+                        `commission_rate` DECIMAL(5,2) NOT NULL DEFAULT 0.00,
+                        `eligible_levels` VARCHAR(255) NOT NULL DEFAULT 'A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z',
+                        `totp_secret` TEXT NOT NULL,
+                        `totp_last_timestamp` BIGINT NOT NULL DEFAULT 0,
+                        `status` ENUM('active', 'suspended') NOT NULL DEFAULT 'active',
+                        `must_change_password` TINYINT(1) NOT NULL DEFAULT 1,
+                        `created_by_admin_id` INT DEFAULT NULL,
+                        `last_login_at` DATETIME DEFAULT NULL,
+                        `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        INDEX `idx_agents_code` (`agent_code`),
+                        INDEX `idx_agents_root` (`root_user_id`),
+                        INDEX `idx_agents_status` (`status`),
+                        CONSTRAINT `fk_agents_root_user` FOREIGN KEY (`root_user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+                    CREATE TABLE IF NOT EXISTS `agent_commissions` (
+                        `id` INT AUTO_INCREMENT PRIMARY KEY,
+                        `agent_id` INT NOT NULL,
+                        `child_order_id` INT NOT NULL,
+                        `buyer_id` INT NOT NULL,
+                        `purchase_amount` DECIMAL(16,2) NOT NULL,
+                        `commission_rate` DECIMAL(5,2) NOT NULL,
+                        `commission_amount` DECIMAL(16,2) NOT NULL,
+                        `referral_level` VARCHAR(5) NOT NULL,
+                        `referral_depth` INT NOT NULL,
+                        `statement_id` INT DEFAULT NULL,
+                        `status` ENUM('earned', 'reversed') NOT NULL DEFAULT 'earned',
+                        `order_completed_at` DATETIME NOT NULL,
+                        `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE KEY `uk_agent_child_order` (`agent_id`, `child_order_id`),
+                        INDEX `idx_ac_agent` (`agent_id`),
+                        INDEX `idx_ac_order` (`child_order_id`),
+                        INDEX `idx_ac_buyer` (`buyer_id`),
+                        INDEX `idx_ac_statement` (`statement_id`),
+                        INDEX `idx_ac_completed` (`order_completed_at`),
+                        CONSTRAINT `fk_ac_agent` FOREIGN KEY (`agent_id`) REFERENCES `agents` (`id`) ON DELETE CASCADE,
+                        CONSTRAINT `fk_ac_child_order` FOREIGN KEY (`child_order_id`) REFERENCES `child_orders` (`id`) ON DELETE CASCADE,
+                        CONSTRAINT `fk_ac_buyer` FOREIGN KEY (`buyer_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+                    CREATE TABLE IF NOT EXISTS `agent_weekly_statements` (
+                        `id` INT AUTO_INCREMENT PRIMARY KEY,
+                        `statement_code` VARCHAR(50) NOT NULL UNIQUE,
+                        `agent_id` INT NOT NULL,
+                        `week_number` INT NOT NULL,
+                        `week_year` INT NOT NULL,
+                        `start_date` DATETIME NOT NULL,
+                        `end_date` DATETIME NOT NULL,
+                        `total_volume` DECIMAL(16,2) NOT NULL DEFAULT 0.00,
+                        `total_orders` INT NOT NULL DEFAULT 0,
+                        `gross_commission` DECIMAL(16,2) NOT NULL DEFAULT 0.00,
+                        `adjustment_amount` DECIMAL(16,2) NOT NULL DEFAULT 0.00,
+                        `adjustment_reason` TEXT DEFAULT NULL,
+                        `net_commission` DECIMAL(16,2) NOT NULL DEFAULT 0.00,
+                        `payout_status` ENUM('draft', 'pending_review', 'approved', 'paid', 'cancelled') NOT NULL DEFAULT 'pending_review',
+                        `payout_reference` VARCHAR(100) DEFAULT NULL,
+                        `paid_at` DATETIME DEFAULT NULL,
+                        `paid_by_admin_id` INT DEFAULT NULL,
+                        `approved_at` DATETIME DEFAULT NULL,
+                        `approved_by_admin_id` INT DEFAULT NULL,
+                        `notes` TEXT DEFAULT NULL,
+                        `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        UNIQUE KEY `uk_aws_agent_week` (`agent_id`, `week_year`, `week_number`),
+                        INDEX `idx_aws_agent` (`agent_id`),
+                        INDEX `idx_aws_status` (`payout_status`),
+                        CONSTRAINT `fk_aws_agent` FOREIGN KEY (`agent_id`) REFERENCES `agents` (`id`) ON DELETE CASCADE
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+                    CREATE TABLE IF NOT EXISTS `agent_audit_logs` (
+                        `id` INT AUTO_INCREMENT PRIMARY KEY,
+                        `actor_type` VARCHAR(20) NOT NULL,
+                        `actor_id` INT NOT NULL,
+                        `agent_id` INT NOT NULL,
+                        `action` VARCHAR(50) NOT NULL,
+                        `details` TEXT DEFAULT NULL,
+                        `ip_address` VARCHAR(50) DEFAULT NULL,
+                        `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        INDEX `idx_aal_agent` (`agent_id`),
+                        INDEX `idx_aal_action` (`action`),
+                        CONSTRAINT `fk_aal_agent` FOREIGN KEY (`agent_id`) REFERENCES `agents` (`id`) ON DELETE CASCADE
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
                 ");
             }

@@ -10,6 +10,7 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/Validator.php';
 require_once __DIR__ . '/Wallet.php';
 require_once __DIR__ . '/ReferralEngine.php';
+require_once __DIR__ . '/AgentManager.php';
 
 class StateMachine {
     /**
@@ -327,6 +328,9 @@ class StateMachine {
 
             // 3. Distribute multi-tier referral commissions (FR-019)
             ReferralEngine::distributeCommissions($buyerId, $amount, (string)$childOrderId);
+
+            // 3b. Snapshot Agent Commissions for eligible referral hierarchy levels A-Z
+            AgentManager::onOrderCompleted($childOrderId, $buyerId, $amount, $completedUtc);
 
             // 4. Update parent order stats
             $parentUpdate = $pdo->prepare("

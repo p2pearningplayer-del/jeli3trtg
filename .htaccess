@@ -31,6 +31,10 @@ Options -Indexes
 </IfModule>
 
 # Handle front controller routing
+RewriteRule ^agent/login/?$ agent_login.php [L,QSA]
+RewriteRule ^agent/dashboard/?$ agent_dashboard.php [L,QSA]
+RewriteRule ^agent/?$ agent_login.php [L,QSA]
+
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^api/([a-zA-Z0-9_-]+)$ api/$1.php [L,QSA]

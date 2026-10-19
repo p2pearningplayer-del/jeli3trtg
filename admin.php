@@ -128,6 +128,10 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
                     <span>Admins & Teams</span>
                 </button>
+                <button onclick="switchAdminTab('agents')" id="adminNav-agents" class="admin-nav-item px-3.5 py-2 rounded-lg flex items-center gap-1.5 whitespace-nowrap text-slate-400 hover:text-white">
+                    <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                    <span>Agent Management</span>
+                </button>
             </div>
         </div>
     </header>
@@ -856,6 +860,90 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
             </div>
         </section>
 
+        <!-- ========================================== -->
+        <!-- VIEW 11: AGENT MANAGEMENT SYSTEM -->
+        <!-- ========================================== -->
+        <section id="adminView-agents" class="admin-view hidden space-y-6">
+            <!-- Summary Metric Cards -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider block">Total Agents</span>
+                    <p class="text-2xl sm:text-3xl font-black text-white font-mono mt-1" id="agentTotalCount">0</p>
+                    <span class="text-[11px] text-slate-500 mt-1 block">Active: <strong class="text-emerald-400" id="agentActiveCount">0</strong> &bull; Suspended: <strong class="text-red-400" id="agentSuspendedCount">0</strong></span>
+                </div>
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider block">Agent Downstream Vol</span>
+                    <p class="text-2xl sm:text-3xl font-black text-indigo-400 font-mono mt-1" id="agentTotalVolume">₹0.00</p>
+                    <span class="text-[11px] text-slate-500 mt-1 block">Across eligible levels A-Z</span>
+                </div>
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider block">Current Week Comm</span>
+                    <p class="text-2xl sm:text-3xl font-black text-amber-400 font-mono mt-1" id="agentWeekCommission">₹0.00</p>
+                    <span class="text-[11px] text-slate-500 mt-1 block">Mon 00:00 - Sun 23:59:59 UTC</span>
+                </div>
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider block">Paid Commissions</span>
+                    <p class="text-2xl sm:text-3xl font-black text-emerald-400 font-mono mt-1" id="agentPaidCommission">₹0.00</p>
+                    <span class="text-[11px] text-slate-500 mt-1 block">Pending: <strong class="text-amber-400 font-mono" id="agentPendingCommission">₹0.00</strong></span>
+                </div>
+            </div>
+
+            <!-- Action & Filter Bar -->
+            <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-900 p-4 rounded-2xl border border-slate-800 shadow-sm">
+                <div class="flex flex-1 items-center gap-2">
+                    <div class="relative flex-1 max-w-xs">
+                        <input type="text" id="agentSearchInput" oninput="debounceAgentSearch()" placeholder="Search Agent ID, Name, Phone..."
+                               class="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500">
+                        <svg class="w-4 h-4 text-slate-500 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                    </div>
+                    <select id="agentStatusFilter" onchange="loadAdminAgents()" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500">
+                        <option value="all">All Statuses</option>
+                        <option value="active">Active</option>
+                        <option value="suspended">Suspended</option>
+                    </select>
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <button onclick="openCreateAgentModal()" class="px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-slate-950 font-bold text-xs rounded-xl shadow-lg shadow-amber-500/20 transition flex items-center gap-1.5">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                        <span>Create Agent</span>
+                    </button>
+                    <button onclick="openWeeklyPayoutsModal()" class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl border border-slate-700 transition flex items-center gap-1.5">
+                        <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                        <span>Weekly Payouts & Adjustments</span>
+                    </button>
+                    <button onclick="loadAdminAgents()" class="p-2 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl border border-slate-700 transition" title="Refresh Agents">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Agents Data Table -->
+            <div class="overflow-x-auto bg-slate-900 border border-slate-800 rounded-2xl shadow-sm">
+                <table class="w-full text-left text-xs">
+                    <thead class="bg-slate-950 text-slate-400 text-[11px] uppercase border-b border-slate-800 tracking-wider">
+                        <tr>
+                            <th class="p-3.5">Agent ID</th>
+                            <th class="p-3.5">Agent Name & Contact</th>
+                            <th class="p-3.5">Assigned Root Referral</th>
+                            <th class="p-3.5 text-right">Commission Rate</th>
+                            <th class="p-3.5 text-center">Eligible Levels</th>
+                            <th class="p-3.5 text-right">Referred Users</th>
+                            <th class="p-3.5 text-right">Total Vol / Earned</th>
+                            <th class="p-3.5 text-right">This Week (Mon-Sun)</th>
+                            <th class="p-3.5 text-center">Status</th>
+                            <th class="p-3.5 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="adminAgentsTableBody" class="divide-y divide-slate-800/60 font-mono">
+                        <tr>
+                            <td colspan="10" class="p-8 text-center text-slate-500 font-sans">Loading agent accounts...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
     </main>
 
     <!-- ========================================== -->
@@ -1162,6 +1250,404 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                     </button>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MODAL 5: CREATE AGENT MODAL -->
+    <!-- ========================================== -->
+    <div id="createAgentModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-xl w-full max-h-[92vh] overflow-y-auto p-6 shadow-2xl relative space-y-5">
+            <button onclick="closeCreateAgentModal()" class="absolute right-5 top-5 text-slate-500 hover:text-white transition">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+            <div>
+                <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                    <svg class="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/></svg>
+                    <span>Create Agent Account</span>
+                </h3>
+                <p class="text-xs text-slate-400 mt-0.5">Provision an authorized Agent with referral tree monitoring and Google Authenticator 2FA.</p>
+            </div>
+
+            <div id="createAgentAlert" class="hidden p-3 rounded-xl text-xs flex items-start gap-2"></div>
+
+            <form onsubmit="handleCreateAgentSubmit(event)" class="space-y-4">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Agent User ID (Optional)</label>
+                        <input type="text" id="newAgentCode" placeholder="Auto-generated (e.g. AGT1001)"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white font-mono uppercase focus:outline-none focus:border-amber-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Agent Full Name *</label>
+                        <input type="text" id="newAgentName" required placeholder="e.g. Rajesh Kumar"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Mobile Phone</label>
+                        <input type="tel" id="newAgentPhone" placeholder="e.g. 9876543210" maxlength="15"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white font-mono focus:outline-none focus:border-amber-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Email Address</label>
+                        <input type="email" id="newAgentEmail" placeholder="agent@jelipay.in"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Root Referral Code / User ID *</label>
+                        <input type="text" id="newAgentRootRef" required placeholder="e.g. USER001 or 4"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white font-mono uppercase focus:outline-none focus:border-amber-500">
+                        <span class="text-[10px] text-slate-500 block mt-1">Descendants of this root user (Levels A-Z) will earn commissions for this agent.</span>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Commission Rate (%) *</label>
+                        <div class="relative">
+                            <input type="number" id="newAgentCommissionRate" required step="0.01" min="0" max="100" placeholder="e.g. 2.50"
+                                   class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 pr-8 text-xs text-white font-mono focus:outline-none focus:border-amber-500">
+                            <span class="absolute right-3 top-2.5 text-xs text-slate-500 font-bold">%</span>
+                        </div>
+                        <span class="text-[10px] text-slate-500 block mt-1">One uniform rate applied across all assigned levels.</span>
+                    </div>
+                </div>
+
+                <!-- Eligible Referral Levels Checkboxes -->
+                <div>
+                    <div class="flex items-center justify-between mb-1.5">
+                        <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider">Eligible Referral Levels (A through Z)</label>
+                        <div class="flex items-center gap-1.5 text-[11px]">
+                            <button type="button" onclick="selectAllAgentLevels(true)" class="text-amber-400 hover:underline">All A-Z</button>
+                            <span class="text-slate-600">&bull;</span>
+                            <button type="button" onclick="selectLevelsPreset('A,B,C,D,E')" class="text-amber-400 hover:underline">A-E Only</button>
+                            <span class="text-slate-600">&bull;</span>
+                            <button type="button" onclick="selectAllAgentLevels(false)" class="text-slate-400 hover:underline">Clear</button>
+                        </div>
+                    </div>
+                    <div id="agentLevelsGrid" class="grid grid-cols-6 sm:grid-cols-9 gap-1.5 p-3 bg-slate-950 rounded-xl border border-slate-800 max-h-36 overflow-y-auto">
+                        <!-- Populated by JS with A-Z checkboxes -->
+                    </div>
+                </div>
+
+                <!-- Custom Password (optional) -->
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Temporary Password (Optional)</label>
+                    <input type="password" id="newAgentPassword" placeholder="Leave blank to auto-generate a secure password"
+                           class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500">
+                </div>
+
+                <button type="submit" id="btnCreateAgentSubmit"
+                        class="w-full bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-slate-950 font-bold py-3 rounded-xl text-xs uppercase tracking-wider transition shadow-lg shadow-amber-500/20">
+                    Create Agent & Generate Authenticator
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MODAL 6: ONE-TIME AGENT CREDENTIALS DISPLAY -->
+    <!-- ========================================== -->
+    <div id="agentCredentialsModal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-slate-900 border border-amber-500/40 rounded-3xl max-w-lg w-full max-h-[92vh] overflow-y-auto p-6 shadow-2xl relative space-y-5">
+            <!-- Header -->
+            <div class="text-center">
+                <div class="inline-flex items-center justify-center h-12 w-12 rounded-2xl bg-emerald-500/20 text-emerald-400 mb-3 border border-emerald-500/30">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+                </div>
+                <h3 class="text-lg font-bold text-white">Agent Credentials Provisioned</h3>
+                <p class="text-xs text-slate-400 mt-1">Please copy and transmit these details to the agent now.</p>
+            </div>
+
+            <!-- Warning Banner -->
+            <div class="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-start gap-2.5">
+                <svg class="w-4 h-4 text-amber-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                <div>
+                    <strong>One-Time Display Warning:</strong> The temporary password and raw TOTP secret key are shown only once. They are encrypted at rest and cannot be retrieved again after closing this window.
+                </div>
+            </div>
+
+            <!-- Credentials Box -->
+            <div class="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3 font-mono text-xs">
+                <!-- Agent User ID -->
+                <div class="flex items-center justify-between">
+                    <div>
+                        <span class="text-[10px] text-slate-500 uppercase tracking-wider block font-sans">Agent User ID</span>
+                        <strong class="text-white text-sm" id="credAgentCode">AGT1001</strong>
+                    </div>
+                    <button type="button" onclick="copyCredField('credAgentCode')" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-amber-400 rounded-lg text-[11px] font-sans font-semibold transition">
+                        Copy
+                    </button>
+                </div>
+
+                <!-- Temporary Password -->
+                <div class="flex items-center justify-between border-t border-slate-800/80 pt-2.5">
+                    <div>
+                        <span class="text-[10px] text-slate-500 uppercase tracking-wider block font-sans">Temporary Password</span>
+                        <strong class="text-amber-400 text-sm select-all" id="credPassword">••••••••</strong>
+                    </div>
+                    <button type="button" onclick="copyCredField('credPassword')" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-amber-400 rounded-lg text-[11px] font-sans font-semibold transition">
+                        Copy
+                    </button>
+                </div>
+
+                <!-- Login URL -->
+                <div class="flex items-center justify-between border-t border-slate-800/80 pt-2.5">
+                    <div>
+                        <span class="text-[10px] text-slate-500 uppercase tracking-wider block font-sans">Agent Portal URL</span>
+                        <span class="text-slate-300 text-[11px]" id="credLoginUrl">https://jelipay.in/agent/login</span>
+                    </div>
+                    <button type="button" onclick="copyCredField('credLoginUrl')" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-amber-400 rounded-lg text-[11px] font-sans font-semibold transition">
+                        Copy
+                    </button>
+                </div>
+
+                <!-- TOTP Secret Key -->
+                <div class="flex items-center justify-between border-t border-slate-800/80 pt-2.5">
+                    <div>
+                        <span class="text-[10px] text-slate-500 uppercase tracking-wider block font-sans">TOTP Secret Key (Manual Entry)</span>
+                        <strong class="text-indigo-300 text-xs break-all select-all" id="credTotpSecret">ABCD-EFGH</strong>
+                    </div>
+                    <button type="button" onclick="copyCredField('credTotpSecret')" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-amber-400 rounded-lg text-[11px] font-sans font-semibold transition">
+                        Copy
+                    </button>
+                </div>
+            </div>
+
+            <!-- Pure-PHP Vector SVG QR Code Container -->
+            <div class="bg-slate-950 p-4 rounded-2xl border border-slate-800 text-center">
+                <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider block font-sans mb-3">Google Authenticator Setup QR Code</span>
+                <div id="credQrSvgContainer" class="flex justify-center p-3 bg-white rounded-xl max-w-[200px] mx-auto shadow-inner">
+                    <!-- SVG injected here -->
+                </div>
+                <p class="text-[11px] text-slate-500 mt-2 font-sans">Scan inside Google Authenticator &bull; Offline vector rendering</p>
+            </div>
+
+            <!-- Master Copy All Details Button & Close Button -->
+            <div class="space-y-2">
+                <button type="button" onclick="copyAllAgentDetails()" id="btnCopyAllDetails"
+                        class="w-full py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black rounded-xl text-xs uppercase tracking-wider shadow-lg shadow-amber-500/20 transition flex items-center justify-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg>
+                    <span>Copy All Details to Clipboard</span>
+                </button>
+                <button type="button" onclick="closeAgentCredentialsModal()"
+                        class="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl text-xs transition">
+                    I Have Safely Recorded Credentials &bull; Close
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MODAL 7: EDIT AGENT SETTINGS -->
+    <!-- ========================================== -->
+    <div id="editAgentModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 shadow-2xl relative space-y-4">
+            <button onclick="closeEditAgentModal()" class="absolute right-5 top-5 text-slate-500 hover:text-white transition">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+            <div>
+                <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                    <span>Edit Agent Settings: </span>
+                    <span id="editAgentTitleCode" class="text-amber-400 font-mono">AGT1001</span>
+                </h3>
+                <p class="text-xs text-slate-400 mt-0.5">Modify commission rate, assigned levels, and contact info.</p>
+            </div>
+
+            <input type="hidden" id="editAgentId">
+
+            <form onsubmit="handleEditAgentSubmit(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Display Name</label>
+                    <input type="text" id="editAgentName" required
+                           class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500">
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Phone</label>
+                        <input type="tel" id="editAgentPhone"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-amber-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Email</label>
+                        <input type="email" id="editAgentEmail"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Commission Rate (%)</label>
+                    <input type="number" id="editAgentCommissionRate" step="0.01" min="0" max="100" required
+                           class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-amber-500">
+                </div>
+                <div>
+                    <div class="flex items-center justify-between mb-1.5">
+                        <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider">Eligible Referral Levels</label>
+                        <div class="flex items-center gap-1.5 text-[11px]">
+                            <button type="button" onclick="selectAllEditAgentLevels(true)" class="text-amber-400 hover:underline">All A-Z</button>
+                            <span class="text-slate-600">&bull;</span>
+                            <button type="button" onclick="selectAllEditAgentLevels(false)" class="text-slate-400 hover:underline">Clear</button>
+                        </div>
+                    </div>
+                    <div id="editAgentLevelsGrid" class="grid grid-cols-6 sm:grid-cols-9 gap-1.5 p-3 bg-slate-950 rounded-xl border border-slate-800 max-h-36 overflow-y-auto">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+
+                <button type="submit" class="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition">
+                    Save Changes
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MODAL 8: ADMIN WEEKLY PAYOUTS & ADJUSTMENTS -->
+    <!-- ========================================== -->
+    <div id="adminWeeklyPayoutsModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-6 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-5xl w-full max-h-[92vh] overflow-y-auto p-6 shadow-2xl relative space-y-5">
+            <button onclick="closeWeeklyPayoutsModal()" class="absolute right-5 top-5 text-slate-500 hover:text-white transition">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+                <div>
+                    <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                        <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                        <span>Agent Weekly Commission Payouts Console</span>
+                    </h3>
+                    <p class="text-xs text-slate-400">Weekly accounting cycles run strictly Monday 00:00:00 to Sunday 23:59:59 UTC</p>
+                </div>
+                <button onclick="triggerGenerateStatements()" class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 self-start sm:self-auto">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    <span>Compile / Sync Statements</span>
+                </button>
+            </div>
+
+            <!-- Filter Controls -->
+            <div class="flex flex-wrap items-center gap-3 bg-slate-950 p-3.5 rounded-xl border border-slate-800 text-xs">
+                <div>
+                    <label class="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Payout Status</label>
+                    <select id="payoutStatusFilter" onchange="loadAdminWeeklyStatements()" class="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-white text-xs">
+                        <option value="all">All Statuses</option>
+                        <option value="pending_review">Pending Review</option>
+                        <option value="approved">Approved for Payout</option>
+                        <option value="paid">Paid</option>
+                    </select>
+                </div>
+                <div class="ml-auto">
+                    <button onclick="loadAdminWeeklyStatements()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold transition">
+                        Refresh List
+                    </button>
+                </div>
+            </div>
+
+            <!-- Statements Table -->
+            <div class="overflow-x-auto bg-slate-950 border border-slate-800 rounded-2xl">
+                <table class="w-full text-left text-xs">
+                    <thead class="bg-slate-900 text-slate-400 text-[10px] uppercase border-b border-slate-800 tracking-wider">
+                        <tr>
+                            <th class="p-3">Statement</th>
+                            <th class="p-3">Agent</th>
+                            <th class="p-3">Period (Mon-Sun)</th>
+                            <th class="p-3 text-right">Orders</th>
+                            <th class="p-3 text-right">Volume</th>
+                            <th class="p-3 text-right">Gross Comm</th>
+                            <th class="p-3 text-right">Adjustment</th>
+                            <th class="p-3 text-right">Net Commission</th>
+                            <th class="p-3 text-center">Status</th>
+                            <th class="p-3">Payout Details</th>
+                            <th class="p-3 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="adminStatementsTableBody" class="divide-y divide-slate-800/60 font-mono">
+                        <tr>
+                            <td colspan="11" class="p-8 text-center text-slate-500 font-sans">Loading statements...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MODAL 9: STATEMENT ADJUSTMENT MODAL -->
+    <!-- ========================================== -->
+    <div id="statementAdjustmentModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 shadow-2xl relative space-y-4">
+            <button onclick="closeStatementAdjustmentModal()" class="absolute right-5 top-5 text-slate-500 hover:text-white transition">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+            <h3 class="text-base font-bold text-white flex items-center gap-2">
+                <span>Adjust Statement: </span>
+                <span id="adjStatementCode" class="text-amber-400 font-mono">STMT-001</span>
+            </h3>
+            <p class="text-xs text-slate-400">Add an audit-logged administrative bonus (+) or deduction (-) with a mandatory reason.</p>
+
+            <input type="hidden" id="adjStatementId">
+
+            <form onsubmit="submitStatementAdjustment(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Adjustment Amount (₹) *</label>
+                    <input type="number" id="adjAmount" step="0.01" required placeholder="e.g. +500.00 or -200.00"
+                           class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-amber-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Mandatory Operational Reason *</label>
+                    <textarea id="adjReason" rows="3" required placeholder="Explain why this adjustment is being made (e.g. performance bonus, reconciled dispute adjustment)..."
+                              class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-amber-500"></textarea>
+                </div>
+                <button type="submit" class="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition">
+                    Save Adjustment
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MODAL 10: RECORD STATEMENT PAYOUT -->
+    <!-- ========================================== -->
+    <div id="recordPayoutModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 shadow-2xl relative space-y-4">
+            <button onclick="closeRecordPayoutModal()" class="absolute right-5 top-5 text-slate-500 hover:text-white transition">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+            <div>
+                <h3 class="text-base font-bold text-white flex items-center gap-2">
+                    <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <span>Record Agent Payout Settlement</span>
+                </h3>
+                <p class="text-xs text-slate-400 mt-0.5">Mark statement as Paid with banking transaction reference.</p>
+            </div>
+
+            <div class="bg-slate-950 p-3.5 rounded-xl border border-slate-800 font-mono text-xs flex justify-between items-center">
+                <span class="text-slate-400 font-sans">Net Payout Amount:</span>
+                <strong class="text-emerald-400 text-base" id="payoutModalNetComm">₹0.00</strong>
+            </div>
+
+            <input type="hidden" id="payoutModalStatementId">
+
+            <form onsubmit="submitRecordPayout(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Payment Reference (UTR / Transfer ID) *</label>
+                    <input type="text" id="payoutRef" required placeholder="e.g. UTR429381029384"
+                           class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white font-mono uppercase focus:outline-none focus:border-emerald-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Payment Date (UTC) *</label>
+                    <input type="datetime-local" id="payoutDate" required
+                           class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Notes (Optional)</label>
+                    <input type="text" id="payoutNotes" placeholder="e.g. Bank IMPS transfer via HDFC"
+                           class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500">
+                </div>
+                <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition shadow-lg shadow-emerald-600/20">
+                    Confirm Payout & Mark as Paid
+                </button>
+            </form>
         </div>
     </div>
 
