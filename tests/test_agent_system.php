@@ -157,9 +157,10 @@ $replayAuth = AgentManager::authenticate('AGT9001', $createRes['plain_password']
 assertTest($replayAuth['success'] === false, 'Immediate replay of accepted TOTP code is strictly rejected');
 
 // In-dashboard password change
-$newTotpCode = \Security\TotpService::calculateTotp($agentSecret, time() + 35); // Next step
+$nextStepTs = time() + 35;
+$newTotpCode = \Security\TotpService::calculateTotp($agentSecret, $nextStepTs); // Next step
 $newPass = 'NewAgentSecurePass@2026';
-$changePwdRes = AgentManager::agentChangePassword((int)$agentDb['id'], $createRes['plain_password'], $newPass, $newTotpCode);
+$changePwdRes = AgentManager::agentChangePassword((int)$agentDb['id'], $createRes['plain_password'], $newPass, $newTotpCode, $nextStepTs);
 assertTest($changePwdRes['success'] === true, 'Agent password change succeeds with valid current password + 2FA');
 
 // Verify new password works

@@ -11,7 +11,10 @@ require_once __DIR__ . '/../src/Wallet.php';
 require_once __DIR__ . '/../src/Ledger.php';
 require_once __DIR__ . '/../src/StateMachine.php';
 require_once __DIR__ . '/../src/AgentManager.php';
+require_once __DIR__ . '/../config/schema_installer.php';
 require_once __DIR__ . '/response.php';
+
+SchemaInstaller::ensureSchema();
 
 $action = $_GET['action'] ?? $_POST['action'] ?? 'stats';
 
@@ -462,7 +465,7 @@ switch ($action) {
     case 'fraud_assessments':
     case 'fraud_list':
         // Requirement 9: Fraud Dashboard assessment listing
-        if (!AdminManager::checkPermission($admin, 'fraud_view')) {
+        if (!AdminManager::checkPermission($user, 'fraud_view')) {
             jsonError('Permission denied: fraud_view permission required.', 403);
         }
 
@@ -478,7 +481,7 @@ switch ($action) {
 
     case 'fraud_detail':
         // Requirement 9: Fraud assessment detail
-        if (!AdminManager::checkPermission($admin, 'fraud_view')) {
+        if (!AdminManager::checkPermission($user, 'fraud_view')) {
             jsonError('Permission denied: fraud_view permission required.', 403);
         }
 
@@ -496,7 +499,7 @@ switch ($action) {
 
     case 'fraud_review':
         // Requirement 9: Admin fraud assessment review/override action
-        if (!AdminManager::checkPermission($admin, 'fraud_review')) {
+        if (!AdminManager::checkPermission($user, 'fraud_review')) {
             jsonError('Permission denied: fraud_review permission required.', 403);
         }
 

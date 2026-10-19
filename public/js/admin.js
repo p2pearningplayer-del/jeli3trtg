@@ -1287,6 +1287,13 @@ function escapeHtml(str) {
         .replace(/'/g, '&#039;');
 }
 
+function formatCurrency(val) {
+    return Number(val || 0).toLocaleString('en-IN', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+    });
+}
+
 // -------------------------------------------------------------
 // EVIDENCE LIGHTBOX CONTROLLER (Part 11, Item 5)
 // -------------------------------------------------------------
@@ -1322,6 +1329,8 @@ function openEvidenceLightbox(images, title = 'Payment Screenshot Inspection') {
     modal.classList.remove('hidden');
     document.body.classList.add('overflow-hidden');
 }
+
+const openAdminLightbox = openEvidenceLightbox;
 
 function closeEvidenceLightbox() {
     const modal = document.getElementById('evidenceLightboxModal');

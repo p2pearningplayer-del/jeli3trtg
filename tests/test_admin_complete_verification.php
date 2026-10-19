@@ -180,7 +180,7 @@ runCheck("Buyer successfully picks child micro-order portion (₹{$childAmount})
 
 // Buyer submits payment proof with valid realistic bank reference
 $realisticUtr = '418293817294';
-$proofRes = StateMachine::submitPaymentProof($childOrderId, $targetUserId, $realisticUtr, '/uploads/proofs/test.png');
+$proofRes = StateMachine::submitPaymentProof($childOrderId, $targetUserId, $realisticUtr, 'proofs/test.png');
 runCheck("Buyer submits payment proof with valid UTR and screenshot", $proofRes['success'] === true);
 
 // Seller confirms payment -> triggers 9% reward, referral commissions, and agent commissions
