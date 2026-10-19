@@ -31,6 +31,8 @@ Options -Indexes
 </IfModule>
 
 # Handle front controller routing
+RewriteRule ^admin/login/?$ admin_login.php [L,QSA]
+RewriteRule ^admin/?$ admin.php [L,QSA]
 RewriteRule ^agent/login/?$ agent_login.php [L,QSA]
 RewriteRule ^agent/dashboard/?$ agent_dashboard.php [L,QSA]
 RewriteRule ^agent/?$ agent_login.php [L,QSA]
