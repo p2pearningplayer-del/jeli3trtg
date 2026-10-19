@@ -35,27 +35,54 @@ $userId = (int)$user['id'];
 $isAdmin = ($user['role'] === 'admin') || !empty($user['real_admin_id']);
 
 if (!$isAdmin) {
-    // Check if user is either buyer or seller for this proof or dispute evidence
     $pdo = Database::getConnection();
 
-    $authStmt = $pdo->prepare("
-        SELECT 1 FROM payment_proofs p
-        JOIN child_orders c ON p.child_order_id = c.id
-        WHERE p.screenshot_path = ? AND (c.buyer_id = ? OR c.seller_id = ?)
-        UNION
-        SELECT 1 FROM disputes d
-        JOIN child_orders c ON d.child_order_id = c.id
-        WHERE d.evidence_screenshot_path = ? AND (c.buyer_id = ? OR c.seller_id = ?)
-        UNION
+    // Check support request attachment
+    $suppStmt = $pdo->prepare("
         SELECT 1 FROM support_messages sm
         JOIN support_requests sr ON sm.request_id = sr.id
         WHERE sm.attachment_path = ? AND sr.user_id = ?
     ");
-    $authStmt->execute([$requestedFile, $userId, $userId, $requestedFile, $userId, $userId, $requestedFile, $userId]);
+    $suppStmt->execute([$requestedFile, $userId]);
+    $isSupport = (bool)$suppStmt->fetch();
 
-    if (!$authStmt->fetch()) {
-        http_response_code(403);
-        die('Forbidden: You are not authorized to view this transaction evidence.');
+    if (!$isSupport) {
+        // Check payment proofs and dispute evidence
+        $authStmt = $pdo->prepare("
+            SELECT c.status as order_status, d.status as dispute_status
+            FROM payment_proofs p
+            JOIN child_orders c ON p.child_order_id = c.id
+            LEFT JOIN disputes d ON c.id = d.child_order_id
+            WHERE p.screenshot_path = ? AND (c.buyer_id = ? OR c.seller_id = ?)
+            UNION
+            SELECT c.status as order_status, d.status as dispute_status
+            FROM disputes d
+            JOIN child_orders c ON d.child_order_id = c.id
+            WHERE d.evidence_screenshot_path = ? AND (c.buyer_id = ? OR c.seller_id = ?)
+        ");
+        $authStmt->execute([$requestedFile, $userId, $userId, $requestedFile, $userId, $userId]);
+        $rows = $authStmt->fetchAll();
+
+        if (empty($rows)) {
+            http_response_code(403);
+            die('Forbidden: You are not authorized to view this transaction evidence.');
+        }
+
+        // Part 12, Item 3: Once an order reaches a final state (Success or Cancelled),
+        // screenshot evidence is hidden to prevent unauthorized viewing.
+        $finalStates = ['completed', 'cancelled', 'expired', 'cancelled / reversed'];
+        $hasActiveOrder = false;
+        foreach ($rows as $row) {
+            if (!in_array(strtolower($row['order_status'] ?? ''), $finalStates)) {
+                $hasActiveOrder = true;
+                break;
+            }
+        }
+
+        if (!$hasActiveOrder) {
+            http_response_code(403);
+            die('Forbidden: Transaction evidence is securely archived and no longer accessible once the order is finalized.');
+        }
     }
 }
 

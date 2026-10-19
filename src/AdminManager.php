@@ -111,31 +111,35 @@ class AdminManager {
                    COALESCE(SUM(pending_credit_balance), 0) as total_pending
             FROM wallets
         ");
-        $balances = $balanceStmt->fetch();
+        $balances = $balanceStmt->fetch() ?: ['total_available' => 0, 'total_reserved' => 0, 'total_pending' => 0];
 
-        // 3. Volumes
-        $buyVolume = (float)$pdo->query("SELECT COALESCE(SUM(amount), 0) FROM child_orders WHERE status = 'Completed'")->fetchColumn();
+        // 3. Volumes (Case-insensitive matching across child and parent orders)
+        $buyVolume = (float)$pdo->query("SELECT COALESCE(SUM(amount), 0) FROM child_orders WHERE LOWER(status) IN ('completed', 'success')")->fetchColumn();
         $sellVolume = (float)$pdo->query("SELECT COALESCE(SUM(completed_amount), 0) FROM parent_sell_orders")->fetchColumn();
+        $completedTradingVolume = max($buyVolume, $sellVolume);
 
-        // 4. Order state counts
+        // 4. Order state counts (Case-insensitive & inclusive matching)
         $orderCounts = [
             'total' => (int)$pdo->query("SELECT COUNT(*) FROM child_orders")->fetchColumn(),
-            'available' => (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE status = 'Available'")->fetchColumn(),
-            'reserved' => (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE status = 'Reserved'")->fetchColumn(),
-            'pending_confirmation' => (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE status IN ('Payment Proof Submitted', 'Seller Confirmation Pending', 'Seller Response Timeout')")->fetchColumn(),
-            'disputed' => (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE status = 'Disputed'")->fetchColumn(),
-            'under_review' => (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE status = 'Under Admin Review'")->fetchColumn(),
-            'completed' => (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE status = 'Completed'")->fetchColumn(),
-            'cancelled' => (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE status = 'Cancelled / Reversed'")->fetchColumn(),
-            'expired' => (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE status = 'Expired'")->fetchColumn(),
+            'available' => (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE LOWER(status) = 'available'")->fetchColumn(),
+            'reserved' => (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE LOWER(status) = 'reserved'")->fetchColumn(),
+            'pending_confirmation' => (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE LOWER(status) IN ('payment proof submitted', 'seller confirmation pending', 'seller response timeout', 'proof pending')")->fetchColumn(),
+            'disputed' => (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE LOWER(status) IN ('disputed', 'under admin review')")->fetchColumn(),
+            'under_review' => (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE LOWER(status) = 'under admin review'")->fetchColumn(),
+            'completed' => (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE LOWER(status) IN ('completed', 'success')")->fetchColumn(),
+            'cancelled' => (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE LOWER(status) IN ('cancelled', 'cancelled / reversed', 'reversed', 'expired')")->fetchColumn(),
+            'expired' => (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE LOWER(status) = 'expired'")->fetchColumn(),
         ];
 
         // 5. Appeals & Disputes
-        $pendingAppeals = (int)$pdo->query("SELECT COUNT(*) FROM disputes WHERE status IN ('pending', 'under_review')")->fetchColumn();
-        $resolvedAppeals = (int)$pdo->query("SELECT COUNT(*) FROM disputes WHERE status IN ('resolved_buyer', 'resolved_seller')")->fetchColumn();
+        $pendingAppeals = (int)$pdo->query("SELECT COUNT(*) FROM disputes WHERE LOWER(status) IN ('pending', 'under_review')")->fetchColumn();
+        $resolvedAppeals = (int)$pdo->query("SELECT COUNT(*) FROM disputes WHERE LOWER(status) IN ('resolved_buyer', 'resolved_seller')")->fetchColumn();
 
         // 6. Rewards & Commissions
-        $totalRewards = (float)$pdo->query("SELECT COALESCE(SUM(amount), 0) FROM wallet_ledger WHERE transaction_type = 'BUY_REWARD'")->fetchColumn();
+        $ledgerRewards = (float)$pdo->query("SELECT COALESCE(SUM(amount), 0) FROM wallet_ledger WHERE transaction_type = 'BUY_REWARD'")->fetchColumn();
+        $walletRewards = (float)$pdo->query("SELECT COALESCE(SUM(total_rewards_earned), 0) FROM wallets")->fetchColumn();
+        $totalRewards = max($ledgerRewards, $walletRewards);
+
         $totalL1 = (float)$pdo->query("SELECT COALESCE(SUM(amount), 0) FROM wallet_ledger WHERE transaction_type = 'REFERRAL_L1'")->fetchColumn();
         $totalL2 = (float)$pdo->query("SELECT COALESCE(SUM(amount), 0) FROM wallet_ledger WHERE transaction_type = 'REFERRAL_L2'")->fetchColumn();
 
@@ -145,23 +149,23 @@ class AdminManager {
         if ($weeklyTarget <= 0) $weeklyTarget = 400000.00;
 
         $sevenDaysAgo = gmdate('Y-m-d H:i:s', time() - 7 * 86400);
-        $weeklyVolStmt = $pdo->prepare("SELECT COALESCE(SUM(amount), 0) FROM child_orders WHERE status = 'Completed' AND completed_at >= ?");
+        $weeklyVolStmt = $pdo->prepare("SELECT COALESCE(SUM(amount), 0) FROM child_orders WHERE LOWER(status) IN ('completed', 'success') AND completed_at >= ?");
         $weeklyVolStmt->execute([$sevenDaysAgo]);
         $weeklyVolume = (float)$weeklyVolStmt->fetchColumn();
         $weeklyPercent = min(100.0, round(($weeklyVolume / $weeklyTarget) * 100, 1));
 
-        // 8. Recent Activities
+        // 8. Recent Activities (LEFT JOIN to prevent dropping records)
         $recentTrans = $pdo->query("
-            SELECT l.*, u.phone as user_phone, u.account_holder_name
+            SELECT l.*, COALESCE(u.phone, 'User #' || l.user_id) as user_phone, u.account_holder_name
             FROM wallet_ledger l
-            JOIN users u ON l.user_id = u.id
+            LEFT JOIN users u ON l.user_id = u.id
             ORDER BY l.id DESC LIMIT 8
         ")->fetchAll();
 
         $recentAudits = $pdo->query("
-            SELECT a.*, u.phone as admin_phone, u.account_holder_name as admin_name
+            SELECT a.*, COALESCE(u.phone, 'Admin #' || a.admin_id) as admin_phone, u.account_holder_name as admin_name
             FROM admin_audit_logs a
-            JOIN users u ON a.admin_id = u.id
+            LEFT JOIN users u ON a.admin_id = u.id
             ORDER BY a.id DESC LIMIT 8
         ")->fetchAll();
 
@@ -176,7 +180,7 @@ class AdminManager {
             'total_tokens_in_circulation' => (float)$balances['total_available'] + (float)$balances['total_reserved'],
             'total_buy_volume' => $buyVolume,
             'total_sell_volume' => $sellVolume,
-            'total_completed_trading_volume' => $buyVolume,
+            'total_completed_trading_volume' => $completedTradingVolume,
             'orders' => $orderCounts,
             'pending_confirmations_count' => $orderCounts['pending_confirmation'],
             'pending_appeals_count' => $pendingAppeals,
@@ -848,6 +852,22 @@ class AdminManager {
                 } else {
                     $insUser = $pdo->prepare("INSERT INTO platform_settings (setting_key, setting_value, updated_by, updated_at) VALUES ('telegram_support_username', ?, ?, ?)");
                     $insUser->execute([$syncedUser, $adminId, $nowUtc]);
+                }
+            }
+        } elseif ($key === 'telegram_support_username' && !empty($value)) {
+            $handle = preg_replace('#^https?://t\.me/#i', '', $value);
+            $handle = preg_replace('#^t\.me/#i', '', $handle);
+            $handle = ltrim($handle, '@/');
+            if (!empty($handle)) {
+                $syncedUrl = 'https://t.me/' . $handle;
+                $chkUrl = $pdo->prepare("SELECT setting_value FROM platform_settings WHERE setting_key = 'telegram_support_url'");
+                $chkUrl->execute();
+                if ($chkUrl->fetch()) {
+                    $updUrl = $pdo->prepare("UPDATE platform_settings SET setting_value = ?, updated_by = ?, updated_at = ? WHERE setting_key = 'telegram_support_url'");
+                    $updUrl->execute([$syncedUrl, $adminId, $nowUtc]);
+                } else {
+                    $insUrl = $pdo->prepare("INSERT INTO platform_settings (setting_key, setting_value, updated_by, updated_at) VALUES ('telegram_support_url', ?, ?, ?)");
+                    $insUrl->execute([$syncedUrl, $adminId, $nowUtc]);
                 }
             }
         }

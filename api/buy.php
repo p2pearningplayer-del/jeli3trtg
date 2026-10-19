@@ -229,5 +229,13 @@ function formatChildOrderResponse(array $p, int $now): array {
     } else {
         $p['seconds_remaining'] = 0;
     }
+
+    // Part 12, Item 3: Screenshot Privacy & History Security
+    $isFinal = in_array(strtolower($p['status'] ?? ''), ['completed', 'cancelled', 'expired', 'cancelled / reversed']);
+    $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'admin') || !empty($_SESSION['real_admin_id']);
+    if ($isFinal && !$isAdmin) {
+        $p['screenshot_path'] = null;
+    }
+
     return $p;
 }

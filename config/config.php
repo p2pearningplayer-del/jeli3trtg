@@ -41,15 +41,25 @@ define('BUYER_PAYMENT_WINDOW_SECONDS', 600);    // 10 minutes (600 seconds)
 define('SELLER_VERIFY_WINDOW_SECONDS', 900);    // 15 minutes (900 seconds)
 define('MAX_CHILD_SPLITS', 8);                  // Up to 8 child micro-orders
 
-// Session & Security Settings
+// Session & Security Settings (Part 12, Item 1: 48-Hour Session Stability)
+ini_set('session.gc_maxlifetime', '172800'); // 48 hours
+ini_set('session.cookie_lifetime', '172800'); // 48 hours
+
 if (session_status() === PHP_SESSION_NONE) {
+    $isHttps = (
+        (isset($_SERVER['HTTPS']) && ($_SERVER['HTTPS'] === 'on' || $_SERVER['HTTPS'] === '1')) ||
+        (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') ||
+        (isset($_SERVER['HTTP_FRONT_END_HTTPS']) && $_SERVER['HTTP_FRONT_END_HTTPS'] === 'on')
+    );
+
     session_set_cookie_params([
-        'lifetime' => 86400 * 7, // 7 days
+        'lifetime' => 172800, // 48 hours
         'path' => '/',
         'domain' => '',
-        'secure' => isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on',
+        'secure' => $isHttps,
         'httponly' => true,
         'samesite' => 'Lax'
     ]);
     session_start();
 }
+

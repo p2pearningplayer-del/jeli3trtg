@@ -51,6 +51,8 @@ switch ($action) {
         ");
         $stmt->execute([$user['id']]);
         $orders = $stmt->fetchAll();
+        $isAdmin = ($user['role'] === 'admin') || !empty($user['real_admin_id']);
+        $finalStates = ['completed', 'cancelled', 'expired', 'cancelled / reversed'];
         foreach ($orders as &$ord) {
             $ord['formatted_id'] = sprintf('#%04d', (int)$ord['id']);
             $ord['amount'] = (float)$ord['amount'];
@@ -61,6 +63,10 @@ switch ($action) {
             $ord['seller_upi_id'] = $ord['snapshotted_upi_id'] ?? '';
             if (!empty($ord['seller_phone'])) {
                 $ord['seller_phone_masked'] = Validator::maskPhone($ord['seller_phone']);
+            }
+            // Part 12, Item 3: Screenshot Privacy & History Security
+            if (!$isAdmin && in_array(strtolower($ord['status'] ?? ''), $finalStates)) {
+                $ord['screenshot_path'] = null;
             }
         }
         jsonResponse(true, ['buy_history' => $orders]);
@@ -80,11 +86,18 @@ switch ($action) {
         ");
         $stmt->execute([$user['id']]);
         $portions = $stmt->fetchAll();
+        $isAdmin = ($user['role'] === 'admin') || !empty($user['real_admin_id']);
+        $finalStates = ['completed', 'cancelled', 'expired', 'cancelled / reversed'];
         foreach ($portions as &$p) {
             $p['formatted_id'] = sprintf('#%04d', (int)$p['id']);
             $p['parent_formatted_id'] = sprintf('#%04d', (int)$p['parent_order_id']);
             $p['amount'] = (float)$p['amount'];
             // Buyer privacy (Part 6): Only Order ID is exposed to seller, zero personal info
+
+            // Part 12, Item 3: Screenshot Privacy & History Security
+            if (!$isAdmin && in_array(strtolower($p['status'] ?? ''), $finalStates)) {
+                $p['screenshot_path'] = null;
+            }
         }
 
         $pStmt = $pdo->prepare("

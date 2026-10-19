@@ -24,10 +24,12 @@ switch ($action) {
     case 'list':
         $stmt = $pdo->prepare("
             SELECT d.*, c.amount, c.seller_id, c.buyer_id, c.status as order_status,
+                   p.screenshot_path as buyer_screenshot, p.utr_number as buyer_utr,
                    u_buyer.account_holder_name as buyer_name, u_buyer.phone as buyer_phone,
                    u_seller.account_holder_name as seller_name, u_seller.phone as seller_phone
             FROM disputes d
             JOIN child_orders c ON d.child_order_id = c.id
+            LEFT JOIN payment_proofs p ON c.id = p.child_order_id
             LEFT JOIN users u_buyer ON c.buyer_id = u_buyer.id
             LEFT JOIN users u_seller ON c.seller_id = u_seller.id
             WHERE c.buyer_id = ? OR c.seller_id = ? OR d.raised_by_user_id = ?
@@ -36,6 +38,9 @@ switch ($action) {
         ");
         $stmt->execute([$user['id'], $user['id'], $user['id']]);
         $disputes = $stmt->fetchAll();
+        $isAdmin = ($user['role'] === 'admin') || !empty($user['real_admin_id']);
+        $finalDisputeStates = ['resolved_buyer', 'resolved_seller', 'cancelled'];
+        $finalOrderStates = ['completed', 'cancelled', 'expired', 'cancelled / reversed'];
 
         foreach ($disputes as &$disp) {
             $disp['formatted_id'] = sprintf('#%04d', (int)$disp['id']);
@@ -53,6 +58,14 @@ switch ($action) {
             }
             if (!empty($disp['seller_name'])) {
                 $disp['seller_name_masked'] = Validator::maskName($disp['seller_name']);
+            }
+
+            // Part 12, Item 3: Screenshot Privacy & History Security
+            $isFinal = in_array(strtolower($disp['status'] ?? ''), $finalDisputeStates) ||
+                       in_array(strtolower($disp['order_status'] ?? ''), $finalOrderStates);
+            if (!$isAdmin && $isFinal) {
+                $disp['evidence_screenshot_path'] = null;
+                $disp['buyer_screenshot'] = null;
             }
         }
 

@@ -90,20 +90,35 @@ async function initApp() {
 // SESSION & AUTHENTICATION
 // -------------------------------------------------------------
 
+let isFetchingSession = null;
+
 async function fetchSession() {
-    try {
-        const res = await fetch('/api/auth.php?action=me');
-        const data = await res.json();
-        if (data.success && data.user) {
-            currentUser = data.user;
-            updateHeaderBalances(data.wallet);
-            updateProfilePreviews(data.user);
-        } else {
-            currentUser = null;
+    if (isFetchingSession) return isFetchingSession;
+    isFetchingSession = (async () => {
+        try {
+            const res = await fetch('/api/auth.php?action=me');
+            if (res.status === 401) {
+                currentUser = null;
+                return null;
+            }
+            const data = await res.json();
+            if (data.success && data.user) {
+                currentUser = data.user;
+                updateHeaderBalances(data.wallet);
+                updateProfilePreviews(data.user);
+                return currentUser;
+            } else if (res.status === 401 || (data && data.error === 'Authentication required.')) {
+                currentUser = null;
+                return null;
+            }
+        } catch (e) {
+            console.warn('Transient session fetch issue (keeping active session):', e);
+        } finally {
+            isFetchingSession = null;
         }
-    } catch (e) {
-        currentUser = null;
-    }
+        return currentUser;
+    })();
+    return isFetchingSession;
 }
 
 function updateHeaderBalances(wallet) {
@@ -1052,7 +1067,7 @@ async function loadBuyPageHistory(silent = false) {
                             </td>
                             <td class="p-2.5 sm:p-3">
                                 ${row.utr_number ? `<span class="text-slate-200 font-mono text-[11px] block font-bold">${escapeHtml(row.utr_number)}</span>` : '<span class="text-slate-600">-</span>'}
-                                ${row.screenshot_path ? `<a href="/serve_file.php?file=${encodeURIComponent(row.screenshot_path)}" target="_blank" class="text-[11px] text-indigo-400 hover:text-indigo-300 underline font-sans">View Proof</a>` : ''}
+                                ${row.screenshot_path ? `<button type="button" onclick="openUserEvidenceLightbox('${escapeHtml(row.screenshot_path)}', 'Payment Proof - Order ${formatOrderId(row.id)}')" class="text-[11px] text-indigo-400 hover:text-indigo-300 underline font-sans cursor-pointer">View Proof</button>` : ''}
                             </td>
                             <td class="p-2.5 sm:p-3 font-sans">
                                 <span class="px-2.5 py-0.5 rounded text-[10px] font-bold ${getStatusBadgeClass(row.status)}">
@@ -1163,7 +1178,7 @@ async function loadSellerDashboard(silent = false) {
                     aEl.innerHTML = `
                         <button onclick="confirmPayment(${first.id})" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition shadow-sm">Confirm</button>
                         <button onclick="openAppealModal(${first.id})" class="px-3 py-1.5 bg-red-600/30 hover:bg-red-600/40 text-red-300 border border-red-500/30 rounded-lg text-xs font-bold transition">Appeal</button>
-                        ${first.screenshot_path ? `<a href="/serve_file.php?file=${encodeURIComponent(first.screenshot_path)}" target="_blank" class="text-xs text-indigo-400 underline font-semibold ml-1">Proof</a>` : ''}
+                        ${first.screenshot_path ? `<button type="button" onclick="openUserEvidenceLightbox('${escapeHtml(first.screenshot_path)}', 'Buyer Payment Proof - Order ${formatOrderId(first.id)}')" class="text-xs text-indigo-400 hover:text-indigo-300 underline font-semibold ml-1 cursor-pointer">Proof</button>` : ''}
                     `;
                 }
                 pBar.classList.remove('hidden');
@@ -1285,7 +1300,7 @@ function renderSellerChildCard(child) {
                 <button onclick="openAppealModal(${child.id})" class="px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/30 rounded-lg text-xs font-bold transition">
                     Appeal (Not Received)
                 </button>
-                ${child.screenshot_path ? `<a href="/serve_file.php?file=${encodeURIComponent(child.screenshot_path)}" target="_blank" class="text-xs text-indigo-400 underline font-semibold ml-auto">View Buyer Proof</a>` : ''}
+                ${child.screenshot_path ? `<button type="button" onclick="openUserEvidenceLightbox('${escapeHtml(child.screenshot_path)}', 'Buyer Proof - Order ${formatOrderId(child.id)}')" class="text-xs text-indigo-400 hover:text-indigo-300 underline font-semibold ml-auto cursor-pointer">View Buyer Proof</button>` : ''}
             </div>
         `;
     } else if (child.status === 'Available') {
@@ -1955,7 +1970,7 @@ async function loadBuyHistory() {
                             <td class="p-3 font-sans text-slate-300">${escapeHtml(row.seller_name_masked || 'Peer')} <span class="text-slate-500 text-[11px] block font-mono">${escapeHtml(row.snapshotted_upi_id)}</span></td>
                             <td class="p-3">
                                 ${row.utr_number ? `<span class="text-slate-200 font-mono text-[11px] block">${escapeHtml(row.utr_number)}</span>` : '<span class="text-slate-600">-</span>'}
-                                ${row.screenshot_path ? `<a href="/serve_file.php?file=${encodeURIComponent(row.screenshot_path)}" target="_blank" class="text-[11px] text-indigo-400 underline font-sans">View Proof</a>` : ''}
+                                ${row.screenshot_path ? `<button type="button" onclick="openUserEvidenceLightbox('${escapeHtml(row.screenshot_path)}', 'Payment Proof - Order ${formatOrderId(row.id)}')" class="text-[11px] text-indigo-400 hover:text-indigo-300 underline font-sans cursor-pointer">View Proof</button>` : ''}
                             </td>
                             <td class="p-3 font-sans">
                                 <span class="px-2 py-0.5 rounded text-[10px] font-bold ${statusBadges[row.status] || 'bg-slate-800 text-slate-400'}">
@@ -2023,7 +2038,7 @@ async function loadSellHistory() {
                             <td class="p-3 font-mono text-indigo-300">${row.status !== 'Available' ? formatOrderId(row.id) : '<span class="text-slate-500 font-sans">Unsold</span>'}</td>
                             <td class="p-3">
                                 ${row.utr_number ? `<span class="text-slate-200 font-mono text-[11px] block">${escapeHtml(row.utr_number)}</span>` : '<span class="text-slate-600">-</span>'}
-                                ${row.screenshot_path ? `<a href="/serve_file.php?file=${encodeURIComponent(row.screenshot_path)}" target="_blank" class="text-[11px] text-indigo-400 underline font-sans">View Proof</a>` : ''}
+                                ${row.screenshot_path ? `<button type="button" onclick="openUserEvidenceLightbox('${escapeHtml(row.screenshot_path)}', 'Payment Proof - Order ${formatOrderId(row.id)}')" class="text-[11px] text-indigo-400 hover:text-indigo-300 underline font-sans cursor-pointer">View Proof</button>` : ''}
                             </td>
                             <td class="p-3 font-sans">
                                 <span class="px-2 py-0.5 rounded text-[10px] font-bold ${statusBadges[row.status] || 'bg-slate-800 text-slate-400'}">
@@ -2131,10 +2146,10 @@ async function loadDisputesCenter(silent = false) {
                             <div class="pt-2 border-t border-slate-800/80 flex items-center gap-2 flex-wrap">
                                 <span class="text-slate-400 font-semibold">Attached Proofs:</span>
                                 ${evidenceFiles.map((path, idx) => `
-                                    <a href="/serve_file.php?file=${encodeURIComponent(path)}" target="_blank" class="px-2.5 py-1 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/20 rounded-lg text-xs font-semibold flex items-center gap-1 transition">
+                                    <button type="button" onclick="openUserEvidenceLightbox('${escapeHtml(path)}', 'Dispute Evidence Proof #${idx + 1}')" class="px-2.5 py-1 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/20 rounded-lg text-xs font-semibold flex items-center gap-1 transition cursor-pointer">
                                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
                                         <span>Proof #${idx + 1}</span>
-                                    </a>
+                                    </button>
                                 `).join('')}
                             </div>
                         ` : ''}
@@ -2385,7 +2400,7 @@ async function loadAdminDisputes() {
                         <div class="text-[11px] text-slate-400">
                             Seller: <strong class="text-white">${escapeHtml(d.seller_name || '')} (${escapeHtml(d.seller_phone || '')})</strong>
                         </div>
-                        ${d.evidence_screenshot_path ? `<a href="/serve_file.php?file=${encodeURIComponent(d.evidence_screenshot_path)}" target="_blank" class="text-xs text-indigo-400 underline font-semibold block mt-1">View Seller Evidence</a>` : ''}
+                        ${d.evidence_screenshot_path ? `<button type="button" onclick="openUserEvidenceLightbox('${escapeHtml(d.evidence_screenshot_path)}', 'Seller Evidence - Dispute #${d.id}')" class="text-xs text-indigo-400 hover:text-indigo-300 underline font-semibold block mt-1 text-left cursor-pointer">View Seller Evidence</button>` : ''}
                     </div>
 
                     <!-- Buyer Proof Box -->
@@ -2395,7 +2410,7 @@ async function loadAdminDisputes() {
                         <div class="text-[11px] text-slate-400">
                             Buyer: <strong class="text-white">${escapeHtml(d.buyer_name || '')} (${escapeHtml(d.buyer_phone || '')})</strong>
                         </div>
-                        ${d.buyer_screenshot ? `<a href="/serve_file.php?file=${encodeURIComponent(d.buyer_screenshot)}" target="_blank" class="text-xs text-indigo-400 underline font-semibold block mt-1">View Buyer Payment Screenshot</a>` : ''}
+                        ${d.buyer_screenshot ? `<button type="button" onclick="openUserEvidenceLightbox('${escapeHtml(d.buyer_screenshot)}', 'Buyer Payment Screenshot - Dispute #${d.id}')" class="text-xs text-indigo-400 hover:text-indigo-300 underline font-semibold block mt-1 text-left cursor-pointer">View Buyer Payment Screenshot</button>` : ''}
                     </div>
                 </div>
 
@@ -3173,10 +3188,10 @@ async function checkPendingSellerConfirmations() {
                 if (targetChild.screenshot_path) {
                     const paths = targetChild.screenshot_path.split(',').map(s => s.trim()).filter(Boolean);
                     proofsContainer.innerHTML = paths.map((path, idx) => `
-                        <a href="/serve_file.php?file=${encodeURIComponent(path)}" target="_blank" class="px-2.5 py-1 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/30 rounded-lg text-xs font-semibold flex items-center gap-1 transition">
+                        <button type="button" onclick="openUserEvidenceLightbox('${escapeHtml(targetChild.screenshot_path)}', 'Payment Proof - Order #${targetChild.id}', ${idx})" class="px-2.5 py-1 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/30 rounded-lg text-xs font-semibold flex items-center gap-1 transition cursor-pointer">
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
                             <span>Proof #${idx + 1}</span>
-                        </a>
+                        </button>
                     `).join('');
                 } else {
                     proofsContainer.innerHTML = '<span class="text-slate-500 text-xs">No screenshot path provided</span>';
@@ -3386,3 +3401,86 @@ function closeIosInstallModal() {
     const modal = document.getElementById('iosInstallModal');
     if (modal) modal.classList.add('hidden');
 }
+
+// ==========================================
+// USER EVIDENCE INSPECTION LIGHTBOX (Part 12, Item 2)
+// ==========================================
+let userLightboxImages = [];
+let userLightboxIndex = 0;
+
+function openUserEvidenceLightbox(images, title = 'Payment Screenshot Evidence', startIndex = 0) {
+    if (!images) return;
+    if (typeof images === 'string') {
+        userLightboxImages = images.split(',').map(s => s.trim()).filter(Boolean);
+    } else if (Array.isArray(images)) {
+        userLightboxImages = images.filter(Boolean);
+    } else {
+        userLightboxImages = [];
+    }
+    if (userLightboxImages.length === 0) return;
+
+    userLightboxImages = userLightboxImages.map(img => {
+        if (img.startsWith('http://') || img.startsWith('https://') || img.startsWith('/serve_file.php')) {
+            return img;
+        }
+        return `/serve_file.php?file=${encodeURIComponent(img)}`;
+    });
+
+    userLightboxIndex = Math.max(0, Math.min(startIndex, userLightboxImages.length - 1));
+
+    const modal = document.getElementById('userEvidenceLightboxModal');
+    if (!modal) return;
+
+    const titleEl = document.getElementById('userLightboxTitle');
+    if (titleEl) titleEl.innerText = title;
+
+    updateUserLightboxView();
+    modal.classList.remove('hidden');
+    document.body.classList.add('overflow-hidden');
+}
+
+function closeUserEvidenceLightbox() {
+    const modal = document.getElementById('userEvidenceLightboxModal');
+    if (modal) modal.classList.add('hidden');
+    document.body.classList.remove('overflow-hidden');
+}
+
+function updateUserLightboxView() {
+    if (userLightboxImages.length === 0) return;
+    const currentSrc = userLightboxImages[userLightboxIndex];
+    const imgEl = document.getElementById('userLightboxImage');
+    if (imgEl) imgEl.src = currentSrc;
+
+    const subEl = document.getElementById('userLightboxSubtitle');
+    if (subEl) {
+        subEl.innerText = `Image ${userLightboxIndex + 1} of ${userLightboxImages.length}`;
+    }
+
+    const prevBtn = document.getElementById('userLightboxPrevBtn');
+    const nextBtn = document.getElementById('userLightboxNextBtn');
+    if (prevBtn && nextBtn) {
+        if (userLightboxImages.length > 1) {
+            prevBtn.classList.remove('hidden');
+            nextBtn.classList.remove('hidden');
+        } else {
+            prevBtn.classList.add('hidden');
+            nextBtn.classList.add('hidden');
+        }
+    }
+}
+
+function navigateUserLightbox(direction) {
+    if (userLightboxImages.length <= 1) return;
+    userLightboxIndex = (userLightboxIndex + direction + userLightboxImages.length) % userLightboxImages.length;
+    updateUserLightboxView();
+}
+
+// Global keyboard accessibility for user lightbox modal
+document.addEventListener('keydown', (e) => {
+    const modal = document.getElementById('userEvidenceLightboxModal');
+    if (modal && !modal.classList.contains('hidden')) {
+        if (e.key === 'Escape') closeUserEvidenceLightbox();
+        if (e.key === 'ArrowLeft') navigateUserLightbox(-1);
+        if (e.key === 'ArrowRight') navigateUserLightbox(1);
+    }
+});

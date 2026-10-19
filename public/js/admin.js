@@ -11,16 +11,45 @@ let activeTimers = {};
 document.addEventListener('DOMContentLoaded', () => {
     initAdmin();
     setInterval(periodicAdminSync, 10000);
+    window.addEventListener('hashchange', () => {
+        const hashTab = window.location.hash.replace('#', '');
+        const validTabs = ['dashboard', 'users', 'orders', 'disputes', 'rewards', 'content', 'reports', 'audit', 'admins'];
+        if (hashTab && validTabs.includes(hashTab) && hashTab !== currentAdminTab) {
+            switchAdminTab(hashTab);
+        }
+    });
 });
 
 async function initAdmin() {
     const urlParams = new URLSearchParams(window.location.search);
     const tabParam = urlParams.get('tab');
-    switchAdminTab(tabParam || 'dashboard');
+    const hashTab = window.location.hash.replace('#', '');
+    const savedTab = localStorage.getItem('adminActiveTab');
+    const validTabs = ['dashboard', 'users', 'orders', 'disputes', 'rewards', 'content', 'reports', 'audit', 'admins'];
+
+    let initialTab = 'dashboard';
+    if (tabParam && validTabs.includes(tabParam)) {
+        initialTab = tabParam;
+    } else if (hashTab && validTabs.includes(hashTab)) {
+        initialTab = hashTab;
+    } else if (savedTab && validTabs.includes(savedTab)) {
+        initialTab = savedTab;
+    }
+
+    switchAdminTab(initialTab);
 }
 
 function switchAdminTab(tabId, filterOptions = null) {
+    const validTabs = ['dashboard', 'users', 'orders', 'disputes', 'rewards', 'content', 'reports', 'audit', 'admins'];
+    if (!validTabs.includes(tabId)) {
+        tabId = 'dashboard';
+    }
+
     currentAdminTab = tabId;
+    localStorage.setItem('adminActiveTab', tabId);
+    if (window.location.hash !== '#' + tabId) {
+        history.replaceState(null, '', '#' + tabId);
+    }
 
     document.querySelectorAll('.admin-nav-item').forEach(el => {
         el.classList.remove('bg-amber-500/10', 'text-amber-400', 'border-amber-500/30');
@@ -88,7 +117,7 @@ function periodicAdminSync() {
 }
 
 // -------------------------------------------------------------
-// TAB 1: DASHBOARD OVERVIEW (Requirement 1)
+// TAB 1: DASHBOARD OVERVIEW (Requirement 1 & Part 11 Sync)
 // -------------------------------------------------------------
 
 async function loadAdminDashboard(silent = false) {
@@ -98,66 +127,91 @@ async function loadAdminDashboard(silent = false) {
         if (!data.success || !data.stats) return;
 
         const s = data.stats;
+        const setTxt = (id, val) => {
+            const el = document.getElementById(id);
+            if (el) el.innerText = val;
+        };
 
         // User metrics
-        if (document.getElementById('dashTotalUsers')) document.getElementById('dashTotalUsers').innerText = s.total_users;
-        if (document.getElementById('dashActiveUsers')) document.getElementById('dashActiveUsers').innerText = s.active_users;
-        if (document.getElementById('dashSuspendedUsers')) document.getElementById('dashSuspendedUsers').innerText = s.suspended_users;
-        if (document.getElementById('dashDemoUsers')) document.getElementById('dashDemoUsers').innerText = s.demo_users;
+        setTxt('dashTotalUsers', s.total_users ?? 0);
+        setTxt('dashActiveUsers', s.active_users ?? 0);
+        setTxt('dashSuspendedUsers', s.suspended_users ?? 0);
+        setTxt('dashDemoUsers', s.demo_users ?? 0);
 
         // Volumes & Balances
-        document.getElementById('dashTradingVol').innerText = `₹${parseFloat(s.total_completed_trading_volume).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
-        document.getElementById('dashSellVol').innerText = `₹${parseFloat(s.total_sell_volume).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
-        document.getElementById('dashCirculation').innerText = `₹${parseFloat(s.total_tokens_in_circulation).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
-        document.getElementById('dashAvailableBal').innerText = `₹${parseFloat(s.total_available_tokens).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
-        document.getElementById('dashReservedBal').innerText = `₹${parseFloat(s.total_reserved_tokens).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+        const tradingVol = parseFloat(s.total_completed_trading_volume || 0);
+        const sellVol = parseFloat(s.total_sell_volume || 0);
+        const circulation = parseFloat(s.total_tokens_in_circulation || 0);
+        const availBal = parseFloat(s.total_available_tokens || 0);
+        const resBal = parseFloat(s.total_reserved_tokens || 0);
+
+        setTxt('dashTradingVol', `₹${tradingVol.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
+        setTxt('dashSellVol', `₹${sellVol.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
+        setTxt('dashCirculation', `₹${circulation.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
+        setTxt('dashAvailableBal', `₹${availBal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
+        setTxt('dashReservedBal', `₹${resBal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
 
         // Orders breakdown
-        document.getElementById('dashOrdersTotal').innerText = s.orders.total;
-        document.getElementById('dashOrdersAvailable').innerText = s.orders.available;
-        document.getElementById('dashOrdersReserved').innerText = s.orders.reserved;
-        document.getElementById('dashOrdersPendingConfirm').innerText = s.orders.pending_confirmation;
-        document.getElementById('dashOrdersDisputed').innerText = s.orders.disputed;
-        document.getElementById('dashOrdersCompleted').innerText = s.orders.completed;
-        document.getElementById('dashOrdersCancelled').innerText = s.orders.cancelled;
+        const orders = s.orders || {};
+        const otBtn = document.getElementById('dashOrdersTotal');
+        if (otBtn) {
+            const span = otBtn.querySelector('span');
+            if (span) span.innerText = `${orders.total ?? 0} Total Orders`;
+            else otBtn.innerText = `${orders.total ?? 0} Total Orders`;
+        }
+        setTxt('dashOrdersAvailable', orders.available ?? 0);
+        setTxt('dashOrdersReserved', orders.reserved ?? 0);
+        setTxt('dashOrdersPendingConfirm', orders.pending_confirmation ?? 0);
+        setTxt('dashOrdersDisputed', orders.disputed ?? 0);
+        setTxt('dashOrdersCompleted', orders.completed ?? 0);
+        setTxt('dashOrdersCancelled', orders.cancelled ?? 0);
 
         // Rewards & Referrals
-        document.getElementById('dashTotalRewards').innerText = `₹${parseFloat(s.total_rewards).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
-        document.getElementById('dashTotalCommissions').innerText = `₹${parseFloat(s.total_commissions).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
-        document.getElementById('dashL1Commissions').innerText = `₹${parseFloat(s.total_l1_commissions).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
-        document.getElementById('dashL2Commissions').innerText = `₹${parseFloat(s.total_l2_commissions).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+        setTxt('dashTotalRewards', `₹${parseFloat(s.total_rewards || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
+        setTxt('dashTotalCommissions', `₹${parseFloat(s.total_commissions || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
+        setTxt('dashL1Commissions', `₹${parseFloat(s.total_l1_commissions || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
+        setTxt('dashL2Commissions', `₹${parseFloat(s.total_l2_commissions || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
 
         // Weekly Target
-        document.getElementById('dashWeeklyTarget').innerText = `₹${parseFloat(s.weekly_selling_target).toLocaleString('en-IN')}`;
-        document.getElementById('dashWeeklyCompleted').innerText = `₹${parseFloat(s.weekly_completed_volume).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
-        document.getElementById('dashWeeklyPct').innerText = `${s.weekly_progress_percent}%`;
-        document.getElementById('dashWeeklyProgressBar').style.width = `${s.weekly_progress_percent}%`;
+        setTxt('dashWeeklyTarget', `₹${parseFloat(s.weekly_selling_target || 400000).toLocaleString('en-IN')}`);
+        setTxt('dashWeeklyCompleted', `₹${parseFloat(s.weekly_completed_volume || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
+        setTxt('dashWeeklyPct', `${s.weekly_progress_percent ?? 0}%`);
+        const pBar = document.getElementById('dashWeeklyProgressBar');
+        if (pBar) pBar.style.width = `${s.weekly_progress_percent ?? 0}%`;
 
-        // Recent Activity tables
+        // Recent Activity tables (Live Real-time data with empty states)
         const transTbody = document.getElementById('dashRecentTransBody');
-        if (transTbody && s.recent_transactions) {
-            transTbody.innerHTML = s.recent_transactions.map(t => `
-                <tr class="hover:bg-slate-900/60 font-mono text-xs">
-                    <td class="p-2.5 text-slate-500">#${t.id}</td>
-                    <td class="p-2.5 text-slate-300">${escapeHtml(t.user_phone)}</td>
-                    <td class="p-2.5"><span class="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-amber-400 font-bold">${t.transaction_type}</span></td>
-                    <td class="p-2.5 font-bold text-white">₹${parseFloat(t.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                    <td class="p-2.5 text-slate-400 text-[11px]">${t.created_at}</td>
-                </tr>
-            `).join('');
+        if (transTbody) {
+            if (s.recent_transactions && s.recent_transactions.length > 0) {
+                transTbody.innerHTML = s.recent_transactions.map(t => `
+                    <tr class="hover:bg-slate-900/60 font-mono text-xs">
+                        <td class="p-2.5 text-slate-500">#${t.id}</td>
+                        <td class="p-2.5 text-slate-300">${escapeHtml(t.user_phone || 'User #' + t.user_id)}</td>
+                        <td class="p-2.5"><span class="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-amber-400 font-bold">${escapeHtml(t.transaction_type)}</span></td>
+                        <td class="p-2.5 font-bold text-white">₹${parseFloat(t.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                        <td class="p-2.5 text-slate-400 text-[11px]">${t.created_at}</td>
+                    </tr>
+                `).join('');
+            } else {
+                transTbody.innerHTML = `<tr><td colspan="5" class="p-6 text-center text-slate-500 font-sans text-xs">No recent ledger transactions recorded.</td></tr>`;
+            }
         }
 
         const auditTbody = document.getElementById('dashRecentAuditBody');
-        if (auditTbody && s.recent_admin_activities) {
-            auditTbody.innerHTML = s.recent_admin_activities.map(a => `
-                <tr class="hover:bg-slate-900/60 font-mono text-xs">
-                    <td class="p-2.5 text-slate-500">#${a.id}</td>
-                    <td class="p-2.5 text-amber-400">${escapeHtml(a.admin_phone || 'Admin')}</td>
-                    <td class="p-2.5"><span class="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-300 font-bold">${escapeHtml(a.action_type)}</span></td>
-                    <td class="p-2.5 text-slate-300 truncate max-w-xs font-sans text-[11px]">${escapeHtml(a.reason)}</td>
-                    <td class="p-2.5 text-slate-400 text-[11px]">${a.created_at}</td>
-                </tr>
-            `).join('');
+        if (auditTbody) {
+            if (s.recent_admin_activities && s.recent_admin_activities.length > 0) {
+                auditTbody.innerHTML = s.recent_admin_activities.map(a => `
+                    <tr class="hover:bg-slate-900/60 font-mono text-xs">
+                        <td class="p-2.5 text-slate-500">#${a.id}</td>
+                        <td class="p-2.5 text-amber-400">${escapeHtml(a.admin_phone || a.admin_name || 'Admin #' + a.admin_id)}</td>
+                        <td class="p-2.5"><span class="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-300 font-bold">${escapeHtml(a.action_type)}</span></td>
+                        <td class="p-2.5 text-slate-300 truncate max-w-xs font-sans text-[11px]">${escapeHtml(a.reason || '-')}</td>
+                        <td class="p-2.5 text-slate-400 text-[11px]">${a.created_at}</td>
+                    </tr>
+                `).join('');
+            } else {
+                auditTbody.innerHTML = `<tr><td colspan="5" class="p-6 text-center text-slate-500 font-sans text-xs">No administrative actions logged yet.</td></tr>`;
+            }
         }
     } catch (e) {
         console.error('Failed to load admin dashboard stats:', e);
@@ -470,7 +524,7 @@ async function loadAdminOrders() {
                     <td class="p-3">
                         ${isChild && o.utr_number ? `
                             <span class="text-white font-bold block">${escapeHtml(o.utr_number)}</span>
-                            ${o.screenshot_path ? `<a href="/serve_file.php?file=${encodeURIComponent(o.screenshot_path)}" target="_blank" class="text-[10px] text-indigo-400 underline font-sans">View Proof</a>` : ''}
+                            ${o.screenshot_path ? `<button type="button" onclick="openEvidenceLightbox('${escapeHtml(o.screenshot_path)}', 'Buyer Payment Proof - Order #${o.id}')" class="text-[10px] text-amber-400 hover:text-amber-300 font-bold underline font-sans block mt-0.5 cursor-pointer">Inspect Proof</button>` : ''}
                         ` : '<span class="text-slate-600">-</span>'}
                     </td>
                     <td class="p-3 text-[11px] text-slate-500">
@@ -562,10 +616,10 @@ async function loadAdminDisputes() {
                             Seller: <strong class="text-white">${escapeHtml(d.seller_name || 'Seller')}</strong>
                         </div>
                         ${d.evidence_screenshot_path ? `
-                            <a href="/serve_file.php?file=${encodeURIComponent(d.evidence_screenshot_path)}" target="_blank" class="inline-flex items-center gap-1 text-xs text-indigo-400 underline font-semibold mt-1">
+                            <button type="button" onclick="openEvidenceLightbox('${escapeHtml(d.evidence_screenshot_path)}', 'Seller Evidence Document - Dispute #${d.id}')" class="inline-flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 underline font-semibold mt-1 cursor-pointer">
                                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
                                 <span>Inspect Seller Evidence Document</span>
-                            </a>
+                            </button>
                         ` : '<span class="text-[11px] text-slate-600 block">No seller file attached</span>'}
                     </div>
 
@@ -580,10 +634,10 @@ async function loadAdminDisputes() {
                             Buyer: <strong class="text-white">${escapeHtml(d.buyer_name || 'Buyer')}</strong>
                         </div>
                         ${d.buyer_screenshot ? `
-                            <a href="/serve_file.php?file=${encodeURIComponent(d.buyer_screenshot)}" target="_blank" class="inline-flex items-center gap-1 text-xs text-indigo-400 underline font-semibold mt-1">
+                            <button type="button" onclick="openEvidenceLightbox('${escapeHtml(d.buyer_screenshot)}', 'Buyer Payment Screenshot - Dispute #${d.id} (Order #${d.child_order_id})')" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs font-bold transition shadow-sm cursor-pointer mt-1">
                                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
                                 <span>Inspect Buyer Payment Screenshot</span>
-                            </a>
+                            </button>
                         ` : '<span class="text-[11px] text-slate-600 block">No buyer screenshot</span>'}
                     </div>
                 </div>
@@ -857,8 +911,8 @@ async function loadSettingsIntoGrid(containerId, keys) {
                     <input type="text" id="settingInput_${s.setting_key}" value="${escapeHtml(s.setting_value)}"
                            class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white font-mono focus:border-amber-500 focus:outline-none">
                 </div>
-                <button onclick="saveGlobalSetting('${s.setting_key}')" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold py-2 rounded-xl text-xs uppercase tracking-wider transition">
-                    Save Configuration
+                <button onclick="saveGlobalSetting('${s.setting_key}', this)" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold py-2 rounded-xl text-xs uppercase tracking-wider transition flex items-center justify-center gap-1.5 cursor-pointer">
+                    <span>Save Configuration</span>
                 </button>
             </div>
         `).join('');
@@ -867,7 +921,7 @@ async function loadSettingsIntoGrid(containerId, keys) {
     }
 }
 
-async function saveGlobalSetting(key) {
+async function saveGlobalSetting(key, btn = null) {
     const input = document.getElementById(`settingInput_${key}`);
     let val = input ? input.value : '';
     if (key === 'telegram_support_url' && val) {
@@ -880,13 +934,18 @@ async function saveGlobalSetting(key) {
             normVal = `https://t.me/${normVal.replace(/^\/+/, '')}`;
         }
         val = normVal;
+    } else if (key === 'telegram_support_username' && val) {
+        let normVal = val.trim();
+        normVal = normVal.replace(/^https?:\/\/t\.me\//i, '').replace(/^t\.me\//i, '').replace(/^\/+/, '');
+        val = normVal.startsWith('@') ? normVal : ('@' + normVal);
     }
-    let reason = prompt(`Enter reason for modifying setting '${key}' (optional):`, 'Admin configuration change');
-    if (reason === null) {
-        return; // User clicked Cancel
-    }
-    if (!reason.trim()) {
-        reason = 'Admin configuration change';
+
+    const reason = 'Admin configuration update';
+    let originalBtnHtml = '';
+    if (btn) {
+        originalBtnHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = `<span class="inline-flex items-center gap-1"><svg class="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>Saving...</span>`;
     }
 
     try {
@@ -898,18 +957,52 @@ async function saveGlobalSetting(key) {
         const data = await res.json();
         if (data.success) {
             if (input) input.value = val;
-            if (key === 'telegram_support_url') {
+            if (key === 'telegram_support_url' || key === 'telegram_support_username') {
                 const quickInp = document.getElementById('quickTelegramUrlInput');
                 const testBtn = document.getElementById('quickTelegramTestBtn');
-                if (quickInp) quickInp.value = val;
-                if (testBtn) testBtn.href = val;
+                const gridUrl = document.getElementById('settingInput_telegram_support_url');
+                const gridUser = document.getElementById('settingInput_telegram_support_username');
+                if (key === 'telegram_support_url') {
+                    if (quickInp) quickInp.value = val;
+                    if (testBtn) testBtn.href = val;
+                    if (gridUrl) gridUrl.value = val;
+                    const handle = val.replace(/^https?:\/\/t\.me\//i, '').replace(/^t\.me\//i, '').replace(/^@/, '');
+                    if (gridUser && handle) gridUser.value = '@' + handle;
+                } else {
+                    const handle = val.replace(/^https?:\/\/t\.me\//i, '').replace(/^t\.me\//i, '').replace(/^@/, '');
+                    const fullUrl = 'https://t.me/' + handle;
+                    if (quickInp) quickInp.value = fullUrl;
+                    if (testBtn) testBtn.href = fullUrl;
+                    if (gridUrl) gridUrl.value = fullUrl;
+                }
             }
-            alert(`Setting '${key}' saved and applied successfully!`);
+
+            if (btn) {
+                btn.classList.remove('bg-slate-800', 'text-slate-200');
+                btn.classList.add('bg-emerald-600', 'text-white');
+                btn.innerHTML = `<span>Saved ✓</span>`;
+                setTimeout(() => {
+                    btn.classList.remove('bg-emerald-600', 'text-white');
+                    btn.classList.add('bg-slate-800', 'text-slate-200');
+                    btn.innerHTML = originalBtnHtml;
+                    btn.disabled = false;
+                }, 1500);
+            } else {
+                alert(`Setting '${key}' saved and applied successfully!`);
+            }
         } else {
             alert(data.error || 'Failed to update setting.');
+            if (btn) {
+                btn.innerHTML = originalBtnHtml;
+                btn.disabled = false;
+            }
         }
     } catch (e) {
-        alert('Network error.');
+        alert('Network error updating setting.');
+        if (btn) {
+            btn.innerHTML = originalBtnHtml;
+            btn.disabled = false;
+        }
     }
 }
 
@@ -1191,3 +1284,89 @@ function escapeHtml(str) {
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
 }
+
+// -------------------------------------------------------------
+// EVIDENCE LIGHTBOX CONTROLLER (Part 11, Item 5)
+// -------------------------------------------------------------
+
+let adminLightboxImages = [];
+let adminLightboxIndex = 0;
+
+function openEvidenceLightbox(images, title = 'Payment Screenshot Inspection') {
+    if (!images) return;
+    let list = [];
+    if (typeof images === 'string') {
+        list = images.split(',').map(s => s.trim()).filter(Boolean);
+    } else if (Array.isArray(images)) {
+        list = images.map(s => String(s).trim()).filter(Boolean);
+    }
+    if (list.length === 0) return;
+
+    adminLightboxImages = list.map(img => {
+        if (img.startsWith('http://') || img.startsWith('https://') || img.startsWith('/serve_file.php')) {
+            return img;
+        }
+        return `/serve_file.php?file=${encodeURIComponent(img)}`;
+    });
+    adminLightboxIndex = 0;
+
+    const modal = document.getElementById('evidenceLightboxModal');
+    if (!modal) return;
+
+    const titleEl = document.getElementById('lightboxTitle');
+    if (titleEl) titleEl.innerText = title;
+
+    updateAdminLightboxView();
+    modal.classList.remove('hidden');
+    document.body.classList.add('overflow-hidden');
+}
+
+function closeEvidenceLightbox() {
+    const modal = document.getElementById('evidenceLightboxModal');
+    if (modal) modal.classList.add('hidden');
+    document.body.classList.remove('overflow-hidden');
+}
+
+function updateAdminLightboxView() {
+    if (adminLightboxImages.length === 0) return;
+    const currentSrc = adminLightboxImages[adminLightboxIndex];
+    const imgEl = document.getElementById('lightboxImage');
+    if (imgEl) imgEl.src = currentSrc;
+
+    const subEl = document.getElementById('lightboxSubtitle');
+    if (subEl) {
+        subEl.innerText = `Image ${adminLightboxIndex + 1} of ${adminLightboxImages.length}`;
+    }
+
+    const downBtn = document.getElementById('lightboxDownloadBtn');
+    if (downBtn) downBtn.href = currentSrc;
+
+    const prevBtn = document.getElementById('lightboxPrevBtn');
+    const nextBtn = document.getElementById('lightboxNextBtn');
+    if (prevBtn && nextBtn) {
+        if (adminLightboxImages.length > 1) {
+            prevBtn.classList.remove('hidden');
+            nextBtn.classList.remove('hidden');
+        } else {
+            prevBtn.classList.add('hidden');
+            nextBtn.classList.add('hidden');
+        }
+    }
+}
+
+function navigateLightbox(direction) {
+    if (adminLightboxImages.length <= 1) return;
+    adminLightboxIndex = (adminLightboxIndex + direction + adminLightboxImages.length) % adminLightboxImages.length;
+    updateAdminLightboxView();
+}
+
+// Global keyboard accessibility for modal
+document.addEventListener('keydown', (e) => {
+    const modal = document.getElementById('evidenceLightboxModal');
+    if (modal && !modal.classList.contains('hidden')) {
+        if (e.key === 'Escape') closeEvidenceLightbox();
+        if (e.key === 'ArrowLeft') navigateLightbox(-1);
+        if (e.key === 'ArrowRight') navigateLightbox(1);
+    }
+});
+

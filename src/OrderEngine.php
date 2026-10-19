@@ -344,6 +344,13 @@ class OrderEngine {
                 unset($child['buyer_phone']);
                 unset($child['buyer_name']);
                 unset($child['buyer_phone_masked']);
+
+                // Part 12, Item 3: Screenshot Privacy & History Security
+                $isFinal = in_array(strtolower($child['status'] ?? ''), ['completed', 'cancelled', 'expired', 'cancelled / reversed']);
+                $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'admin') || !empty($_SESSION['real_admin_id']);
+                if ($isFinal && !$isAdmin) {
+                    $child['screenshot_path'] = null;
+                }
             }
             $parent['children'] = $children;
         }

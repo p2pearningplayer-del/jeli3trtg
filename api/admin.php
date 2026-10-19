@@ -298,12 +298,15 @@ switch ($action) {
         break;
 
     case 'settings':
-        // Requirements 5 & 6: Platform variables, content, and branding
+        // Requirements 5 & 6 & Part 11: Platform variables, content, and branding
         $pdo = Database::getConnection();
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-            $key = $input['setting_key'] ?? '';
-            $value = $input['setting_value'] ?? '';
-            $reason = $input['reason'] ?? 'Admin settings configuration update';
+            $key = trim((string)($input['setting_key'] ?? $_POST['setting_key'] ?? ''));
+            $value = (string)($input['setting_value'] ?? $_POST['setting_value'] ?? '');
+            $reason = trim((string)($input['reason'] ?? $_POST['reason'] ?? 'Admin settings configuration update'));
+            if (empty($reason)) {
+                $reason = 'Admin settings configuration update';
+            }
 
             if (empty($key)) {
                 jsonError('Setting key is required.');
@@ -311,6 +314,10 @@ switch ($action) {
 
             $res = AdminManager::updateSetting($key, (string)$value, $adminId, $reason);
             if ($res['success']) {
+                $freshStmt = $pdo->prepare("SELECT setting_key, setting_value, updated_at FROM platform_settings WHERE setting_key = ?");
+                $freshStmt->execute([$key]);
+                $fresh = $freshStmt->fetch();
+                $res['setting'] = $fresh;
                 jsonResponse(true, $res);
             } else {
                 jsonError($res['error']);
@@ -363,9 +370,12 @@ switch ($action) {
         break;
 
     case 'admin_create':
-        // Part 10, Item 4: Create new administrator account (Super Admin only)
+    case 'create_admin':
+    case 'add_admin':
+        // Part 10 & 11: Create new administrator account (Super Admin only)
         $caller = Auth::getCurrentUser();
-        if (($caller['admin_role'] ?? 'super_admin') !== 'super_admin') {
+        $isSuperAdmin = ($caller && $caller['role'] === 'admin' && (empty($caller['admin_role']) || $caller['admin_role'] === 'super_admin' || $caller['admin_role'] === 'admin'));
+        if (!$isSuperAdmin) {
             jsonError('Super Admin privileges required to create administrators.', 403);
         }
 

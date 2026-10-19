@@ -1699,6 +1699,44 @@ endif;
         </div>
     </div>
 
+    <!-- ========================================== -->
+    <!-- USER EVIDENCE LIGHTBOX MODAL (Part 12, Item 2) -->
+    <!-- ========================================== -->
+    <div id="userEvidenceLightboxModal" class="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-6 hidden" onclick="if(event.target === this) closeUserEvidenceLightbox();">
+        <div class="relative max-w-3xl w-full bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
+            <!-- Header -->
+            <div class="flex items-center justify-between px-5 py-3.5 border-b border-slate-800 bg-slate-950/90">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-8 h-8 rounded-lg bg-indigo-500/20 text-indigo-400 flex items-center justify-center font-bold">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                    </div>
+                    <div>
+                        <h3 id="userLightboxTitle" class="text-sm font-bold text-white">Payment Screenshot Evidence</h3>
+                        <p id="userLightboxSubtitle" class="text-[11px] text-slate-400 font-mono">Image 1 of 1</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="closeUserEvidenceLightbox()" class="w-8 h-8 rounded-lg bg-slate-800 hover:bg-red-500/20 hover:text-red-400 text-slate-400 flex items-center justify-center transition" title="Close Lightbox (Esc)">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Image Viewport -->
+            <div class="relative flex-1 flex items-center justify-center p-4 bg-slate-950/60 overflow-hidden min-h-[300px]">
+                <img id="userLightboxImage" src="" alt="Payment Screenshot Evidence" class="max-h-[70vh] max-w-full object-contain rounded-xl shadow-lg transition-transform duration-200">
+
+                <!-- Navigation Controls for Multi-screenshot -->
+                <button id="userLightboxPrevBtn" onclick="navigateUserLightbox(-1)" class="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-slate-900/80 hover:bg-slate-800 border border-slate-700 text-white flex items-center justify-center shadow-lg transition hidden" title="Previous Image">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7"/></svg>
+                </button>
+                <button id="userLightboxNextBtn" onclick="navigateUserLightbox(1)" class="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-slate-900/80 hover:bg-slate-800 border border-slate-700 text-white flex items-center justify-center shadow-lg transition hidden" title="Next Image">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/></svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- JavaScript Controller with Cache Busting -->
     <script src="/public/js/app.js?v=<?= file_exists(__DIR__ . '/public/js/app.js') ? filemtime(__DIR__ . '/public/js/app.js') : time() ?>"></script>
 </body>
