@@ -61,6 +61,13 @@ class SchemaInstaller {
             upi_id TEXT,
             account_holder_name TEXT,
             health_score INTEGER NOT NULL DEFAULT 100,
+            totp_secret TEXT DEFAULT NULL,
+            totp_enabled INTEGER NOT NULL DEFAULT 0,
+            totp_temp_secret TEXT DEFAULT NULL,
+            totp_temp_created_at TEXT DEFAULT NULL,
+            totp_last_timestamp INTEGER NOT NULL DEFAULT 0,
+            totp_recovery_codes TEXT DEFAULT NULL,
+            password_changed_at TEXT DEFAULT NULL,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (referred_by_id) REFERENCES users(id) ON DELETE SET NULL
@@ -305,7 +312,14 @@ class SchemaInstaller {
             'is_demo' => 'INTEGER NOT NULL DEFAULT 0',
             'is_flagged' => 'INTEGER NOT NULL DEFAULT 0',
             'flag_reason' => 'TEXT',
-            'health_score' => 'INTEGER NOT NULL DEFAULT 100'
+            'health_score' => 'INTEGER NOT NULL DEFAULT 100',
+            'totp_secret' => 'TEXT DEFAULT NULL',
+            'totp_enabled' => 'INTEGER NOT NULL DEFAULT 0',
+            'totp_temp_secret' => 'TEXT DEFAULT NULL',
+            'totp_temp_created_at' => 'TEXT DEFAULT NULL',
+            'totp_last_timestamp' => 'INTEGER NOT NULL DEFAULT 0',
+            'totp_recovery_codes' => 'TEXT DEFAULT NULL',
+            'password_changed_at' => 'TEXT DEFAULT NULL'
         ];
 
         $dispCols = [
@@ -321,7 +335,14 @@ class SchemaInstaller {
                 'is_demo' => 'TINYINT(1) NOT NULL DEFAULT 0',
                 'is_flagged' => 'TINYINT(1) NOT NULL DEFAULT 0',
                 'flag_reason' => 'VARCHAR(255) DEFAULT NULL',
-                'health_score' => 'INT NOT NULL DEFAULT 100'
+                'health_score' => 'INT NOT NULL DEFAULT 100',
+                'totp_secret' => 'TEXT DEFAULT NULL',
+                'totp_enabled' => 'TINYINT(1) NOT NULL DEFAULT 0',
+                'totp_temp_secret' => 'TEXT DEFAULT NULL',
+                'totp_temp_created_at' => 'DATETIME DEFAULT NULL',
+                'totp_last_timestamp' => 'BIGINT NOT NULL DEFAULT 0',
+                'totp_recovery_codes' => 'TEXT DEFAULT NULL',
+                'password_changed_at' => 'DATETIME DEFAULT NULL'
             ];
             $dispCols = [
                 'additional_evidence_requested' => 'TINYINT(1) NOT NULL DEFAULT 0',

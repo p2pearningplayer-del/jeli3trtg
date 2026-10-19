@@ -118,14 +118,109 @@ switch ($action) {
 
         $currentPassword = (string)($input['current_password'] ?? '');
         $newPassword = (string)($input['new_password'] ?? '');
+        $totpCode = isset($input['totp_code']) ? (string)$input['totp_code'] : null;
 
         if (empty($currentPassword) || empty($newPassword)) {
             jsonError('Current password and new password are both required.');
         }
 
-        $res = Auth::changePassword($user['id'], $currentPassword, $newPassword);
+        $res = Auth::changePassword($user['id'], $currentPassword, $newPassword, $totpCode);
         if ($res['success']) {
             jsonResponse(true, ['message' => $res['message']]);
+        } else {
+            jsonResponse(false, [
+                'error' => $res['error'],
+                'requires_totp' => !empty($res['requires_totp'])
+            ], 400);
+        }
+        break;
+
+    case 'totp_status':
+        $user = Auth::getCurrentUser();
+        if (!$user) jsonError('Not authenticated.', 401);
+
+        $res = Auth::getTotpStatus($user['id']);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
+    case 'totp_setup':
+        $user = Auth::getCurrentUser();
+        if (!$user) jsonError('Not authenticated.', 401);
+        if ($user['is_impersonating']) {
+            jsonError('Two-factor setup is disabled in Admin Support Mode.', 403);
+        }
+
+        $res = Auth::initiateTotpSetup($user['id']);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
+    case 'totp_verify_enrollment':
+        $user = Auth::getCurrentUser();
+        if (!$user) jsonError('Not authenticated.', 401);
+        if ($user['is_impersonating']) {
+            jsonError('Two-factor verification is disabled in Admin Support Mode.', 403);
+        }
+
+        $code = (string)($input['code'] ?? '');
+        if (empty($code)) {
+            jsonError('A 6-digit authenticator verification code is required.');
+        }
+
+        $res = Auth::verifyTotpEnrollment($user['id'], $code);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
+    case 'totp_disable':
+        $user = Auth::getCurrentUser();
+        if (!$user) jsonError('Not authenticated.', 401);
+        if ($user['is_impersonating']) {
+            jsonError('Two-factor modifications are disabled in Admin Support Mode.', 403);
+        }
+
+        $password = (string)($input['password'] ?? '');
+        $code = (string)($input['code'] ?? '');
+
+        if (empty($password) || empty($code)) {
+            jsonError('Current password and verification code are both required to disable 2FA.');
+        }
+
+        $res = Auth::disableTotp($user['id'], $password, $code);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
+    case 'totp_regenerate_recovery_codes':
+        $user = Auth::getCurrentUser();
+        if (!$user) jsonError('Not authenticated.', 401);
+        if ($user['is_impersonating']) {
+            jsonError('Modifications are disabled in Admin Support Mode.', 403);
+        }
+
+        $password = (string)($input['password'] ?? '');
+        $code = (string)($input['code'] ?? '');
+
+        if (empty($password) || empty($code)) {
+            jsonError('Password and current 6-digit authenticator code are required.');
+        }
+
+        $res = Auth::regenerateRecoveryCodes($user['id'], $password, $code);
+        if ($res['success']) {
+            jsonResponse(true, $res);
         } else {
             jsonError($res['error']);
         }

@@ -1,5 +1,6 @@
 # Environment & test files
 database_test.sqlite
+*.sqlite
 *.log
 .DS_Store
 Thumbs.db
@@ -8,3 +9,4 @@ uploads/evidence/*
 !uploads/proofs/.gitkeep
 !uploads/evidence/.gitkeep
 !uploads/.htaccess
+config/totp_key.php

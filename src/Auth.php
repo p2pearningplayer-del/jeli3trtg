@@ -292,7 +292,8 @@ class Auth {
             SELECT id, phone, email, role, admin_role, is_demo, is_flagged, flag_reason,
                    account_status, referral_code, referred_by_id, upi_id, account_holder_name,
                    health_score,
-                   (tpin_hash IS NOT NULL AND tpin_hash != '') AS has_tpin
+                   (tpin_hash IS NOT NULL AND tpin_hash != '') AS has_tpin,
+                   (totp_enabled = 1) AS totp_enabled
             FROM users
             WHERE id = ?
         ");
@@ -307,19 +308,375 @@ class Auth {
         $user['health_score'] = (int)($user['health_score'] ?? 100);
         $user['is_impersonating'] = !empty($_SESSION['is_impersonating']);
         $user['real_admin_id'] = $_SESSION['real_admin_id'] ?? null;
+        $user['totp_enabled'] = (bool)($user['totp_enabled'] ?? false);
         return $user;
     }
 
     /**
-     * Change user password (Requirement 7)
+     * Get user's TOTP 2FA status and remaining recovery codes count.
+     * Never exposes secrets, hashes, or sensitive keys in responses.
      */
-    public static function changePassword(int $userId, string $currentPassword, string $newPassword): array {
+    public static function getTotpStatus(int $userId): array {
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare("SELECT totp_enabled, totp_recovery_codes, password_changed_at FROM users WHERE id = ?");
+        $stmt->execute([$userId]);
+        $row = $stmt->fetch();
+
+        if (!$row) {
+            return ['success' => false, 'error' => 'User not found.'];
+        }
+
+        $enabled = (int)($row['totp_enabled'] ?? 0) === 1;
+        $remainingCodes = 0;
+        $totalCodes = 0;
+
+        if (!empty($row['totp_recovery_codes'])) {
+            $codes = json_decode($row['totp_recovery_codes'], true);
+            if (is_array($codes)) {
+                $totalCodes = count($codes);
+                foreach ($codes as $item) {
+                    if (empty($item['used'])) {
+                        $remainingCodes++;
+                    }
+                }
+            }
+        }
+
+        return [
+            'success' => true,
+            'enabled' => $enabled,
+            'remaining_recovery_codes' => $remainingCodes,
+            'total_recovery_codes' => $totalCodes,
+            'password_changed_at' => $row['password_changed_at'] ?? null
+        ];
+    }
+
+    /**
+     * Initiate TOTP Two-Factor Authentication setup.
+     * Generates a unique 160-bit Base32 secret, stores it encrypted as totp_temp_secret,
+     * and generates offline vector SVG QR code and provisioning URI.
+     */
+    public static function initiateTotpSetup(int $userId): array {
+        if (!RateLimiter::check("totp_setup_{$userId}", "totp_setup", 10, 300)) {
+            return [
+                'success' => false,
+                'error' => 'Too many setup requests. Please wait 5 minutes before trying again.'
+            ];
+        }
+
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare("SELECT id, phone, email, totp_enabled FROM users WHERE id = ?");
+        $stmt->execute([$userId]);
+        $user = $stmt->fetch();
+
+        if (!$user) {
+            return ['success' => false, 'error' => 'User not found.'];
+        }
+
+        // Generate 160-bit (20-byte) Base32 secret (RFC 6238)
+        $secret = \Security\TotpService::generateSecret(20);
+        $encryptedSecret = \Security\TotpService::encryptSecret($secret);
+        $now = gmdate('Y-m-d H:i:s');
+
+        // Store encrypted temporary secret and timestamp
+        $upd = $pdo->prepare("UPDATE users SET totp_temp_secret = ?, totp_temp_created_at = ? WHERE id = ?");
+        $upd->execute([$encryptedSecret, $now, $userId]);
+
+        // Build account identifier for authenticator display
+        $identifier = !empty($user['email']) ? $user['email'] : ($user['phone'] ?? "user_{$userId}");
+        $issuer = defined('APP_NAME') ? APP_NAME : 'JeliPay';
+        $provisioningUri = \Security\TotpService::getProvisioningUri($secret, $identifier, $issuer);
+
+        // Generate pure-PHP vector SVG QR code (zero network requests, 100% offline)
+        $qrSvg = \Security\QRCodeGenerator::generateSvg($provisioningUri, 220, '#ffffff', '#020617');
+
+        // Formatted manual entry key in groups of 4 for human readability
+        $formattedSecret = trim(chunk_split($secret, 4, ' '));
+
+        return [
+            'success' => true,
+            'secret' => $secret,
+            'secret_formatted' => $formattedSecret,
+            'qr_svg' => $qrSvg,
+            'provisioning_uri' => $provisioningUri,
+            'issuer' => $issuer,
+            'identifier' => $identifier
+        ];
+    }
+
+    /**
+     * Confirm TOTP enrollment using a valid 6-digit authenticator code.
+     * Does NOT activate 2FA until code is strictly verified against temp secret.
+     * Generates 8 single-use cryptographically secure recovery codes.
+     */
+    public static function verifyTotpEnrollment(int $userId, string $code, ?int $timestamp = null): array {
+        if (!RateLimiter::check("totp_enroll_{$userId}", "totp_verify", 5, 300)) {
+            return [
+                'success' => false,
+                'error' => 'Too many failed verification attempts. Please wait 5 minutes before trying again.'
+            ];
+        }
+
+        $cleanCode = preg_replace('/\s+/', '', trim($code));
+        if (strlen($cleanCode) !== 6 || !ctype_digit($cleanCode)) {
+            return ['success' => false, 'error' => 'Please enter a valid 6-digit verification code.'];
+        }
+
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare("SELECT totp_temp_secret, totp_temp_created_at FROM users WHERE id = ?");
+        $stmt->execute([$userId]);
+        $user = $stmt->fetch();
+
+        if (!$user || empty($user['totp_temp_secret'])) {
+            return ['success' => false, 'error' => 'No pending 2FA setup found. Please initiate setup again.'];
+        }
+
+        // Expire setup session after 15 minutes (900 seconds)
+        if (!empty($user['totp_temp_created_at'])) {
+            $createdTs = strtotime($user['totp_temp_created_at']);
+            if ((time() - $createdTs) > 900) {
+                return ['success' => false, 'error' => 'Setup session expired. Please generate a new QR code.'];
+            }
+        }
+
+        $tempSecret = \Security\TotpService::decryptSecret($user['totp_temp_secret']);
+        if (!$tempSecret) {
+            return ['success' => false, 'error' => 'Unable to decrypt setup secret. Please restart setup.'];
+        }
+
+        // Verify with 1 time step clock drift tolerance
+        $verify = \Security\TotpService::verifyCode($tempSecret, $cleanCode, 0, 1, $timestamp);
+        if (!$verify['valid']) {
+            return [
+                'success' => false,
+                'error' => $verify['error'] ?? 'Invalid authenticator code. Make sure your phone clock is synced.'
+            ];
+        }
+
+        // Generate 8 single-use cryptographically secure recovery codes
+        $recovery = \Security\TotpService::generateRecoveryCodes(8);
+        $hashedCodesJson = json_encode($recovery['stored']);
+
+        // Activate 2FA, store permanent encrypted secret, and clean up temp secret
+        $upd = $pdo->prepare("
+            UPDATE users SET
+                totp_secret = totp_temp_secret,
+                totp_enabled = 1,
+                totp_temp_secret = NULL,
+                totp_temp_created_at = NULL,
+                totp_last_timestamp = ?,
+                totp_recovery_codes = ?
+            WHERE id = ?
+        ");
+        $upd->execute([
+            $verify['step'],
+            $hashedCodesJson,
+            $userId
+        ]);
+
+        RateLimiter::reset("totp_enroll_{$userId}", "totp_verify");
+
+        // Notify user about 2FA activation
+        self::createNotification(
+            $userId,
+            'Two-Factor Authentication Enabled',
+            'Google Authenticator 2FA has been successfully activated on your account. Keep your backup recovery codes in a safe place.',
+            'info'
+        );
+
+        return [
+            'success' => true,
+            'message' => 'Two-Factor Authentication activated successfully.',
+            'recovery_codes' => $recovery['plain']
+        ];
+    }
+
+    /**
+     * Disable TOTP Two-Factor Authentication.
+     * Strictly requires current account password and either a valid 6-digit TOTP code
+     * or an unused single-use backup recovery code.
+     */
+    public static function disableTotp(int $userId, string $password, string $code, ?int $timestamp = null): array {
+        if (!RateLimiter::check("totp_disable_{$userId}", "totp_disable", 5, 300)) {
+            return [
+                'success' => false,
+                'error' => 'Too many failed attempts. Temporary lockout for 5 minutes.'
+            ];
+        }
+
+        $cleanPassword = trim($password);
+        $cleanCode = preg_replace('/\s+/', '', trim($code));
+
+        if (empty($cleanPassword) || empty($cleanCode)) {
+            return ['success' => false, 'error' => 'Both your account password and a verification code are required.'];
+        }
+
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare("SELECT password_hash, totp_enabled, totp_secret, totp_last_timestamp, totp_recovery_codes FROM users WHERE id = ?");
+        $stmt->execute([$userId]);
+        $user = $stmt->fetch();
+
+        if (!$user || !password_verify($cleanPassword, $user['password_hash'])) {
+            return ['success' => false, 'error' => 'Current account password is incorrect.'];
+        }
+
+        if (empty($user['totp_enabled'])) {
+            return ['success' => false, 'error' => 'Two-Factor Authentication is not enabled on this account.'];
+        }
+
+        $secret = !empty($user['totp_secret']) ? \Security\TotpService::decryptSecret($user['totp_secret']) : null;
+        $codeVerified = false;
+
+        // Try TOTP code first if 6 digits
+        if ($secret && strlen($cleanCode) === 6 && ctype_digit($cleanCode)) {
+            $verifyRes = \Security\TotpService::verifyCode($secret, $cleanCode, (int)($user['totp_last_timestamp'] ?? 0), 1, $timestamp);
+            if ($verifyRes['valid']) {
+                $codeVerified = true;
+            }
+        }
+
+        // Try recovery code fallback if TOTP didn't pass
+        if (!$codeVerified && !empty($user['totp_recovery_codes'])) {
+            $storedCodes = json_decode($user['totp_recovery_codes'], true) ?: [];
+            $recRes = \Security\TotpService::verifyRecoveryCode($cleanCode, $storedCodes);
+            if ($recRes['valid']) {
+                $codeVerified = true;
+            }
+        }
+
+        if (!$codeVerified) {
+            return ['success' => false, 'error' => 'Invalid authenticator code or recovery code.'];
+        }
+
+        // Wipe TOTP credentials completely
+        $upd = $pdo->prepare("
+            UPDATE users SET
+                totp_secret = NULL,
+                totp_enabled = 0,
+                totp_temp_secret = NULL,
+                totp_temp_created_at = NULL,
+                totp_last_timestamp = 0,
+                totp_recovery_codes = NULL
+            WHERE id = ?
+        ");
+        $upd->execute([$userId]);
+
+        RateLimiter::reset("totp_disable_{$userId}", "totp_disable");
+
+        // High priority security notification
+        self::createNotification(
+            $userId,
+            'Security Alert: 2FA Disabled',
+            'Two-Factor Authentication was disabled on your account. If you did not authorize this, change your password immediately.',
+            'warning'
+        );
+
+        return [
+            'success' => true,
+            'message' => 'Two-Factor Authentication has been disabled.'
+        ];
+    }
+
+    /**
+     * Regenerate 8 single-use recovery codes.
+     * Requires current password and a valid TOTP code.
+     */
+    public static function regenerateRecoveryCodes(int $userId, string $password, string $code, ?int $timestamp = null): array {
+        if (!RateLimiter::check("totp_regen_{$userId}", "totp_regen", 5, 300)) {
+            return [
+                'success' => false,
+                'error' => 'Too many attempts. Please wait 5 minutes before trying again.'
+            ];
+        }
+
+        $cleanPassword = trim($password);
+        $cleanCode = preg_replace('/\s+/', '', trim($code));
+
+        if (empty($cleanPassword) || empty($cleanCode)) {
+            return ['success' => false, 'error' => 'Password and current authenticator code are required.'];
+        }
+
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare("SELECT password_hash, totp_enabled, totp_secret, totp_last_timestamp FROM users WHERE id = ?");
+        $stmt->execute([$userId]);
+        $user = $stmt->fetch();
+
+        if (!$user || !password_verify($cleanPassword, $user['password_hash'])) {
+            return ['success' => false, 'error' => 'Current password is incorrect.'];
+        }
+
+        if (empty($user['totp_enabled']) || empty($user['totp_secret'])) {
+            return ['success' => false, 'error' => 'Two-Factor Authentication is not enabled.'];
+        }
+
+        $secret = \Security\TotpService::decryptSecret($user['totp_secret']);
+        if (!$secret) {
+            return ['success' => false, 'error' => 'Unable to decrypt authenticator secret.'];
+        }
+
+        $verifyRes = \Security\TotpService::verifyCode($secret, $cleanCode, (int)($user['totp_last_timestamp'] ?? 0), 1, $timestamp);
+        if (!$verifyRes['valid']) {
+            return ['success' => false, 'error' => $verifyRes['error'] ?? 'Invalid authenticator code.'];
+        }
+
+        $recovery = \Security\TotpService::generateRecoveryCodes(8);
+        $hashedCodesJson = json_encode($recovery['stored']);
+
+        $upd = $pdo->prepare("
+            UPDATE users SET
+                totp_last_timestamp = ?,
+                totp_recovery_codes = ?
+            WHERE id = ?
+        ");
+        $upd->execute([
+            $verifyRes['step'],
+            $hashedCodesJson,
+            $userId
+        ]);
+
+        RateLimiter::reset("totp_regen_{$userId}", "totp_regen");
+
+        self::createNotification(
+            $userId,
+            'Backup Recovery Codes Regenerated',
+            'Your single-use 2FA backup recovery codes have been regenerated. Any previous recovery codes are now invalid.',
+            'info'
+        );
+
+        return [
+            'success' => true,
+            'message' => 'New recovery codes generated successfully.',
+            'recovery_codes' => $recovery['plain']
+        ];
+    }
+
+    /**
+     * Change user password (Requirement 7 & 2FA Enforcement)
+     * When 2FA is enabled, requires a valid 6-digit TOTP code or single-use recovery code.
+     * Enforces rate limiting, session regeneration, and security audit notification.
+     */
+    public static function changePassword(int $userId, string $currentPassword, string $newPassword, ?string $totpCode = null, ?int $timestamp = null): array {
+        if (!RateLimiter::check("pwd_change_{$userId}", "change_pwd", 5, 300)) {
+            return [
+                'success' => false,
+                'error' => 'Too many failed password change attempts. Please wait 5 minutes before trying again.'
+            ];
+        }
+
         if (strlen($newPassword) < 6) {
             return ['success' => false, 'error' => 'New password must be at least 6 characters.'];
         }
 
+        if ($currentPassword === $newPassword) {
+            return ['success' => false, 'error' => 'New password must be different from your current password.'];
+        }
+
         $pdo = Database::getConnection();
-        $stmt = $pdo->prepare("SELECT password_hash FROM users WHERE id = ?");
+        $stmt = $pdo->prepare("
+            SELECT password_hash, totp_enabled, totp_secret, totp_last_timestamp, totp_recovery_codes
+            FROM users
+            WHERE id = ?
+        ");
         $stmt->execute([$userId]);
         $user = $stmt->fetch();
 
@@ -327,11 +684,111 @@ class Auth {
             return ['success' => false, 'error' => 'Current password is incorrect.'];
         }
 
-        $newHash = password_hash($newPassword, PASSWORD_BCRYPT);
-        $upd = $pdo->prepare("UPDATE users SET password_hash = ? WHERE id = ?");
-        $upd->execute([$newHash, $userId]);
+        $isTotpEnabled = (int)($user['totp_enabled'] ?? 0) === 1;
+        $updatedLastTimestamp = (int)($user['totp_last_timestamp'] ?? 0);
+        $updatedRecoveryCodesJson = null;
+        $usedRecoveryCode = false;
 
-        self::createNotification($userId, 'Security Alert', 'Your account login password was successfully updated.', 'info');
+        // When 2FA is enabled, enforce valid TOTP or single-use recovery code
+        if ($isTotpEnabled) {
+            $cleanTotp = preg_replace('/\s+/', '', trim((string)$totpCode));
+            if ($cleanTotp === '') {
+                return [
+                    'success' => false,
+                    'error' => 'Two-Factor Authentication code is required to change password.',
+                    'requires_totp' => true
+                ];
+            }
+
+            $secret = !empty($user['totp_secret']) ? \Security\TotpService::decryptSecret($user['totp_secret']) : null;
+            if (!$secret) {
+                return ['success' => false, 'error' => 'Security configuration error. Please contact support.'];
+            }
+
+            $codeVerified = false;
+
+            // 1. Try TOTP 6-digit time-based code
+            if (strlen($cleanTotp) === 6 && ctype_digit($cleanTotp)) {
+                $verifyRes = \Security\TotpService::verifyCode($secret, $cleanTotp, $updatedLastTimestamp, 1, $timestamp);
+                if ($verifyRes['valid']) {
+                    $codeVerified = true;
+                    $updatedLastTimestamp = (int)$verifyRes['step'];
+                } elseif ($verifyRes['code'] === 'REPLAYED_CODE') {
+                    return [
+                        'success' => false,
+                        'error' => $verifyRes['error']
+                    ];
+                }
+            }
+
+            // 2. Try single-use recovery code fallback
+            if (!$codeVerified && !empty($user['totp_recovery_codes'])) {
+                $storedCodes = json_decode($user['totp_recovery_codes'], true) ?: [];
+                $recRes = \Security\TotpService::verifyRecoveryCode($cleanTotp, $storedCodes);
+                if ($recRes['valid']) {
+                    $codeVerified = true;
+                    $usedRecoveryCode = true;
+                    $updatedRecoveryCodesJson = json_encode($recRes['updated_codes']);
+                }
+            }
+
+            if (!$codeVerified) {
+                return [
+                    'success' => false,
+                    'error' => 'Invalid or expired Two-Factor Authentication code. If you cannot access your authenticator app, enter a single-use backup recovery code.'
+                ];
+            }
+        }
+
+        // Apply password update and security timestamps
+        $newHash = password_hash($newPassword, PASSWORD_BCRYPT, ['cost' => 10]);
+        $now = gmdate('Y-m-d H:i:s');
+
+        if ($isTotpEnabled) {
+            if ($updatedRecoveryCodesJson !== null) {
+                $upd = $pdo->prepare("
+                    UPDATE users SET
+                        password_hash = ?,
+                        password_changed_at = ?,
+                        totp_last_timestamp = ?,
+                        totp_recovery_codes = ?
+                    WHERE id = ?
+                ");
+                $upd->execute([$newHash, $now, $updatedLastTimestamp, $updatedRecoveryCodesJson, $userId]);
+            } else {
+                $upd = $pdo->prepare("
+                    UPDATE users SET
+                        password_hash = ?,
+                        password_changed_at = ?,
+                        totp_last_timestamp = ?
+                    WHERE id = ?
+                ");
+                $upd->execute([$newHash, $now, $updatedLastTimestamp, $userId]);
+            }
+        } else {
+            $upd = $pdo->prepare("
+                UPDATE users SET
+                    password_hash = ?,
+                    password_changed_at = ?
+                WHERE id = ?
+            ");
+            $upd->execute([$newHash, $now, $userId]);
+        }
+
+        // Session Security Policy: Regenerate session ID to prevent session fixation / stale credentials
+        if (session_status() === PHP_SESSION_ACTIVE && !headers_sent()) {
+            session_regenerate_id(true);
+        }
+
+        // Reset rate limit on success
+        RateLimiter::reset("pwd_change_{$userId}", "change_pwd");
+
+        // Dispatch audit notification
+        $alertBody = 'Your account login password was successfully updated' .
+            ($usedRecoveryCode ? ' using a single-use backup recovery code.' : ($isTotpEnabled ? ' with 2FA verification.' : '.')) .
+            ' If you did not make this change, please contact support immediately.';
+
+        self::createNotification($userId, 'Security Alert: Password Updated', $alertBody, 'warning');
 
         return ['success' => true, 'message' => 'Login password updated successfully.'];
     }

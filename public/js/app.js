@@ -226,6 +226,9 @@ function updateProfilePreviews(user) {
         if (tpinLabel) tpinLabel.innerText = "Set New Selling TPIN (4-6 Digits)";
         if (tpinBtn) tpinBtn.innerText = "Save Selling TPIN";
     }
+
+    // Two-Factor Authentication UI Sync
+    updateTotpUi(user);
 }
 
 function switchTab(tabId) {
@@ -3069,12 +3072,15 @@ async function handlePasswordChange(e) {
     const curInput = document.getElementById('currentPasswordInput');
     const newInput = document.getElementById('newPasswordInput');
     const confirmInput = document.getElementById('confirmPasswordInput');
+    const totpInput = document.getElementById('pwdTotpCode');
+    const pwdTotpContainer = document.getElementById('pwdTotpContainer');
     const statusEl = document.getElementById('changePasswordStatus');
     const submitBtn = document.getElementById('changePasswordBtn');
 
     const current_password = curInput ? curInput.value : '';
     const new_password = newInput ? newInput.value : '';
     const confirm_password = confirmInput ? confirmInput.value : '';
+    const totp_code = totpInput ? totpInput.value.trim() : '';
 
     if (!current_password || !new_password) {
         if (statusEl) {
@@ -3110,10 +3116,15 @@ async function handlePasswordChange(e) {
     }
 
     try {
+        const payload = { current_password, new_password };
+        if (totp_code) {
+            payload.totp_code = totp_code;
+        }
+
         const res = await fetch('/api/auth.php?action=change_password', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ current_password, new_password })
+            body: JSON.stringify(payload)
         });
         const data = await res.json();
         if (data.success) {
@@ -3125,8 +3136,13 @@ async function handlePasswordChange(e) {
             if (curInput) curInput.value = '';
             if (newInput) newInput.value = '';
             if (confirmInput) confirmInput.value = '';
+            if (totpInput) totpInput.value = '';
             alert('Account password updated successfully!');
         } else {
+            if (data.requires_totp) {
+                if (pwdTotpContainer) pwdTotpContainer.classList.remove('hidden');
+                if (totpInput) totpInput.focus();
+            }
             if (statusEl) {
                 statusEl.innerText = data.error || 'Failed to update password.';
                 statusEl.className = 'text-xs font-semibold text-red-400 block';
@@ -3142,6 +3158,462 @@ async function handlePasswordChange(e) {
     } finally {
         if (submitBtn) submitBtn.disabled = false;
     }
+}
+
+// -------------------------------------------------------------
+// TWO-FACTOR AUTHENTICATION (TOTP) CONTROLLER
+// -------------------------------------------------------------
+
+window._totpTempSecret = '';
+window._currentRecoveryCodes = [];
+window._regenRecoveryCodes = [];
+
+function updateTotpUi(user) {
+    const isTotpEnabled = !!(user && user.totp_enabled);
+    const badge = document.getElementById('totpStatusBadge');
+    const enableBtn = document.getElementById('totpEnableBtn');
+    const disableBtn = document.getElementById('totpDisableBtn');
+    const regenBtn = document.getElementById('totpRegenBtn');
+    const pwdTotpContainer = document.getElementById('pwdTotpContainer');
+    const recoveryStatusText = document.getElementById('totpRecoveryStatusText');
+
+    if (isTotpEnabled) {
+        if (badge) {
+            badge.innerText = 'Active & Protected';
+            badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
+        }
+        if (enableBtn) enableBtn.classList.add('hidden');
+        if (disableBtn) disableBtn.classList.remove('hidden');
+        if (regenBtn) regenBtn.classList.remove('hidden');
+        if (pwdTotpContainer) pwdTotpContainer.classList.remove('hidden');
+
+        fetch('/api/auth.php?action=totp_status')
+            .then(r => r.json())
+            .then(data => {
+                if (data.success && recoveryStatusText) {
+                    const rem = data.remaining_recovery_codes ?? 0;
+                    const tot = data.total_recovery_codes ?? 8;
+                    recoveryStatusText.innerText = `${rem} of ${tot} single-use backup recovery codes remaining. Regenerate if running low.`;
+                }
+            })
+            .catch(() => {});
+    } else {
+        if (badge) {
+            badge.innerText = 'Not Configured';
+            badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700';
+        }
+        if (enableBtn) enableBtn.classList.remove('hidden');
+        if (disableBtn) disableBtn.classList.add('hidden');
+        if (regenBtn) regenBtn.classList.add('hidden');
+        if (pwdTotpContainer) pwdTotpContainer.classList.add('hidden');
+        if (recoveryStatusText) {
+            recoveryStatusText.innerText = '8 single-use backup recovery codes will be generated upon setup to prevent accidental lockouts.';
+        }
+    }
+}
+
+async function openTotpSetupModal() {
+    const modal = document.getElementById('totpSetupModal');
+    const enrollView = document.getElementById('totpEnrollView');
+    const successView = document.getElementById('totpSuccessView');
+    const qrContainer = document.getElementById('totpQrContainer');
+    const keyInput = document.getElementById('totpManualKeyInput');
+    const codeInput = document.getElementById('totpEnrollCodeInput');
+    const statusEl = document.getElementById('totpEnrollStatus');
+    const copyBtnText = document.getElementById('copyKeyBtnText');
+
+    if (!modal) return;
+
+    if (enrollView) enrollView.classList.remove('hidden');
+    if (successView) successView.classList.add('hidden');
+    if (codeInput) codeInput.value = '';
+    if (statusEl) {
+        statusEl.className = 'text-xs font-semibold hidden';
+        statusEl.innerText = '';
+    }
+    if (copyBtnText) copyBtnText.innerText = 'Copy';
+    if (qrContainer) {
+        qrContainer.innerHTML = '<div class="animate-pulse bg-slate-800 w-48 h-48 rounded-2xl flex items-center justify-center text-slate-400 text-xs font-mono">Generating QR Code...</div>';
+    }
+
+    modal.classList.remove('hidden');
+
+    try {
+        const res = await fetch('/api/auth.php?action=totp_setup');
+        const data = await res.json();
+        if (data.success) {
+            window._totpTempSecret = data.secret;
+            if (qrContainer && data.qr_svg) {
+                qrContainer.innerHTML = data.qr_svg;
+            }
+            if (keyInput) {
+                keyInput.value = data.secret_formatted || data.secret;
+            }
+            if (codeInput) codeInput.focus();
+        } else {
+            if (statusEl) {
+                statusEl.innerText = data.error || 'Failed to initiate 2FA setup.';
+                statusEl.className = 'text-xs font-semibold text-red-400 block';
+                statusEl.classList.remove('hidden');
+            }
+        }
+    } catch (e) {
+        if (statusEl) {
+            statusEl.innerText = 'Network error initiating 2FA setup.';
+            statusEl.className = 'text-xs font-semibold text-red-400 block';
+            statusEl.classList.remove('hidden');
+        }
+    }
+}
+
+function closeTotpSetupModal() {
+    const modal = document.getElementById('totpSetupModal');
+    if (modal) modal.classList.add('hidden');
+}
+
+function copyTotpManualKey() {
+    const textToCopy = window._totpTempSecret || document.getElementById('totpManualKeyInput')?.value?.replace(/\s+/g, '') || '';
+    if (!textToCopy) return;
+
+    navigator.clipboard.writeText(textToCopy).then(() => {
+        const copyBtnText = document.getElementById('copyKeyBtnText');
+        if (copyBtnText) {
+            copyBtnText.innerText = 'Copied!';
+            setTimeout(() => { copyBtnText.innerText = 'Copy'; }, 2500);
+        }
+    }).catch(() => {
+        const keyInput = document.getElementById('totpManualKeyInput');
+        if (keyInput) {
+            keyInput.select();
+            document.execCommand('copy');
+        }
+    });
+}
+
+async function submitTotpEnrollment(e) {
+    if (e && e.preventDefault) e.preventDefault();
+
+    const codeInput = document.getElementById('totpEnrollCodeInput');
+    const statusEl = document.getElementById('totpEnrollStatus');
+    const submitBtn = document.getElementById('totpEnrollSubmitBtn');
+    const code = codeInput ? codeInput.value.trim() : '';
+
+    if (!code || code.length !== 6) {
+        if (statusEl) {
+            statusEl.innerText = 'Please enter a valid 6-digit code from your authenticator app.';
+            statusEl.className = 'text-xs font-semibold text-red-400 block';
+            statusEl.classList.remove('hidden');
+        }
+        return;
+    }
+
+    if (submitBtn) submitBtn.disabled = true;
+    if (statusEl) {
+        statusEl.innerText = 'Verifying code...';
+        statusEl.className = 'text-xs font-semibold text-cyan-400 block';
+        statusEl.classList.remove('hidden');
+    }
+
+    try {
+        const res = await fetch('/api/auth.php?action=totp_verify_enrollment', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code })
+        });
+        const data = await res.json();
+        if (data.success) {
+            window._currentRecoveryCodes = data.recovery_codes || [];
+            if (currentUser) currentUser.totp_enabled = true;
+            updateTotpUi(currentUser);
+
+            // Render recovery codes
+            const grid = document.getElementById('totpRecoveryGrid');
+            if (grid && Array.isArray(data.recovery_codes)) {
+                grid.innerHTML = data.recovery_codes.map((c, i) => `
+                    <div class="p-2 bg-slate-900/90 rounded-xl border border-slate-800 text-cyan-300 font-mono tracking-widest text-center select-all flex items-center justify-between px-3">
+                        <span class="text-[10px] text-slate-500">#${i + 1}</span>
+                        <span>${c}</span>
+                    </div>
+                `).join('');
+            }
+
+            const enrollView = document.getElementById('totpEnrollView');
+            const successView = document.getElementById('totpSuccessView');
+            if (enrollView) enrollView.classList.add('hidden');
+            if (successView) successView.classList.remove('hidden');
+        } else {
+            if (statusEl) {
+                statusEl.innerText = data.error || 'Verification failed. Please check your authenticator code.';
+                statusEl.className = 'text-xs font-semibold text-red-400 block';
+                statusEl.classList.remove('hidden');
+            }
+        }
+    } catch (e) {
+        if (statusEl) {
+            statusEl.innerText = 'Network error verifying authenticator code.';
+            statusEl.className = 'text-xs font-semibold text-red-400 block';
+            statusEl.classList.remove('hidden');
+        }
+    } finally {
+        if (submitBtn) submitBtn.disabled = false;
+    }
+}
+
+function copyAllRecoveryCodes() {
+    if (!window._currentRecoveryCodes || !window._currentRecoveryCodes.length) return;
+    const text = "JeliPay 2FA Emergency Backup Recovery Codes\n" +
+                 "Keep these codes safe and private. Each code can be used only once.\n\n" +
+                 window._currentRecoveryCodes.map((c, i) => `${i + 1}. ${c}`).join('\n');
+
+    navigator.clipboard.writeText(text).then(() => {
+        const btn = document.getElementById('copyRecoveryBtnText');
+        if (btn) {
+            btn.innerText = 'Copied!';
+            setTimeout(() => { btn.innerText = 'Copy All Codes'; }, 2500);
+        }
+    });
+}
+
+function downloadRecoveryCodes() {
+    if (!window._currentRecoveryCodes || !window._currentRecoveryCodes.length) return;
+    const text = "====================================================\n" +
+                 "JeliPay Two-Factor Authentication Backup Recovery Codes\n" +
+                 "Account: " + (currentUser?.phone || currentUser?.email || 'User') + "\n" +
+                 "Generated: " + new Date().toUTCString() + "\n" +
+                 "====================================================\n\n" +
+                 "INSTRUCTIONS:\n" +
+                 "- Each code below can be used exactly ONCE to sign in or change your password if you lose access to your authenticator app.\n" +
+                 "- Cross out each code after you use it.\n\n" +
+                 window._currentRecoveryCodes.map((c, i) => `[ ] ${i + 1}. ${c}`).join('\n') +
+                 "\n\nStore this file in a secure location.";
+
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `jelipay-2fa-recovery-codes-${Date.now()}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+function finishTotpSetup() {
+    closeTotpSetupModal();
+    if (currentUser) updateTotpUi(currentUser);
+}
+
+function openTotpDisableModal() {
+    const modal = document.getElementById('totpDisableModal');
+    const pwdInput = document.getElementById('totpDisablePasswordInput');
+    const codeInput = document.getElementById('totpDisableCodeInput');
+    const statusEl = document.getElementById('totpDisableStatus');
+
+    if (!modal) return;
+    if (pwdInput) pwdInput.value = '';
+    if (codeInput) codeInput.value = '';
+    if (statusEl) {
+        statusEl.className = 'text-xs font-semibold hidden';
+        statusEl.innerText = '';
+    }
+
+    modal.classList.remove('hidden');
+    if (pwdInput) pwdInput.focus();
+}
+
+function closeTotpDisableModal() {
+    const modal = document.getElementById('totpDisableModal');
+    if (modal) modal.classList.add('hidden');
+}
+
+async function submitTotpDisable(e) {
+    if (e && e.preventDefault) e.preventDefault();
+
+    const pwdInput = document.getElementById('totpDisablePasswordInput');
+    const codeInput = document.getElementById('totpDisableCodeInput');
+    const statusEl = document.getElementById('totpDisableStatus');
+    const submitBtn = document.getElementById('totpDisableSubmitBtn');
+
+    const password = pwdInput ? pwdInput.value : '';
+    const code = codeInput ? codeInput.value.trim() : '';
+
+    if (!password || !code) {
+        if (statusEl) {
+            statusEl.innerText = 'Both account password and authenticator/recovery code are required.';
+            statusEl.className = 'text-xs font-semibold text-red-400 block';
+            statusEl.classList.remove('hidden');
+        }
+        return;
+    }
+
+    if (submitBtn) submitBtn.disabled = true;
+    if (statusEl) {
+        statusEl.innerText = 'Verifying and disabling 2FA...';
+        statusEl.className = 'text-xs font-semibold text-slate-400 block';
+        statusEl.classList.remove('hidden');
+    }
+
+    try {
+        const res = await fetch('/api/auth.php?action=totp_disable', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password, code })
+        });
+        const data = await res.json();
+        if (data.success) {
+            if (currentUser) currentUser.totp_enabled = false;
+            updateTotpUi(currentUser);
+            closeTotpDisableModal();
+            alert('Two-Factor Authentication has been successfully disabled.');
+        } else {
+            if (statusEl) {
+                statusEl.innerText = data.error || 'Failed to disable 2FA.';
+                statusEl.className = 'text-xs font-semibold text-red-400 block';
+                statusEl.classList.remove('hidden');
+            }
+        }
+    } catch (e) {
+        if (statusEl) {
+            statusEl.innerText = 'Network error disabling 2FA.';
+            statusEl.className = 'text-xs font-semibold text-red-400 block';
+            statusEl.classList.remove('hidden');
+        }
+    } finally {
+        if (submitBtn) submitBtn.disabled = false;
+    }
+}
+
+function openTotpRegenModal() {
+    const modal = document.getElementById('totpRegenModal');
+    const form = document.getElementById('totpRegenForm');
+    const resView = document.getElementById('totpRegenResultView');
+    const pwdInput = document.getElementById('totpRegenPasswordInput');
+    const codeInput = document.getElementById('totpRegenCodeInput');
+    const statusEl = document.getElementById('totpRegenStatus');
+
+    if (!modal) return;
+    if (form) form.classList.remove('hidden');
+    if (resView) resView.classList.add('hidden');
+    if (pwdInput) pwdInput.value = '';
+    if (codeInput) codeInput.value = '';
+    if (statusEl) {
+        statusEl.className = 'text-xs font-semibold hidden';
+        statusEl.innerText = '';
+    }
+
+    modal.classList.remove('hidden');
+    if (pwdInput) pwdInput.focus();
+}
+
+function closeTotpRegenModal() {
+    const modal = document.getElementById('totpRegenModal');
+    if (modal) modal.classList.add('hidden');
+}
+
+async function submitTotpRegen(e) {
+    if (e && e.preventDefault) e.preventDefault();
+
+    const pwdInput = document.getElementById('totpRegenPasswordInput');
+    const codeInput = document.getElementById('totpRegenCodeInput');
+    const statusEl = document.getElementById('totpRegenStatus');
+    const submitBtn = document.getElementById('totpRegenSubmitBtn');
+
+    const password = pwdInput ? pwdInput.value : '';
+    const code = codeInput ? codeInput.value.trim() : '';
+
+    if (!password || !code) {
+        if (statusEl) {
+            statusEl.innerText = 'Password and 6-digit authenticator code are required.';
+            statusEl.className = 'text-xs font-semibold text-red-400 block';
+            statusEl.classList.remove('hidden');
+        }
+        return;
+    }
+
+    if (submitBtn) submitBtn.disabled = true;
+    if (statusEl) {
+        statusEl.innerText = 'Regenerating recovery codes...';
+        statusEl.className = 'text-xs font-semibold text-slate-400 block';
+        statusEl.classList.remove('hidden');
+    }
+
+    try {
+        const res = await fetch('/api/auth.php?action=totp_regenerate_recovery_codes', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password, code })
+        });
+        const data = await res.json();
+        if (data.success) {
+            window._regenRecoveryCodes = data.recovery_codes || [];
+            const grid = document.getElementById('totpRegenGrid');
+            if (grid && Array.isArray(data.recovery_codes)) {
+                grid.innerHTML = data.recovery_codes.map((c, i) => `
+                    <div class="p-2 bg-slate-900 rounded-xl border border-slate-800 text-amber-300 font-mono tracking-widest text-center select-all flex items-center justify-between px-3">
+                        <span class="text-[10px] text-slate-500">#${i + 1}</span>
+                        <span>${c}</span>
+                    </div>
+                `).join('');
+            }
+
+            const form = document.getElementById('totpRegenForm');
+            const resView = document.getElementById('totpRegenResultView');
+            if (form) form.classList.add('hidden');
+            if (resView) resView.classList.remove('hidden');
+
+            if (currentUser) updateTotpUi(currentUser);
+        } else {
+            if (statusEl) {
+                statusEl.innerText = data.error || 'Failed to regenerate recovery codes.';
+                statusEl.className = 'text-xs font-semibold text-red-400 block';
+                statusEl.classList.remove('hidden');
+            }
+        }
+    } catch (e) {
+        if (statusEl) {
+            statusEl.innerText = 'Network error regenerating recovery codes.';
+            statusEl.className = 'text-xs font-semibold text-red-400 block';
+            statusEl.classList.remove('hidden');
+        }
+    } finally {
+        if (submitBtn) submitBtn.disabled = false;
+    }
+}
+
+function copyAllRegenRecoveryCodes() {
+    if (!window._regenRecoveryCodes || !window._regenRecoveryCodes.length) return;
+    const text = "JeliPay 2FA Regenerated Emergency Backup Recovery Codes\n" +
+                 "Keep these codes safe and private. Each code can be used only once.\n\n" +
+                 window._regenRecoveryCodes.map((c, i) => `${i + 1}. ${c}`).join('\n');
+
+    navigator.clipboard.writeText(text).then(() => {
+        const btn = document.getElementById('copyRegenBtnText');
+        if (btn) {
+            btn.innerText = 'Copied!';
+            setTimeout(() => { btn.innerText = 'Copy All'; }, 2500);
+        }
+    });
+}
+
+function downloadRegenRecoveryCodes() {
+    if (!window._regenRecoveryCodes || !window._regenRecoveryCodes.length) return;
+    const text = "====================================================\n" +
+                 "JeliPay Two-Factor Authentication Regenerated Recovery Codes\n" +
+                 "Account: " + (currentUser?.phone || currentUser?.email || 'User') + "\n" +
+                 "Generated: " + new Date().toUTCString() + "\n" +
+                 "====================================================\n\n" +
+                 window._regenRecoveryCodes.map((c, i) => `[ ] ${i + 1}. ${c}`).join('\n') +
+                 "\n\nAll prior recovery codes are invalid.";
+
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `jelipay-2fa-new-recovery-codes-${Date.now()}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
 }
 
 // -------------------------------------------------------------

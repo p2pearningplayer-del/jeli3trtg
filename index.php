@@ -934,11 +934,85 @@ endif;
                                     <input type="password" id="confirmPasswordInput" required minlength="6" placeholder="Re-enter password" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:border-indigo-500 focus:outline-none transition">
                                 </div>
                             </div>
+
+                            <!-- Dynamic TOTP 2FA input for password change -->
+                            <div id="pwdTotpContainer" class="hidden space-y-1.5 pt-1 bg-cyan-950/20 border border-cyan-500/20 rounded-xl p-3">
+                                <div class="flex items-center justify-between">
+                                    <label class="text-xs font-semibold text-cyan-300 flex items-center gap-1.5">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                                        <span>2FA Verification Code</span>
+                                    </label>
+                                    <span class="text-[10px] font-bold text-cyan-400 uppercase tracking-wider bg-cyan-500/10 px-2 py-0.5 rounded-full border border-cyan-500/20">Required</span>
+                                </div>
+                                <input type="text" id="pwdTotpCode" placeholder="123456 or XXXX-XXXX" maxlength="16" class="w-full bg-slate-950 border border-cyan-500/40 focus:border-cyan-400 rounded-lg px-3.5 py-2 text-sm text-cyan-200 font-mono tracking-widest focus:outline-none transition">
+                                <span class="text-[11px] text-slate-400 block leading-tight">Enter 6-digit code from Google Authenticator or an unused single-use recovery code.</span>
+                            </div>
+
                             <div id="changePasswordStatus" class="text-xs font-semibold hidden"></div>
                             <button type="submit" id="changePasswordBtn" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition shadow-md shadow-indigo-600/30">
                                 Update Password
                             </button>
                         </form>
+                    </div>
+                </div>
+
+                <!-- CARD E: Two-Factor Authentication (Google Authenticator TOTP) -->
+                <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-7 space-y-5 shadow-sm lg:col-span-2">
+                    <div class="border-b border-slate-800 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div class="flex items-center gap-3.5">
+                            <div class="w-11 h-11 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 flex items-center justify-center flex-shrink-0">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                            </div>
+                            <div>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs uppercase font-bold text-cyan-400 tracking-wider">Account Protection</span>
+                                    <span id="totpStatusBadge" class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">Checking...</span>
+                                </div>
+                                <h3 class="text-lg font-bold text-white mt-0.5">Two-Factor Authentication (Google Authenticator)</h3>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                            <button type="button" id="totpEnableBtn" onclick="openTotpSetupModal()" class="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs uppercase tracking-wider transition shadow-lg shadow-cyan-500/20 flex items-center gap-1.5">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                                <span>Enable 2FA</span>
+                            </button>
+                            <button type="button" id="totpRegenBtn" onclick="openTotpRegenModal()" class="hidden px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs border border-slate-700 transition">
+                                Regenerate Backup Codes
+                            </button>
+                            <button type="button" id="totpDisableBtn" onclick="openTotpDisableModal()" class="hidden px-3.5 py-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 font-semibold text-xs transition">
+                                Disable 2FA
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1">
+                        <div class="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-4 space-y-1.5">
+                            <span class="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                                <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
+                                RFC 6238 Standard TOTP
+                            </span>
+                            <p class="text-[11px] text-slate-400 leading-relaxed">
+                                Generates time-based 6-digit codes refreshed every 30 seconds. Fully compatible with Google Authenticator, Microsoft Authenticator, and Authy.
+                            </p>
+                        </div>
+                        <div class="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-4 space-y-1.5">
+                            <span class="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                                <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                                Password Change Protection
+                            </span>
+                            <p class="text-[11px] text-slate-400 leading-relaxed">
+                                Protects your account against hijacking. Changing password strictly requires current password and a live 6-digit authenticator verification code.
+                            </p>
+                        </div>
+                        <div class="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-4 space-y-1.5">
+                            <span class="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                                <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+                                Emergency Recovery Codes
+                            </span>
+                            <p class="text-[11px] text-slate-400 leading-relaxed" id="totpRecoveryStatusText">
+                                8 single-use backup recovery codes are generated upon setup. Each code can be used once if you lose access to your device.
+                            </p>
+                        </div>
                     </div>
                 </div>
 
@@ -1732,6 +1806,244 @@ endif;
                 </button>
                 <button id="userLightboxNextBtn" onclick="navigateUserLightbox(1)" class="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-slate-900/80 hover:bg-slate-800 border border-slate-700 text-white flex items-center justify-center shadow-lg transition hidden" title="Next Image">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/></svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 2FA TOTP SETUP MODAL -->
+    <!-- ========================================== -->
+    <div id="totpSetupModal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden" onclick="if(event.target === this) closeTotpSetupModal();">
+        <div class="relative max-w-lg w-full bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
+            <!-- Header -->
+            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950/80">
+                <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 flex items-center justify-center font-bold">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-bold text-white">Setup Google Authenticator</h3>
+                        <p class="text-xs text-slate-400">Time-based One-Time Password (TOTP)</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeTotpSetupModal()" class="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+
+            <!-- Content Body -->
+            <div class="p-6 overflow-y-auto space-y-5">
+                <!-- STEP ENROLLMENT VIEW -->
+                <div id="totpEnrollView" class="space-y-5">
+                    <!-- Instruction 1: Scan QR Code -->
+                    <div class="space-y-2 text-center">
+                        <span class="inline-block text-[10px] font-bold uppercase tracking-wider text-cyan-400 bg-cyan-500/10 px-2.5 py-0.5 rounded-full border border-cyan-500/20">Step 1</span>
+                        <h4 class="text-sm font-bold text-white">Scan this QR Code in Authenticator</h4>
+                        <p class="text-xs text-slate-400">Open Google Authenticator, Microsoft Authenticator, or Authy on your mobile device and scan the code below:</p>
+                        <div id="totpQrContainer" class="flex items-center justify-center py-2">
+                            <div class="animate-pulse bg-slate-800 w-48 h-48 rounded-2xl flex items-center justify-center text-slate-500 text-xs">Generating QR Code...</div>
+                        </div>
+                    </div>
+
+                    <!-- Instruction 2: Manual Key Entry Option -->
+                    <div class="bg-slate-950/70 border border-slate-800 rounded-2xl p-4 space-y-2">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[11px] font-semibold text-slate-300">Can't scan? Enter Key Manually</span>
+                            <span class="text-[10px] text-slate-500 font-mono">Base32 Secret</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <input type="text" id="totpManualKeyInput" readonly class="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-cyan-300 font-mono tracking-widest focus:outline-none select-all" value="">
+                            <button type="button" onclick="copyTotpManualKey()" class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition flex-shrink-0 flex items-center gap-1">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg>
+                                <span id="copyKeyBtnText">Copy</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Instruction 3: Enter 6-digit confirmation code -->
+                    <form onsubmit="event.preventDefault(); submitTotpEnrollment(event); return false;" class="space-y-3 pt-2">
+                        <div class="space-y-1">
+                            <div class="flex items-center justify-between">
+                                <label class="text-xs font-semibold text-slate-200">Step 2: Enter 6-Digit Authenticator Code</label>
+                                <span class="text-[10px] text-slate-400">Confirms correct setup</span>
+                            </div>
+                            <input type="text" id="totpEnrollCodeInput" required maxlength="6" inputmode="numeric" pattern="[0-9]*" placeholder="000000" class="w-full bg-slate-950 border border-cyan-500/40 focus:border-cyan-400 rounded-xl px-4 py-3 text-lg text-white font-mono tracking-widest text-center focus:outline-none transition">
+                        </div>
+
+                        <div id="totpEnrollStatus" class="text-xs font-semibold hidden"></div>
+
+                        <button type="submit" id="totpEnrollSubmitBtn" class="w-full bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold py-3 rounded-xl text-xs uppercase tracking-wider transition shadow-lg shadow-cyan-500/25">
+                            Verify & Activate 2FA
+                        </button>
+                    </form>
+                </div>
+
+                <!-- SUCCESS / RECOVERY CODES VIEW (Displayed after successful enrollment) -->
+                <div id="totpSuccessView" class="hidden space-y-5">
+                    <div class="text-center space-y-1">
+                        <div class="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center mx-auto mb-2">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+                        </div>
+                        <h4 class="text-base font-bold text-white">Two-Factor Authentication is Active!</h4>
+                        <p class="text-xs text-slate-400">Save your emergency backup recovery codes below.</p>
+                    </div>
+
+                    <div class="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3.5 space-y-1 text-amber-300 text-xs">
+                        <div class="font-bold flex items-center gap-1.5">
+                            <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                            <span>Important: One-Time Backup Display</span>
+                        </div>
+                        <p class="text-[11px] text-amber-200/90 leading-relaxed">
+                            Each recovery code can only be used once if you lose your phone or authenticator app. We do not store these in plaintext and they cannot be displayed again.
+                        </p>
+                    </div>
+
+                    <!-- 8 Recovery Codes Grid -->
+                    <div id="totpRecoveryGrid" class="grid grid-cols-2 gap-2 bg-slate-950 p-4 rounded-2xl border border-slate-800 font-mono text-sm font-bold text-cyan-300 text-center tracking-wider">
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <button type="button" onclick="copyAllRecoveryCodes()" class="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-bold py-2.5 rounded-xl text-xs transition flex items-center justify-center gap-1.5 border border-slate-700">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg>
+                            <span id="copyRecoveryBtnText">Copy All Codes</span>
+                        </button>
+                        <button type="button" onclick="downloadRecoveryCodes()" class="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-bold py-2.5 rounded-xl text-xs transition flex items-center justify-center gap-1.5 border border-slate-700">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                            <span>Download .txt</span>
+                        </button>
+                    </div>
+
+                    <button type="button" onclick="finishTotpSetup()" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl text-xs uppercase tracking-wider transition shadow-lg shadow-emerald-600/30">
+                        I Have Saved My Recovery Codes
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 2FA TOTP DISABLE MODAL -->
+    <!-- ========================================== -->
+    <div id="totpDisableModal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden" onclick="if(event.target === this) closeTotpDisableModal();">
+        <div class="relative max-w-md w-full bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl flex flex-col">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950/80">
+                <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 flex items-center justify-center font-bold">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-bold text-white">Disable Two-Factor Authentication</h3>
+                        <p class="text-xs text-slate-400">Identity verification required</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeTotpDisableModal()" class="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+
+            <form onsubmit="event.preventDefault(); submitTotpDisable(event); return false;" class="p-6 space-y-4">
+                <p class="text-xs text-slate-300 leading-relaxed">
+                    To disable Two-Factor Authentication, verify your identity with your account password and either a 6-digit authenticator code or backup recovery code.
+                </p>
+
+                <div class="space-y-1">
+                    <label class="text-xs font-semibold text-slate-300">Account Password</label>
+                    <input type="password" id="totpDisablePasswordInput" required placeholder="••••••••" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:border-red-500 focus:outline-none transition">
+                </div>
+
+                <div class="space-y-1">
+                    <label class="text-xs font-semibold text-slate-300">Authenticator Code or Recovery Code</label>
+                    <input type="text" id="totpDisableCodeInput" required maxlength="16" placeholder="123456 or XXXX-XXXX" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white font-mono tracking-wider focus:border-red-500 focus:outline-none transition">
+                </div>
+
+                <div id="totpDisableStatus" class="text-xs font-semibold hidden"></div>
+
+                <div class="flex items-center gap-2 pt-2">
+                    <button type="button" onclick="closeTotpDisableModal()" class="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2.5 rounded-xl text-xs transition">
+                        Cancel
+                    </button>
+                    <button type="submit" id="totpDisableSubmitBtn" class="flex-1 bg-red-600 hover:bg-red-500 text-white font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition shadow-md shadow-red-600/30">
+                        Confirm Disable
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 2FA REGENERATE RECOVERY CODES MODAL -->
+    <!-- ========================================== -->
+    <div id="totpRegenModal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden" onclick="if(event.target === this) closeTotpRegenModal();">
+        <div class="relative max-w-md w-full bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl flex flex-col">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950/80">
+                <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-bold text-white">Regenerate Recovery Codes</h3>
+                        <p class="text-xs text-slate-400">Invalidates all previous codes</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeTotpRegenModal()" class="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+
+            <!-- Form View -->
+            <form id="totpRegenForm" onsubmit="event.preventDefault(); submitTotpRegen(event); return false;" class="p-6 space-y-4">
+                <p class="text-xs text-slate-300 leading-relaxed">
+                    Generating new recovery codes will immediately invalidate any previously generated recovery codes. Verify your credentials below:
+                </p>
+
+                <div class="space-y-1">
+                    <label class="text-xs font-semibold text-slate-300">Account Password</label>
+                    <input type="password" id="totpRegenPasswordInput" required placeholder="••••••••" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:border-amber-500 focus:outline-none transition">
+                </div>
+
+                <div class="space-y-1">
+                    <label class="text-xs font-semibold text-slate-300">6-Digit Authenticator Code</label>
+                    <input type="text" id="totpRegenCodeInput" required maxlength="6" inputmode="numeric" placeholder="123456" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white font-mono tracking-wider focus:border-amber-500 focus:outline-none transition">
+                </div>
+
+                <div id="totpRegenStatus" class="text-xs font-semibold hidden"></div>
+
+                <div class="flex items-center gap-2 pt-2">
+                    <button type="button" onclick="closeTotpRegenModal()" class="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2.5 rounded-xl text-xs transition">
+                        Cancel
+                    </button>
+                    <button type="submit" id="totpRegenSubmitBtn" class="flex-1 bg-amber-600 hover:bg-amber-500 text-white font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition shadow-md shadow-amber-600/30">
+                        Regenerate
+                    </button>
+                </div>
+            </form>
+
+            <!-- Results View -->
+            <div id="totpRegenResultView" class="p-6 space-y-4 hidden">
+                <div class="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3 space-y-1 text-amber-300 text-xs">
+                    <span class="font-bold">New Recovery Codes Active</span>
+                    <p class="text-[11px] text-amber-200/90 leading-relaxed">
+                        Previous codes are no longer valid. Save your new 8 recovery codes now:
+                    </p>
+                </div>
+
+                <div id="totpRegenGrid" class="grid grid-cols-2 gap-2 bg-slate-950 p-4 rounded-2xl border border-slate-800 font-mono text-sm font-bold text-amber-300 text-center tracking-wider">
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <button type="button" onclick="copyAllRegenRecoveryCodes()" class="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-bold py-2.5 rounded-xl text-xs transition flex items-center justify-center gap-1.5 border border-slate-700">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg>
+                        <span id="copyRegenBtnText">Copy All</span>
+                    </button>
+                    <button type="button" onclick="downloadRegenRecoveryCodes()" class="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-bold py-2.5 rounded-xl text-xs transition flex items-center justify-center gap-1.5 border border-slate-700">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                        <span>Download</span>
+                    </button>
+                </div>
+
+                <button type="button" onclick="closeTotpRegenModal()" class="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-2.5 rounded-xl text-xs transition">
+                    Done
                 </button>
             </div>
         </div>

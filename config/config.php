@@ -63,11 +63,17 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-// Autoloader for Fraud namespace
+// Autoloader for Fraud and Security namespaces
 spl_autoload_register(function ($class) {
     if (str_starts_with($class, 'Fraud\\')) {
         $relPath = str_replace('\\', '/', substr($class, 6)) . '.php';
         $fullPath = ROOT_PATH . '/src/Fraud/' . $relPath;
+        if (file_exists($fullPath)) {
+            require_once $fullPath;
+        }
+    } elseif (str_starts_with($class, 'Security\\')) {
+        $relPath = str_replace('\\', '/', substr($class, 9)) . '.php';
+        $fullPath = ROOT_PATH . '/src/Security/' . $relPath;
         if (file_exists($fullPath)) {
             require_once $fullPath;
         }
