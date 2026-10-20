@@ -254,6 +254,120 @@ class AgentManager {
         }
     }
 
+    /**
+     * Authoritatively synchronize and snapshot commissions for all eligible child orders
+     * completed by users across the Agent's assigned referral hierarchy (Levels A through Z).
+     * Prevents volume / commission divergence regardless of when the Agent account was created.
+     */
+    public static function syncCommissionsForAgent(int $agentId): array {
+        $pdo = Database::getConnection();
+        try {
+            $stmt = $pdo->prepare("SELECT * FROM agents WHERE id = ?");
+            $stmt->execute([$agentId]);
+            $agent = $stmt->fetch();
+            if (!$agent) {
+                return ['success' => false, 'error' => 'Agent not found'];
+            }
+
+            $rootUserId = (int)$agent['root_user_id'];
+            $hierarchy = self::resolveDownstreamHierarchy($rootUserId, 26);
+            $allowedLevels = array_map('trim', explode(',', strtoupper($agent['eligible_levels'])));
+
+            $qualifyingUsers = [];
+            foreach ($hierarchy['descendants'] as $desc) {
+                $uid = (int)$desc['user_id'];
+                if ($uid !== $rootUserId && in_array(strtoupper($desc['level']), $allowedLevels, true)) {
+                    $qualifyingUsers[$uid] = [
+                        'depth' => (int)$desc['depth'],
+                        'level' => strtoupper($desc['level'])
+                    ];
+                }
+            }
+
+            if (empty($qualifyingUsers)) {
+                return ['success' => true, 'synced' => 0];
+            }
+
+            $userIds = array_keys($qualifyingUsers);
+            $placeholders = implode(',', array_fill(0, count($userIds), '?'));
+
+            // Query completed child orders by qualifying buyers
+            $orderStmt = $pdo->prepare("
+                SELECT id, buyer_id, amount, status, COALESCE(completed_at, created_at) as order_completed_at
+                FROM child_orders
+                WHERE buyer_id IN ({$placeholders})
+                  AND LOWER(status) IN ('completed', 'success')
+            ");
+            $orderStmt->execute($userIds);
+            $orders = $orderStmt->fetchAll();
+
+            $checkStmt = $pdo->prepare("SELECT id, status FROM agent_commissions WHERE agent_id = ? AND child_order_id = ?");
+            $insertStmt = $pdo->prepare("
+                INSERT INTO agent_commissions (
+                    agent_id, child_order_id, buyer_id, purchase_amount, commission_rate,
+                    commission_amount, referral_level, referral_depth, status, order_completed_at, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'earned', ?, ?)
+            ");
+
+            $rate = (float)$agent['commission_rate'];
+            $syncedCount = 0;
+            $nowUtc = gmdate('Y-m-d H:i:s');
+
+            foreach ($orders as $ord) {
+                $childId = (int)$ord['id'];
+                $buyerId = (int)$ord['buyer_id'];
+                $checkStmt->execute([$agentId, $childId]);
+                $existing = $checkStmt->fetch();
+
+                if (!$existing) {
+                    $amount = (float)$ord['amount'];
+                    $commAmount = round($amount * ($rate / 100.0), 2);
+                    $level = $qualifyingUsers[$buyerId]['level'];
+                    $depth = $qualifyingUsers[$buyerId]['depth'];
+                    $completedAt = $ord['order_completed_at'] ?: $nowUtc;
+
+                    $insertStmt->execute([
+                        $agentId,
+                        $childId,
+                        $buyerId,
+                        $amount,
+                        $rate,
+                        $commAmount,
+                        $level,
+                        $depth,
+                        $completedAt,
+                        $nowUtc
+                    ]);
+                    $syncedCount++;
+                }
+            }
+
+            // Sync any reversed orders
+            $revStmt = $pdo->prepare("
+                SELECT id FROM child_orders
+                WHERE buyer_id IN ({$placeholders})
+                  AND LOWER(status) IN ('cancelled', 'cancelled / reversed', 'reversed')
+            ");
+            $revStmt->execute($userIds);
+            $revOrders = $revStmt->fetchAll();
+            if (!empty($revOrders)) {
+                $revChildIds = array_column($revOrders, 'id');
+                $revPlaceholders = implode(',', array_fill(0, count($revChildIds), '?'));
+                $updRev = $pdo->prepare("
+                    UPDATE agent_commissions
+                    SET status = 'reversed'
+                    WHERE agent_id = ? AND child_order_id IN ({$revPlaceholders}) AND status = 'earned'
+                ");
+                $updRev->execute(array_merge([$agentId], $revChildIds));
+            }
+
+            return ['success' => true, 'synced' => $syncedCount];
+        } catch (Exception $e) {
+            error_log("AgentManager::syncCommissionsForAgent error: " . $e->getMessage());
+            return ['success' => false, 'error' => $e->getMessage()];
+        }
+    }
+
     // ====================================================================
     // 3. AGENT ACCOUNT MANAGEMENT (ADMIN OPERATIONS)
     // ====================================================================
@@ -333,6 +447,18 @@ class AgentManager {
         $result = [];
         foreach ($agents as $agent) {
             $agentId = (int)$agent['id'];
+            self::syncCommissionsForAgent($agentId);
+
+            // Fetch accurate totals from authoritative agent_commissions after sync
+            $totStmt = $pdo->prepare("
+                SELECT COUNT(*) as total_orders,
+                       COALESCE(SUM(purchase_amount), 0) as total_volume,
+                       COALESCE(SUM(commission_amount), 0) as total_commission
+                FROM agent_commissions
+                WHERE agent_id = ? AND status = 'earned'
+            ");
+            $totStmt->execute([$agentId]);
+            $totRow = $totStmt->fetch() ?: ['total_orders' => 0, 'total_volume' => 0, 'total_commission' => 0];
 
             // Current week metrics
             $weekStmt = $pdo->prepare("
@@ -363,9 +489,9 @@ class AgentManager {
                 'status' => $agent['status'],
                 'must_change_password' => (int)$agent['must_change_password'],
                 'total_referred_users' => $tree['total_users'],
-                'total_volume' => (float)$agent['total_volume'],
-                'total_commission_orders' => (int)$agent['total_commission_orders'],
-                'total_commission_earned' => (float)$agent['total_commission_earned'],
+                'total_volume' => (float)$totRow['total_volume'],
+                'total_commission_orders' => (int)$totRow['total_orders'],
+                'total_commission_earned' => (float)$totRow['total_commission'],
                 'total_commission_paid' => (float)$agent['total_commission_paid'],
                 'total_commission_pending' => (float)$agent['total_commission_pending'],
                 'current_week_volume' => (float)$weekStats['week_volume'],
@@ -1057,19 +1183,23 @@ class AgentManager {
             return [];
         }
 
+        // Authoritatively sync/snapshot any completed orders across Levels A to Z
+        self::syncCommissionsForAgent($agentId);
+
         // Downstream tree user counts
         $hierarchy = self::resolveDownstreamHierarchy((int)$agent['root_user_id'], 26);
 
-        // Date bounds
+        // Date bounds (Strict UTC half-open reporting intervals)
         $nowUtc = gmdate('Y-m-d H:i:s');
         $todayStart = gmdate('Y-m-d 00:00:00');
-        $rolling7dStart = gmdate('Y-m-d H:i:s', strtotime('-7 days'));
+        $todayEnd = gmdate('Y-m-d 00:00:00', strtotime('+1 day')); // Tomorrow 00:00:00 UTC exclusive
+        $rolling7dStart = gmdate('Y-m-d H:i:s', time() - (7 * 86400)); // Exactly 168-hour rolling interval
 
         $weekBounds = self::getCurrentUtcWeek();
         $weekStart = $weekBounds['start_date'];
         $weekEnd = $weekBounds['end_date'];
 
-        // All-Time volume & commission
+        // All-Time volume & commission (across all assigned levels A-Z)
         $allTimeStmt = $pdo->prepare("
             SELECT COALESCE(SUM(purchase_amount), 0) as total_volume,
                    COALESCE(SUM(commission_amount), 0) as total_commission,
@@ -1080,26 +1210,28 @@ class AgentManager {
         $allTimeStmt->execute([$agentId]);
         $allTime = $allTimeStmt->fetch() ?: ['total_volume' => 0, 'total_commission' => 0, 'total_orders' => 0];
 
-        // Today's volume
+        // Today's volume (Start: Today 00:00:00 UTC, End: Tomorrow 00:00:00 UTC exclusive)
         $todayStmt = $pdo->prepare("
             SELECT COALESCE(SUM(purchase_amount), 0) as today_volume,
                    COALESCE(SUM(commission_amount), 0) as today_commission,
                    COUNT(*) as today_orders
             FROM agent_commissions
-            WHERE agent_id = ? AND status = 'earned' AND order_completed_at >= ?
+            WHERE agent_id = ? AND status = 'earned'
+              AND order_completed_at >= ? AND order_completed_at < ?
         ");
-        $todayStmt->execute([$agentId, $todayStart]);
+        $todayStmt->execute([$agentId, $todayStart, $todayEnd]);
         $todayStats = $todayStmt->fetch() ?: ['today_volume' => 0, 'today_commission' => 0, 'today_orders' => 0];
 
-        // Rolling 7-Day volume
+        // Rolling 7-Day volume (Rolling 168 hours UTC interval)
         $rollingStmt = $pdo->prepare("
             SELECT COALESCE(SUM(purchase_amount), 0) as rolling_7d_volume,
                    COALESCE(SUM(commission_amount), 0) as rolling_7d_commission,
                    COUNT(*) as rolling_7d_orders
             FROM agent_commissions
-            WHERE agent_id = ? AND status = 'earned' AND order_completed_at >= ?
+            WHERE agent_id = ? AND status = 'earned'
+              AND order_completed_at >= ? AND order_completed_at <= ?
         ");
-        $rollingStmt->execute([$agentId, $rolling7dStart]);
+        $rollingStmt->execute([$agentId, $rolling7dStart, $nowUtc]);
         $rollingStats = $rollingStmt->fetch() ?: ['rolling_7d_volume' => 0, 'rolling_7d_commission' => 0, 'rolling_7d_orders' => 0];
 
         // Current Monday-Sunday week volume & commission
@@ -1336,6 +1468,9 @@ class AgentManager {
             $agentId = (int)$agent['id'];
             $agentCode = $agent['agent_code'];
             $statementCode = sprintf('STMT-%04d-W%02d-%s', $year, $week, $agentCode);
+
+            // Authoritatively sync commissions before compiling statement
+            self::syncCommissionsForAgent($agentId);
 
             // Fetch aggregate for this agent and week
             $commStmt = $pdo->prepare("

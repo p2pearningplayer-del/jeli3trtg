@@ -473,10 +473,11 @@ class SchemaInstaller {
             }
         }
 
-        // Ensure immutable payment snapshot columns on orders
+        // Ensure immutable payment snapshot and cancellation columns on orders
         $orderSnapCols = [
             'snapshotted_upi_id' => ($driver === 'mysql' ? 'VARCHAR(100) DEFAULT NULL' : 'TEXT DEFAULT NULL'),
-            'snapshotted_account_holder' => ($driver === 'mysql' ? 'VARCHAR(100) DEFAULT NULL' : 'TEXT DEFAULT NULL')
+            'snapshotted_account_holder' => ($driver === 'mysql' ? 'VARCHAR(100) DEFAULT NULL' : 'TEXT DEFAULT NULL'),
+            'cancelled_at' => ($driver === 'mysql' ? 'DATETIME DEFAULT NULL' : 'TEXT DEFAULT NULL')
         ];
         foreach ($orderSnapCols as $col => $type) {
             try {

@@ -190,43 +190,193 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                 </div>
             </div>
 
-            <!-- Macro Stats Row 2: Orders & Pipeline -->
-            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-                <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+            <!-- Macro Stats Row 2: Marketplace Order State & Breakdown (Part 1 & Part 2) -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6">
+                <!-- Header & Reporting Timezone -->
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-4 gap-3">
                     <div>
-                        <h3 class="text-base font-bold text-white">Marketplace Order State Breakdown</h3>
-                        <p class="text-xs text-slate-400">Total micro-orders processed across all parent allocations &bull; Click any metric to filter</p>
+                        <div class="flex items-center gap-2.5 flex-wrap">
+                            <h3 class="text-base font-bold text-white">Marketplace Order State &amp; Breakdown</h3>
+                            <span class="px-2.5 py-0.5 rounded text-[11px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20 font-bold uppercase tracking-wider flex items-center gap-1.5" title="Authoritative server reporting timezone">
+                                <svg class="w-3 h-3 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                                <span>Timezone: UTC</span>
+                            </span>
+                        </div>
+                        <p class="text-xs text-slate-400 mt-0.5">Authoritative peer-to-peer lifecycle analytics &bull; Half-open UTC intervals [00:00:00 - 24:00:00)</p>
                     </div>
-                    <button onclick="switchAdminTab('orders', { status: 'all', type: 'child' })" class="px-2.5 py-1 rounded-full bg-slate-800 hover:bg-slate-700 text-xs font-mono text-slate-300 hover:text-white transition flex items-center gap-1.5" id="dashOrdersTotal">
-                        <span>0 Total Orders</span>
-                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                    </button>
+                    <div class="flex items-center gap-2">
+                        <button onclick="switchAdminTab('orders', { status: 'all', type: 'child' })" class="px-3 py-1 rounded-full bg-slate-800 hover:bg-slate-700 text-xs font-mono text-slate-300 hover:text-white transition flex items-center gap-1.5" id="dashOrdersTotal">
+                            <span>0 Total Orders</span>
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                        </button>
+                    </div>
                 </div>
-                <div class="grid grid-cols-2 sm:grid-cols-6 gap-3 text-center">
-                    <div onclick="switchAdminTab('orders', { status: 'Available', type: 'child' })" class="bg-slate-950 p-3 rounded-xl border border-slate-800 hover:border-slate-600 hover:bg-slate-900/90 transition cursor-pointer transform hover:-translate-y-0.5 group" title="Click to filter Available micro-orders">
-                        <span class="text-[10px] text-slate-500 uppercase block font-bold group-hover:text-slate-300 transition">Available</span>
-                        <span class="text-xl font-bold font-mono text-slate-200 mt-1 block" id="dashOrdersAvailable">0</span>
+
+                <!-- 1. Order State Lifecycle Cards (Available, Reserved, Disputed, Completed, Cancelled) -->
+                <div>
+                    <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-3">Order Lifecycle States (Today vs Yesterday vs Total)</span>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                        <!-- A. Available Orders -->
+                        <div onclick="switchAdminTab('orders', { status: 'Available', type: 'child' })" class="bg-slate-950 p-4 rounded-xl border border-slate-800 hover:border-slate-600 hover:bg-slate-900/90 transition cursor-pointer transform hover:-translate-y-0.5 group space-y-2" title="Click to filter Available micro-orders">
+                            <div class="flex items-center justify-between">
+                                <span class="text-[10px] text-slate-400 uppercase font-bold group-hover:text-slate-200 transition">A. Available</span>
+                                <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-bold" id="dashOrdersAvailable">0 Pool</span>
+                            </div>
+                            <div class="space-y-1">
+                                <div class="flex items-baseline justify-between">
+                                    <span class="text-xs text-slate-400">Today:</span>
+                                    <span class="text-base font-bold font-mono text-slate-100" id="dashOrdersAvailableToday">0</span>
+                                </div>
+                                <div class="flex items-baseline justify-between text-[11px] text-slate-500 font-mono">
+                                    <span>Yesterday:</span>
+                                    <span id="dashOrdersAvailableYesterday">0</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- B. Reserved Orders -->
+                        <div onclick="switchAdminTab('orders', { status: 'Reserved', type: 'child' })" class="bg-slate-950 p-4 rounded-xl border border-slate-800 hover:border-amber-500/50 hover:bg-slate-900/90 transition cursor-pointer transform hover:-translate-y-0.5 group space-y-2" title="Click to filter Reserved orders">
+                            <div class="flex items-center justify-between">
+                                <span class="text-[10px] text-slate-400 uppercase font-bold group-hover:text-amber-400 transition">B. Reserved</span>
+                                <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-bold" id="dashOrdersReserved">0 Active</span>
+                            </div>
+                            <div class="space-y-1">
+                                <div class="flex items-baseline justify-between">
+                                    <span class="text-xs text-slate-400">Today:</span>
+                                    <span class="text-base font-bold font-mono text-amber-400" id="dashOrdersReservedToday">0</span>
+                                </div>
+                                <div class="flex items-baseline justify-between text-[11px] text-slate-500 font-mono">
+                                    <span>Yesterday:</span>
+                                    <span id="dashOrdersReservedYesterday">0</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- C. Disputed Orders -->
+                        <div onclick="switchAdminTab('disputes', { status: 'all' })" class="bg-slate-950 p-4 rounded-xl border border-slate-800 hover:border-red-500/50 hover:bg-slate-900/90 transition cursor-pointer transform hover:-translate-y-0.5 group space-y-2" title="Click to navigate to Disputes Console">
+                            <div class="flex items-center justify-between">
+                                <span class="text-[10px] text-slate-400 uppercase font-bold group-hover:text-red-400 transition">C. Disputed</span>
+                                <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20 font-bold" id="dashOrdersDisputed">0 Unresolved</span>
+                            </div>
+                            <div class="space-y-1">
+                                <div class="flex items-baseline justify-between">
+                                    <span class="text-xs text-slate-400">Today:</span>
+                                    <span class="text-base font-bold font-mono text-red-400" id="dashOrdersDisputedToday">0</span>
+                                </div>
+                                <div class="flex items-baseline justify-between text-[11px] text-slate-500 font-mono">
+                                    <span>All Unresolved:</span>
+                                    <span id="dashOrdersDisputedAll">0</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- D. Completed Orders -->
+                        <div onclick="switchAdminTab('orders', { status: 'Completed', type: 'child' })" class="bg-slate-950 p-4 rounded-xl border border-slate-800 hover:border-emerald-500/50 hover:bg-slate-900/90 transition cursor-pointer transform hover:-translate-y-0.5 group space-y-2" title="Click to filter Completed orders">
+                            <div class="flex items-center justify-between">
+                                <span class="text-[10px] text-slate-400 uppercase font-bold group-hover:text-emerald-400 transition">D. Completed</span>
+                                <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold" id="dashOrdersCompleted">0 Total</span>
+                            </div>
+                            <div class="space-y-1">
+                                <div class="flex items-baseline justify-between">
+                                    <span class="text-xs text-slate-400">Today:</span>
+                                    <span class="text-base font-bold font-mono text-emerald-400" id="dashOrdersCompletedToday">0</span>
+                                </div>
+                                <div class="flex items-baseline justify-between text-[11px] text-slate-500 font-mono">
+                                    <span>Yesterday:</span>
+                                    <span id="dashOrdersCompletedYesterday">0</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- E. Cancelled Orders -->
+                        <div onclick="switchAdminTab('orders', { status: 'Cancelled / Reversed', type: 'child' })" class="bg-slate-950 p-4 rounded-xl border border-slate-800 hover:border-slate-500 hover:bg-slate-900/90 transition cursor-pointer transform hover:-translate-y-0.5 group space-y-2" title="Click to filter Cancelled/Reversed orders">
+                            <div class="flex items-center justify-between">
+                                <span class="text-[10px] text-slate-400 uppercase font-bold group-hover:text-slate-300 transition">E. Cancelled</span>
+                                <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 font-bold" id="dashOrdersCancelled">0 Total</span>
+                            </div>
+                            <div class="space-y-1">
+                                <div class="flex items-baseline justify-between">
+                                    <span class="text-xs text-slate-400">Today:</span>
+                                    <span class="text-base font-bold font-mono text-slate-300" id="dashOrdersCancelledToday">0</span>
+                                </div>
+                                <div class="flex items-baseline justify-between text-[11px] text-slate-500 font-mono">
+                                    <span>Yesterday:</span>
+                                    <span id="dashOrdersCancelledYesterday">0</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                    <div onclick="switchAdminTab('orders', { status: 'Reserved', type: 'child' })" class="bg-slate-950 p-3 rounded-xl border border-slate-800 hover:border-amber-500/50 hover:bg-slate-900/90 transition cursor-pointer transform hover:-translate-y-0.5 group" title="Click to filter Reserved orders">
-                        <span class="text-[10px] text-slate-500 uppercase block font-bold group-hover:text-amber-400 transition">Reserved</span>
-                        <span class="text-xl font-bold font-mono text-amber-400 mt-1 block" id="dashOrdersReserved">0</span>
+                </div>
+
+                <!-- 2. Financial & Supply Matrix (Tokens in Circulation, Completed Trading Volume, Purchase Rewards) -->
+                <div>
+                    <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-3">Financial &amp; Supply Metrics (Today vs Yesterday)</span>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <!-- F. Tokens in Circulation -->
+                        <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs font-bold text-amber-400 uppercase tracking-wider">F. Tokens in Circulation</span>
+                                <span class="text-[10px] text-slate-500 font-mono" id="dashCirculationTime">As of Latest UTC</span>
+                            </div>
+                            <div class="flex items-baseline justify-between">
+                                <span class="text-xs text-slate-400">Today:</span>
+                                <span class="text-xl font-bold font-mono text-amber-300" id="dashCirculationToday">₹0.00</span>
+                            </div>
+                            <div class="flex items-baseline justify-between border-t border-slate-800/80 pt-1.5 text-xs">
+                                <span class="text-slate-400">Yesterday (23:59 UTC):</span>
+                                <span class="font-mono text-slate-300" id="dashCirculationYesterday">₹0.00</span>
+                            </div>
+                            <div class="text-[10px] text-slate-500">
+                                Total outstanding user supply (Available + Reserved tokens)
+                            </div>
+                        </div>
+
+                        <!-- G. Completed Trading Volume -->
+                        <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs font-bold text-emerald-400 uppercase tracking-wider">G. Completed Trading Vol</span>
+                                <span class="text-[10px] font-mono text-slate-500" id="dashTradingVolTotal">All-Time: ₹0.00</span>
+                            </div>
+                            <div class="flex items-baseline justify-between">
+                                <span class="text-xs text-slate-400">Today:</span>
+                                <span class="text-xl font-bold font-mono text-emerald-400" id="dashTradingVolToday">₹0.00</span>
+                            </div>
+                            <div class="flex items-baseline justify-between border-t border-slate-800/80 pt-1.5 text-xs">
+                                <span class="text-slate-400">Yesterday:</span>
+                                <span class="font-mono text-slate-300" id="dashTradingVolYesterday">₹0.00</span>
+                            </div>
+                            <div class="text-[10px] text-slate-500">
+                                Approved &amp; settled child orders strictly excluding rewards &amp; commissions
+                            </div>
+                        </div>
+
+                        <!-- H. Purchase Rewards -->
+                        <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs font-bold text-violet-400 uppercase tracking-wider">H. Purchase Rewards (9%)</span>
+                                <span class="text-[10px] font-mono text-slate-500" id="dashRewardsTotal">All-Time: ₹0.00</span>
+                            </div>
+                            <div class="flex items-baseline justify-between">
+                                <span class="text-xs text-slate-400">Today:</span>
+                                <span class="text-xl font-bold font-mono text-violet-400" id="dashRewardsToday">₹0.00</span>
+                            </div>
+                            <div class="flex items-baseline justify-between border-t border-slate-800/80 pt-1.5 text-xs">
+                                <span class="text-slate-400">Yesterday:</span>
+                                <span class="font-mono text-slate-300" id="dashRewardsYesterday">₹0.00</span>
+                            </div>
+                            <div class="text-[10px] text-slate-500">
+                                Finalized 9% buyer promotional rewards credited in reporting window
+                            </div>
+                        </div>
                     </div>
-                    <div onclick="switchAdminTab('orders', { status: 'Payment Proof Submitted', type: 'child' })" class="bg-slate-950 p-3 rounded-xl border border-slate-800 hover:border-indigo-500/50 hover:bg-slate-900/90 transition cursor-pointer transform hover:-translate-y-0.5 group" title="Click to filter Proof Pending orders">
-                        <span class="text-[10px] text-slate-500 uppercase block font-bold group-hover:text-indigo-400 transition">Proof Pending</span>
-                        <span class="text-xl font-bold font-mono text-indigo-400 mt-1 block" id="dashOrdersPendingConfirm">0</span>
-                    </div>
-                    <div onclick="switchAdminTab('disputes', { status: 'all' })" class="bg-slate-950 p-3 rounded-xl border border-slate-800 hover:border-red-500/50 hover:bg-slate-900/90 transition cursor-pointer transform hover:-translate-y-0.5 group" title="Click to navigate to Disputes Console">
-                        <span class="text-[10px] text-slate-500 uppercase block font-bold group-hover:text-red-400 transition">Disputed</span>
-                        <span class="text-xl font-bold font-mono text-red-400 mt-1 block" id="dashOrdersDisputed">0</span>
-                    </div>
-                    <div onclick="switchAdminTab('orders', { status: 'Completed', type: 'child' })" class="bg-slate-950 p-3 rounded-xl border border-slate-800 hover:border-emerald-500/50 hover:bg-slate-900/90 transition cursor-pointer transform hover:-translate-y-0.5 group" title="Click to filter Completed orders">
-                        <span class="text-[10px] text-slate-500 uppercase block font-bold group-hover:text-emerald-400 transition">Completed</span>
-                        <span class="text-xl font-bold font-mono text-emerald-400 mt-1 block" id="dashOrdersCompleted">0</span>
-                    </div>
-                    <div onclick="switchAdminTab('orders', { status: 'Cancelled / Reversed', type: 'child' })" class="bg-slate-950 p-3 rounded-xl border border-slate-800 hover:border-slate-500 hover:bg-slate-900/90 transition cursor-pointer transform hover:-translate-y-0.5 group" title="Click to filter Cancelled/Reversed orders">
-                        <span class="text-[10px] text-slate-500 uppercase block font-bold group-hover:text-slate-300 transition">Cancelled / Rev</span>
-                        <span class="text-xl font-bold font-mono text-slate-400 mt-1 block" id="dashOrdersCancelled">0</span>
-                    </div>
+                </div>
+
+                <!-- Hidden / Auxiliary backward compatibility elements -->
+                <div class="hidden">
+                    <span id="dashOrdersPendingConfirm">0</span>
+                    <span id="dashOrdersCompletedTotal">0</span>
+                    <span id="dashOrdersCancelledTotal">0</span>
+                    <span id="dashOrdersDisputedResolved">0</span>
                 </div>
             </div>
 

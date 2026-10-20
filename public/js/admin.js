@@ -155,18 +155,65 @@ async function loadAdminDashboard(silent = false) {
 
         // Orders breakdown
         const orders = s.orders || {};
+        const m = s.marketplace || {};
+
         const otBtn = document.getElementById('dashOrdersTotal');
         if (otBtn) {
             const span = otBtn.querySelector('span');
             if (span) span.innerText = `${orders.total ?? 0} Total Orders`;
             else otBtn.innerText = `${orders.total ?? 0} Total Orders`;
         }
-        setTxt('dashOrdersAvailable', orders.available ?? 0);
-        setTxt('dashOrdersReserved', orders.reserved ?? 0);
+
+        // Available orders (1 & 2)
+        setTxt('dashOrdersAvailableToday', m.orders_available_today ?? (orders.available_today ?? 0));
+        setTxt('dashOrdersAvailableYesterday', m.orders_available_yesterday ?? (orders.available_yesterday ?? 0));
+        setTxt('dashOrdersAvailable', `${orders.available ?? (m.orders_available_current ?? 0)} Pool`);
+
+        // Reserved orders (3 & 4)
+        setTxt('dashOrdersReservedToday', m.orders_reserved_today ?? (orders.reserved_today ?? 0));
+        setTxt('dashOrdersReservedYesterday', m.orders_reserved_yesterday ?? (orders.reserved_yesterday ?? 0));
+        setTxt('dashOrdersReserved', `${orders.reserved ?? (m.orders_reserved_current ?? 0)} Active`);
+
+        // Disputed orders (5 & 6)
+        setTxt('dashOrdersDisputedToday', m.orders_disputed_today ?? (orders.disputed_today ?? 0));
+        setTxt('dashOrdersDisputed', `${m.orders_disputed_all ?? (orders.disputed ?? 0)} Unresolved`);
+        setTxt('dashOrdersDisputedAll', m.orders_disputed_all ?? (orders.disputed ?? 0));
+        setTxt('dashOrdersDisputedResolved', m.orders_disputed_resolved ?? (s.resolved_appeals_count ?? 0));
+
+        // Completed orders (7, 8, 9)
+        setTxt('dashOrdersCompletedToday', m.orders_completed_today ?? (orders.completed_today ?? 0));
+        setTxt('dashOrdersCompletedYesterday', m.orders_completed_yesterday ?? (orders.completed_yesterday ?? 0));
+        setTxt('dashOrdersCompleted', `${orders.completed ?? (m.orders_completed_total ?? 0)} Total`);
+        setTxt('dashOrdersCompletedTotal', m.orders_completed_total ?? (orders.completed ?? 0));
+
+        // Cancelled orders (10, 11, 12)
+        setTxt('dashOrdersCancelledToday', m.orders_cancelled_today ?? (orders.cancelled_today ?? 0));
+        setTxt('dashOrdersCancelledYesterday', m.orders_cancelled_yesterday ?? (orders.cancelled_yesterday ?? 0));
+        setTxt('dashOrdersCancelled', `${orders.cancelled ?? (m.orders_cancelled_total ?? 0)} Total`);
+        setTxt('dashOrdersCancelledTotal', m.orders_cancelled_total ?? (orders.cancelled ?? 0));
+
         setTxt('dashOrdersPendingConfirm', orders.pending_confirmation ?? 0);
-        setTxt('dashOrdersDisputed', orders.disputed ?? 0);
-        setTxt('dashOrdersCompleted', orders.completed ?? 0);
-        setTxt('dashOrdersCancelled', orders.cancelled ?? 0);
+
+        // Tokens in Circulation (13 & 14)
+        const circToday = parseFloat(m.token_circulation_today ?? circulation);
+        const circYesterday = parseFloat(m.token_circulation_yesterday ?? circulation);
+        setTxt('dashCirculationToday', `₹${circToday.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
+        setTxt('dashCirculationYesterday', `₹${circYesterday.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
+        setTxt('dashCirculationTime', `As of ${m.measurement_timestamp || 'Latest'} UTC`);
+
+        // Completed Trading Volume (15 & 16)
+        const tVolToday = parseFloat(m.trading_volume_today ?? (s.completed_trading_volume_today ?? 0));
+        const tVolYesterday = parseFloat(m.trading_volume_yesterday ?? (s.completed_trading_volume_yesterday ?? 0));
+        setTxt('dashTradingVolToday', `₹${tVolToday.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
+        setTxt('dashTradingVolYesterday', `₹${tVolYesterday.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
+        setTxt('dashTradingVolTotal', `All-Time: ₹${tradingVol.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
+
+        // Purchase Rewards (17 & 18)
+        const rewToday = parseFloat(m.purchase_rewards_today ?? (s.purchase_rewards_today ?? 0));
+        const rewYesterday = parseFloat(m.purchase_rewards_yesterday ?? (s.purchase_rewards_yesterday ?? 0));
+        setTxt('dashRewardsToday', `₹${rewToday.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
+        setTxt('dashRewardsYesterday', `₹${rewYesterday.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
+        setTxt('dashRewardsTotal', `All-Time: ₹${parseFloat(m.purchase_rewards_total ?? s.total_rewards ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
 
         // Rewards & Referrals
         setTxt('dashTotalRewards', `₹${parseFloat(s.total_rewards || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);

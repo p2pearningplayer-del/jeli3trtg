@@ -132,6 +132,143 @@ class AdminManager {
             'expired' => (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE LOWER(status) = 'expired'")->fetchColumn(),
         ];
 
+        // -------------------------------------------------------------
+        // Market Analytics & Order State Breakdown (PART 1 & PART 2)
+        // Reporting Timezone: UTC (Authoritative Server Time)
+        // Interval: Half-Open [start, next_start)
+        // -------------------------------------------------------------
+        $nowUtc = gmdate('Y-m-d H:i:s');
+        $todayDate = gmdate('Y-m-d');
+        $todayStart = $todayDate . ' 00:00:00';
+        $todayEnd = gmdate('Y-m-d 00:00:00', strtotime('+1 day'));
+
+        $yesterdayDate = gmdate('Y-m-d', strtotime('-1 day'));
+        $yesterdayStart = $yesterdayDate . ' 00:00:00';
+        $yesterdayEnd = $todayStart;
+
+        // A. Available Orders (Marketplace child orders created/available in period)
+        $availTodayStmt = $pdo->prepare("SELECT COUNT(*) FROM child_orders WHERE created_at >= ? AND created_at < ?");
+        $availTodayStmt->execute([$todayStart, $todayEnd]);
+        $ordersAvailableToday = (int)$availTodayStmt->fetchColumn();
+
+        $availYestStmt = $pdo->prepare("SELECT COUNT(*) FROM child_orders WHERE created_at >= ? AND created_at < ?");
+        $availYestStmt->execute([$yesterdayStart, $yesterdayEnd]);
+        $ordersAvailableYesterday = (int)$availYestStmt->fetchColumn();
+
+        // B. Reserved Orders (Entered 'Reserved' / picked during period)
+        $resTodayStmt = $pdo->prepare("SELECT COUNT(*) FROM child_orders WHERE picked_at >= ? AND picked_at < ?");
+        $resTodayStmt->execute([$todayStart, $todayEnd]);
+        $ordersReservedToday = (int)$resTodayStmt->fetchColumn();
+
+        $resYestStmt = $pdo->prepare("SELECT COUNT(*) FROM child_orders WHERE picked_at >= ? AND picked_at < ?");
+        $resYestStmt->execute([$yesterdayStart, $yesterdayEnd]);
+        $ordersReservedYesterday = (int)$resYestStmt->fetchColumn();
+
+        // C. Disputed Orders
+        // Today's Disputed: unique orders that entered Disputed status today
+        $dispTodayStmt = $pdo->prepare("SELECT COUNT(DISTINCT child_order_id) FROM disputes WHERE created_at >= ? AND created_at < ?");
+        $dispTodayStmt->execute([$todayStart, $todayEnd]);
+        $ordersDisputedToday = (int)$dispTodayStmt->fetchColumn();
+
+        // All Disputed: unique orders currently unresolved in Disputed / active appeal review
+        $ordersDisputedAll = (int)$pdo->query("SELECT COUNT(DISTINCT child_order_id) FROM disputes WHERE LOWER(status) IN ('pending', 'under_review')")->fetchColumn();
+        $ordersDisputedResolved = (int)$pdo->query("SELECT COUNT(DISTINCT child_order_id) FROM disputes WHERE LOWER(status) IN ('resolved_buyer', 'resolved_seller')")->fetchColumn();
+
+        // D. Completed Orders (actual completion timestamp, fallback to created_at if null)
+        $compTodayStmt = $pdo->prepare("SELECT COUNT(*) FROM child_orders WHERE LOWER(status) IN ('completed', 'success') AND COALESCE(completed_at, created_at) >= ? AND COALESCE(completed_at, created_at) < ?");
+        $compTodayStmt->execute([$todayStart, $todayEnd]);
+        $ordersCompletedToday = (int)$compTodayStmt->fetchColumn();
+
+        $compYestStmt = $pdo->prepare("SELECT COUNT(*) FROM child_orders WHERE LOWER(status) IN ('completed', 'success') AND COALESCE(completed_at, created_at) >= ? AND COALESCE(completed_at, created_at) < ?");
+        $compYestStmt->execute([$yesterdayStart, $yesterdayEnd]);
+        $ordersCompletedYesterday = (int)$compYestStmt->fetchColumn();
+
+        $ordersCompletedTotal = (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE LOWER(status) IN ('completed', 'success')")->fetchColumn();
+
+        // E. Cancelled Orders (actual cancellation timestamp, excluding expired)
+        $cancTodayStmt = $pdo->prepare("
+            SELECT COUNT(*) FROM child_orders
+            WHERE LOWER(status) IN ('cancelled', 'cancelled / reversed', 'reversed')
+              AND (
+                  (cancelled_at IS NOT NULL AND cancelled_at >= ? AND cancelled_at < ?)
+                  OR (cancelled_at IS NULL AND id IN (
+                      SELECT CAST(target_id AS INTEGER) FROM admin_audit_logs
+                      WHERE action_type IN ('ADMIN_CANCEL_ORDER', 'CANCEL_REVERSE_DISPUTE')
+                        AND created_at >= ? AND created_at < ?
+                  ))
+              )
+        ");
+        $cancTodayStmt->execute([$todayStart, $todayEnd, $todayStart, $todayEnd]);
+        $ordersCancelledToday = (int)$cancTodayStmt->fetchColumn();
+
+        $cancYestStmt = $pdo->prepare("
+            SELECT COUNT(*) FROM child_orders
+            WHERE LOWER(status) IN ('cancelled', 'cancelled / reversed', 'reversed')
+              AND (
+                  (cancelled_at IS NOT NULL AND cancelled_at >= ? AND cancelled_at < ?)
+                  OR (cancelled_at IS NULL AND id IN (
+                      SELECT CAST(target_id AS INTEGER) FROM admin_audit_logs
+                      WHERE action_type IN ('ADMIN_CANCEL_ORDER', 'CANCEL_REVERSE_DISPUTE')
+                        AND created_at >= ? AND created_at < ?
+                  ))
+              )
+        ");
+        $cancYestStmt->execute([$yesterdayStart, $yesterdayEnd, $yesterdayStart, $yesterdayEnd]);
+        $ordersCancelledYesterday = (int)$cancYestStmt->fetchColumn();
+
+        $ordersCancelledTotal = (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE LOWER(status) IN ('cancelled', 'cancelled / reversed', 'reversed')")->fetchColumn();
+
+        // F. Tokens in Circulation
+        // Total user-owned available + reserved balances (excluding pending credit balance)
+        $tokenCirculationToday = (float)$balances['total_available'] + (float)$balances['total_reserved'];
+
+        // Yesterday's Token Circulation at 23:59:59 UTC
+        // Authoritative ledger calculation: Current circulation minus net tokens created today
+        $netAdditionsStmt = $pdo->prepare("
+            SELECT
+                COALESCE(SUM(CASE WHEN transaction_type IN ('BUY_REWARD', 'REFERRAL_L1', 'REFERRAL_L2', 'MANUAL_CREDIT') THEN amount ELSE 0 END), 0) -
+                COALESCE(SUM(CASE WHEN transaction_type = 'MANUAL_DEBIT' THEN amount ELSE 0 END), 0) as net_today
+            FROM wallet_ledger
+            WHERE created_at >= ? AND created_at < ?
+        ");
+        $netAdditionsStmt->execute([$todayStart, $todayEnd]);
+        $netAddedToday = (float)$netAdditionsStmt->fetchColumn();
+        $tokenCirculationYesterday = max(0.0, round($tokenCirculationToday - $netAddedToday, 2));
+
+        // G. Completed Trading Volume (strictly approved, completed child orders without rewards/commissions)
+        $volTodayStmt = $pdo->prepare("SELECT COALESCE(SUM(amount), 0) FROM child_orders WHERE LOWER(status) IN ('completed', 'success') AND COALESCE(completed_at, created_at) >= ? AND COALESCE(completed_at, created_at) < ?");
+        $volTodayStmt->execute([$todayStart, $todayEnd]);
+        $tradingVolToday = (float)$volTodayStmt->fetchColumn();
+
+        $volYestStmt = $pdo->prepare("SELECT COALESCE(SUM(amount), 0) FROM child_orders WHERE LOWER(status) IN ('completed', 'success') AND COALESCE(completed_at, created_at) >= ? AND COALESCE(completed_at, created_at) < ?");
+        $volYestStmt->execute([$yesterdayStart, $yesterdayEnd]);
+        $tradingVolYesterday = (float)$volYestStmt->fetchColumn();
+
+        // H. Purchase Rewards (finalized 9% rewards credited in period)
+        $rewTodayStmt = $pdo->prepare("SELECT COALESCE(SUM(amount), 0) FROM wallet_ledger WHERE transaction_type = 'BUY_REWARD' AND status = 'completed' AND created_at >= ? AND created_at < ?");
+        $rewTodayStmt->execute([$todayStart, $todayEnd]);
+        $purchaseRewardsToday = (float)$rewTodayStmt->fetchColumn();
+
+        $rewYestStmt = $pdo->prepare("SELECT COALESCE(SUM(amount), 0) FROM wallet_ledger WHERE transaction_type = 'BUY_REWARD' AND status = 'completed' AND created_at >= ? AND created_at < ?");
+        $rewYestStmt->execute([$yesterdayStart, $yesterdayEnd]);
+        $purchaseRewardsYesterday = (float)$rewYestStmt->fetchColumn();
+
+        $purchaseRewardsTotal = (float)$pdo->query("SELECT COALESCE(SUM(amount), 0) FROM wallet_ledger WHERE transaction_type = 'BUY_REWARD' AND status = 'completed'")->fetchColumn();
+
+        // Augment $orderCounts for backward compatibility and instant template access
+        $orderCounts['available_today'] = $ordersAvailableToday;
+        $orderCounts['available_yesterday'] = $ordersAvailableYesterday;
+        $orderCounts['reserved_today'] = $ordersReservedToday;
+        $orderCounts['reserved_yesterday'] = $ordersReservedYesterday;
+        $orderCounts['disputed_today'] = $ordersDisputedToday;
+        $orderCounts['disputed_all'] = $ordersDisputedAll;
+        $orderCounts['completed_today'] = $ordersCompletedToday;
+        $orderCounts['completed_yesterday'] = $ordersCompletedYesterday;
+        $orderCounts['completed_total'] = $ordersCompletedTotal;
+        $orderCounts['cancelled_today'] = $ordersCancelledToday;
+        $orderCounts['cancelled_yesterday'] = $ordersCancelledYesterday;
+        $orderCounts['cancelled_total'] = $ordersCancelledTotal;
+
         // 5. Appeals & Disputes
         $pendingAppeals = (int)$pdo->query("SELECT COUNT(*) FROM disputes WHERE LOWER(status) IN ('pending', 'under_review')")->fetchColumn();
         $resolvedAppeals = (int)$pdo->query("SELECT COUNT(*) FROM disputes WHERE LOWER(status) IN ('resolved_buyer', 'resolved_seller')")->fetchColumn();
@@ -194,7 +331,52 @@ class AdminManager {
             'weekly_completed_volume' => $weeklyVolume,
             'weekly_progress_percent' => $weeklyPercent,
             'recent_transactions' => $recentTrans,
-            'recent_admin_activities' => $recentAudits
+            'recent_admin_activities' => $recentAudits,
+            // Part 1: Comprehensive Marketplace Order State & Breakdown
+            'completed_trading_volume_today' => $tradingVolToday,
+            'completed_trading_volume_yesterday' => $tradingVolYesterday,
+            'purchase_rewards_today' => $purchaseRewardsToday,
+            'purchase_rewards_yesterday' => $purchaseRewardsYesterday,
+            'token_circulation_today' => $tokenCirculationToday,
+            'token_circulation_yesterday' => $tokenCirculationYesterday,
+            'marketplace' => [
+                'timezone' => 'UTC',
+                'measurement_timestamp' => $nowUtc,
+                'today_date' => $todayDate,
+                'yesterday_date' => $yesterdayDate,
+                // A. Available Orders
+                'orders_available_today' => $ordersAvailableToday,
+                'orders_available_yesterday' => $ordersAvailableYesterday,
+                'orders_available_current' => $orderCounts['available'],
+                // B. Reserved Orders
+                'orders_reserved_today' => $ordersReservedToday,
+                'orders_reserved_yesterday' => $ordersReservedYesterday,
+                'orders_reserved_current' => $orderCounts['reserved'],
+                // C. Disputed Orders
+                'orders_disputed_today' => $ordersDisputedToday,
+                'orders_disputed_all' => $ordersDisputedAll,
+                'orders_disputed_resolved' => $ordersDisputedResolved,
+                // D. Completed Orders
+                'orders_completed_today' => $ordersCompletedToday,
+                'orders_completed_yesterday' => $ordersCompletedYesterday,
+                'orders_completed_total' => $ordersCompletedTotal,
+                // E. Cancelled Orders
+                'orders_cancelled_today' => $ordersCancelledToday,
+                'orders_cancelled_yesterday' => $ordersCancelledYesterday,
+                'orders_cancelled_total' => $ordersCancelledTotal,
+                // F. Tokens in Circulation
+                'token_circulation_today' => $tokenCirculationToday,
+                'token_circulation_yesterday' => $tokenCirculationYesterday,
+                'token_circulation_timestamp' => $nowUtc . ' UTC',
+                // G. Completed Trading Volume
+                'trading_volume_today' => $tradingVolToday,
+                'trading_volume_yesterday' => $tradingVolYesterday,
+                'trading_volume_total' => $completedTradingVolume,
+                // H. Purchase Rewards
+                'purchase_rewards_today' => $purchaseRewardsToday,
+                'purchase_rewards_yesterday' => $purchaseRewardsYesterday,
+                'purchase_rewards_total' => $purchaseRewardsTotal
+            ]
         ];
     }
 
@@ -498,9 +680,13 @@ class AdminManager {
 
         $pdo->beginTransaction();
         try {
-            // Update order status
-            $upd = $pdo->prepare("UPDATE child_orders SET status = 'Cancelled / Reversed' WHERE id = ?");
-            $upd->execute([$childId]);
+            $cancelledAt = gmdate('Y-m-d H:i:s');
+            // Update order status and cancellation timestamp
+            $upd = $pdo->prepare("UPDATE child_orders SET status = 'Cancelled / Reversed', cancelled_at = ? WHERE id = ?");
+            $upd->execute([$cancelledAt, $childId]);
+
+            // Reverse any agent commissions
+            AgentManager::onOrderReversed($childId);
 
             // Release seller reserved tokens back to available balance
             Wallet::releaseReserved($sellerId, $amount, (string)$childId, "Admin cancelled order #{$childId}: " . trim($reason));
@@ -604,8 +790,8 @@ class AdminManager {
                 );
             } elseif ($decision === 'cancel_reverse') {
                 // Payment unverified -> Cancel order and return tokens to seller
-                $updOrder = $pdo->prepare("UPDATE child_orders SET status = 'Cancelled / Reversed' WHERE id = ?");
-                $updOrder->execute([$childId]);
+                $updOrder = $pdo->prepare("UPDATE child_orders SET status = 'Cancelled / Reversed', cancelled_at = ? WHERE id = ?");
+                $updOrder->execute([$resolvedAt, $childId]);
 
                 // Reverse any agent commissions
                 AgentManager::onOrderReversed($childId);
