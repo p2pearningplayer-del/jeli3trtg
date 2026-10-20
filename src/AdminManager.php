@@ -427,10 +427,12 @@ class AdminManager {
 
         $stmt = $pdo->prepare("
             SELECT c.*, p.utr_number, p.screenshot_path,
+                   ps.snapshotted_upi_id as parent_snapshotted_upi_id, ps.snapshotted_account_holder as parent_snapshotted_account_holder,
                    u_seller.phone as seller_phone, u_seller.account_holder_name as seller_name,
                    u_buyer.phone as buyer_phone, u_buyer.account_holder_name as buyer_name,
                    d.id as dispute_id, d.status as dispute_status
             FROM child_orders c
+            LEFT JOIN parent_sell_orders ps ON c.parent_order_id = ps.id
             JOIN users u_seller ON c.seller_id = u_seller.id
             LEFT JOIN users u_buyer ON c.buyer_id = u_buyer.id
             LEFT JOIN payment_proofs p ON c.id = p.child_order_id
@@ -447,7 +449,27 @@ class AdminManager {
         $stmt->bindValue($bindIdx++, $offset, PDO::PARAM_INT);
         $stmt->execute();
 
-        return ['orders' => $stmt->fetchAll()];
+        $orders = $stmt->fetchAll();
+        foreach ($orders as &$ord) {
+            $childUpi = trim((string)($ord['snapshotted_upi_id'] ?? ''));
+            $parentUpi = trim((string)($ord['parent_snapshotted_upi_id'] ?? ''));
+            $resolvedUpi = ($childUpi !== '') ? $childUpi : $parentUpi;
+            if ($resolvedUpi !== '') {
+                $ord['seller_order_upi_id'] = $resolvedUpi;
+                $ord['has_historical_upi'] = true;
+            } else {
+                $ord['seller_order_upi_id'] = 'Historical UPI Details Unavailable';
+                $ord['has_historical_upi'] = false;
+            }
+            $childHolder = trim((string)($ord['snapshotted_account_holder'] ?? ''));
+            $parentHolder = trim((string)($ord['parent_snapshotted_account_holder'] ?? ''));
+            $resolvedHolder = ($childHolder !== '') ? $childHolder : $parentHolder;
+            $ord['seller_order_account_holder'] = ($resolvedHolder !== '') ? $resolvedHolder : ($ord['seller_name'] ?: 'Unavailable');
+            $ord['payment_method'] = 'UPI';
+        }
+        unset($ord);
+
+        return ['orders' => $orders];
     }
 
     /**

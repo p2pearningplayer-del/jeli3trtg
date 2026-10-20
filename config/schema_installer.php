@@ -473,6 +473,28 @@ class SchemaInstaller {
             }
         }
 
+        // Ensure immutable payment snapshot columns on orders
+        $orderSnapCols = [
+            'snapshotted_upi_id' => ($driver === 'mysql' ? 'VARCHAR(100) DEFAULT NULL' : 'TEXT DEFAULT NULL'),
+            'snapshotted_account_holder' => ($driver === 'mysql' ? 'VARCHAR(100) DEFAULT NULL' : 'TEXT DEFAULT NULL')
+        ];
+        foreach ($orderSnapCols as $col => $type) {
+            try {
+                if ($driver === 'sqlite') {
+                    $pdo->exec("ALTER TABLE child_orders ADD COLUMN {$col} {$type}");
+                } else {
+                    $pdo->exec("ALTER TABLE child_orders ADD COLUMN IF NOT EXISTS `{$col}` {$type}");
+                }
+            } catch (Exception $e) {}
+            try {
+                if ($driver === 'sqlite') {
+                    $pdo->exec("ALTER TABLE parent_sell_orders ADD COLUMN {$col} {$type}");
+                } else {
+                    $pdo->exec("ALTER TABLE parent_sell_orders ADD COLUMN IF NOT EXISTS `{$col}` {$type}");
+                }
+            } catch (Exception $e) {}
+        }
+
         // Support requests table migration (Part 8, Item 3)
         try {
             if ($driver === 'sqlite') {

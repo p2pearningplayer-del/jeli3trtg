@@ -1157,6 +1157,36 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
     </div>
 
     <!-- ========================================== -->
+    <!-- MODAL: DISPUTE & APPEAL ORDER DETAILS -->
+    <!-- ========================================== -->
+    <div id="disputeOrderDetailsModal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-6 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-3xl w-full max-h-[92vh] overflow-y-auto p-6 shadow-2xl relative space-y-5">
+            <button onclick="closeDisputeOrderDetailsModal()" class="absolute right-5 top-5 text-slate-400 hover:text-white transition">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+
+            <!-- Modal Header -->
+            <div class="flex items-center gap-3 border-b border-slate-800 pb-4">
+                <div class="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-center justify-center font-black">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                </div>
+                <div>
+                    <h3 class="text-base font-bold text-white flex items-center gap-2">
+                        <span>Dispute &amp; Appeal Order Details</span>
+                        <span id="modalDisputeStatusBadge" class="text-xs px-2.5 py-0.5 rounded font-mono font-bold uppercase"></span>
+                    </h3>
+                    <p class="text-xs text-slate-400">Order verification and immutable seller payment snapshot console</p>
+                </div>
+            </div>
+
+            <!-- Modal Dynamic Content Container -->
+            <div id="disputeOrderDetailsContent" class="space-y-4">
+                <div class="p-8 text-center text-slate-500 font-sans">Loading order details...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
     <!-- MODAL 5: FRAUD FORENSIC INSPECTION & OVERRIDE (Requirement 9) -->
     <!-- ========================================== -->
     <div id="fraudInspectionModal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-6 hidden">

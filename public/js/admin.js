@@ -534,6 +534,11 @@ async function loadAdminOrders() {
                     </td>
                     <td class="p-3 font-sans">
                         <div class="flex items-center gap-1.5">
+                            ${isChild && o.dispute_id ? `
+                                <button onclick="openDisputeOrderDetailsModal(${o.dispute_id})" class="px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded text-[11px] font-semibold transition cursor-pointer" title="Inspect Disputed Seller Payment Details">
+                                    Dispute Details
+                                </button>
+                            ` : ''}
                             ${isChild && !['Completed', 'Cancelled / Reversed'].includes(o.status) ? `
                                 <button onclick="cancelAdminOrder(${o.id})" class="px-2 py-1 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/30 rounded text-[11px] font-semibold transition" title="Cancel & Release Tokens to Seller">
                                     Cancel & Return
@@ -593,18 +598,24 @@ async function loadAdminDisputes() {
         list.innerHTML = data.disputes.map(d => `
             <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-sm">
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-3 gap-2">
-                    <div>
+                    <div class="flex items-center gap-2 flex-wrap">
                         <span class="text-sm font-mono font-bold text-amber-400">Dispute #${d.id} &bull; Order #${d.child_order_id}</span>
-                        <span class="ml-2 px-2.5 py-0.5 rounded text-xs uppercase font-bold ${d.status === 'resolved_buyer' ? 'bg-emerald-500/10 text-emerald-400' : (d.status === 'resolved_seller' ? 'bg-indigo-500/10 text-indigo-400' : 'bg-red-500/20 text-red-400')}">
+                        <span class="px-2.5 py-0.5 rounded text-xs uppercase font-bold ${d.status === 'resolved_buyer' ? 'bg-emerald-500/10 text-emerald-400' : (d.status === 'resolved_seller' ? 'bg-indigo-500/10 text-indigo-400' : 'bg-red-500/20 text-red-400')}">
                             ${d.status}
                         </span>
-                        ${d.additional_evidence_requested ? '<span class="ml-2 text-[10px] px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 font-bold uppercase">Evidence Requested</span>' : ''}
+                        ${d.additional_evidence_requested ? '<span class="text-[10px] px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 font-bold uppercase">Evidence Requested</span>' : ''}
+                        <button type="button" onclick="openDisputeOrderDetailsModal(${d.id})" class="px-2.5 py-1 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg transition flex items-center gap-1.5 cursor-pointer ml-1" title="Inspect Full Order Details">
+                            <svg class="w-3.5 h-3.5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            <span>Order Details</span>
+                        </button>
                     </div>
                     <div class="text-right">
-                        <span class="text-xl font-black text-white font-mono">₹${parseFloat(d.amount).toLocaleString('en-IN')}</span>
+                        <span class="text-xl font-black text-white font-mono">₹${parseFloat(d.amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                         <span class="text-xs text-slate-500 block">Base Order Amount</span>
                     </div>
                 </div>
+
+                ${renderSellerPaymentDetailsHtml(d)}
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
                     <!-- Seller Statement -->
@@ -761,6 +772,219 @@ async function promptRefundStatus(disputeId) {
         alert('Network error.');
     }
 }
+
+// -------------------------------------------------------------
+// DEDICATED SECTION: SELLER PAYMENT DETAILS USED FOR THIS ORDER
+// -------------------------------------------------------------
+
+function renderSellerPaymentDetailsHtml(d) {
+    const parentOrderText = d.parent_order_id ? `#${d.parent_order_id}` : 'None (Direct Sell Order)';
+    const buyerText = d.buyer_id ? `User #${d.buyer_id}` : 'Unassigned';
+    const sellerText = d.seller_id ? `User #${d.seller_id}` : 'N/A';
+    const amountFormatted = parseFloat(d.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const creationTime = d.order_created_at || d.created_at || 'Unavailable';
+    const proofTime = d.proof_submission_timestamp || (d.proof_submitted_at || d.proof_created_at) || 'Not Submitted / Pending';
+    const utrText = d.utr_number || 'Pending Submission';
+    const paymentMethod = d.payment_method || 'UPI';
+
+    return `
+        <!-- DEDICATED SECTION: Seller Payment Details Used for This Order -->
+        <div class="bg-slate-950/95 rounded-2xl border border-amber-500/30 p-4 sm:p-5 space-y-3.5 shadow-sm">
+            <div class="flex items-center justify-between border-b border-slate-800/80 pb-3">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-7 h-7 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 flex items-center justify-center font-black">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+                    </div>
+                    <div>
+                        <h4 class="text-xs sm:text-sm font-extrabold uppercase tracking-wider text-amber-400">
+                            Seller Payment Details Used for This Order
+                        </h4>
+                        <p class="text-[10px] text-slate-400 font-sans">
+                            Immutable payment destination captured at order creation
+                        </p>
+                    </div>
+                </div>
+                <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-400 hidden sm:inline-block">
+                    Dispute Verification Target
+                </span>
+            </div>
+
+            <!-- Key Fields Grid (13 Required Attributes) -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+                <!-- 1 & 2: Order ID & Parent Sell Order ID -->
+                <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+                    <span class="text-[10px] text-slate-500 uppercase font-sans font-bold block">Order Reference</span>
+                    <div class="font-mono text-sm font-bold text-white mt-0.5">
+                        Order ID: <span class="text-amber-400 font-black">#${d.child_order_id}</span>
+                    </div>
+                    <div class="text-[11px] font-mono text-slate-400 mt-1">
+                        Parent Sell Order ID: <strong class="${d.parent_order_id ? 'text-indigo-400' : 'text-slate-500'}">${parentOrderText}</strong>
+                    </div>
+                </div>
+
+                <!-- 3 & 4: Buyer User ID & Seller User ID -->
+                <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+                    <span class="text-[10px] text-slate-500 uppercase font-sans font-bold block">Transacting Parties</span>
+                    <div class="text-[11px] text-slate-300 mt-0.5">
+                        Buyer User ID: <strong class="text-white font-mono">${buyerText}</strong>
+                        ${d.buyer_phone ? `<span class="text-[10px] text-slate-400 block">${escapeHtml(d.buyer_name || 'Buyer')} (${escapeHtml(d.buyer_phone)})</span>` : ''}
+                    </div>
+                    <div class="text-[11px] text-slate-300 mt-1.5">
+                        Seller User ID: <strong class="text-white font-mono">${sellerText}</strong>
+                        ${d.seller_phone ? `<span class="text-[10px] text-slate-400 block">${escapeHtml(d.seller_name || 'Seller')} (${escapeHtml(d.seller_phone)})</span>` : ''}
+                    </div>
+                </div>
+
+                <!-- 5 & 13: Order Amount & Current Dispute Status -->
+                <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+                    <span class="text-[10px] text-slate-500 uppercase font-sans font-bold block">Amount &amp; Dispute Status</span>
+                    <div class="text-emerald-400 font-mono font-black text-base mt-0.5">
+                        ₹${amountFormatted}
+                    </div>
+                    <div class="mt-1 flex items-center gap-1.5">
+                        <span class="text-[10px] text-slate-500 font-sans">Dispute Status:</span>
+                        <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase font-mono ${d.status === 'resolved_buyer' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : (d.status === 'resolved_seller' ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30')}">
+                            ${escapeHtml(d.status)}
+                        </span>
+                    </div>
+                </div>
+
+                <!-- 6, 7 & 8: Seller's UPI ID, Account Holder Name, Payment Method -->
+                <div class="bg-slate-900/90 p-3.5 rounded-xl border border-amber-500/30 sm:col-span-2">
+                    <div class="flex items-center justify-between">
+                        <span class="text-[10px] text-amber-400 uppercase font-sans font-extrabold tracking-wider block">
+                            Seller's UPI ID Used for This Order
+                        </span>
+                        <span class="text-[10px] font-mono text-slate-400">
+                            Payment Method: <strong class="text-indigo-300 font-bold">${escapeHtml(paymentMethod)}</strong>
+                        </span>
+                    </div>
+                    <div class="mt-1.5 flex flex-wrap items-center gap-2">
+                        ${d.has_historical_upi ? `
+                            <span class="font-mono text-sm sm:text-base font-extrabold text-white bg-slate-950 px-3 py-1 rounded-lg border border-slate-800 select-all tracking-wide">
+                                ${escapeHtml(d.seller_order_upi_id)}
+                            </span>
+                            <span class="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-semibold font-mono">
+                                &bull; Verified Order Destination
+                            </span>
+                        ` : `
+                            <span class="font-mono text-xs font-bold text-amber-400 bg-amber-500/10 px-3 py-1 rounded-lg border border-amber-500/30">
+                                Historical UPI Details Unavailable
+                            </span>
+                        `}
+                    </div>
+                    <div class="text-[11px] text-slate-400 mt-2 font-sans flex flex-wrap items-center gap-2">
+                        <span>Account Holder Name: <strong class="text-slate-100">${escapeHtml(d.seller_order_account_holder || 'Unavailable')}</strong></span>
+                    </div>
+                </div>
+
+                <!-- 9 & 10: Order Creation Timestamp & Payment Proof Submission Timestamp -->
+                <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+                    <span class="text-[10px] text-slate-500 uppercase font-sans font-bold block">Timestamps</span>
+                    <div class="text-[11px] text-slate-400 mt-0.5 font-mono">
+                        Order Created: <span class="text-slate-200">${escapeHtml(creationTime)}</span>
+                    </div>
+                    <div class="text-[11px] text-slate-400 mt-1.5 font-mono">
+                        Proof Submitted: <span class="${proofTime.includes('Pending') ? 'text-amber-400/80 italic' : 'text-slate-200'}">${escapeHtml(proofTime)}</span>
+                    </div>
+                </div>
+
+                <!-- 11 & 12: Buyer-Submitted UTR & Payment Screenshot -->
+                <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800 sm:col-span-2 lg:col-span-3">
+                    <span class="text-[10px] text-slate-500 uppercase font-sans font-bold block">Buyer-Submitted Payment Proof</span>
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 mt-1">
+                        <div class="text-xs font-mono">
+                            Buyer UTR / Ref: <strong class="${d.utr_number ? 'text-white bg-slate-950 px-2.5 py-1 rounded border border-slate-800 select-all tracking-wider' : 'text-slate-500 italic'}">${escapeHtml(utrText)}</strong>
+                        </div>
+                        <div>
+                            ${d.buyer_screenshot ? `
+                                <button type="button" onclick="openEvidenceLightbox('${escapeHtml(d.buyer_screenshot)}', 'Buyer Payment Screenshot - Dispute #${d.id} (Order #${d.child_order_id})')" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs font-bold transition shadow-sm cursor-pointer">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                                    <span>Inspect Payment Screenshot</span>
+                                </button>
+                            ` : '<span class="text-xs text-slate-500 italic">No Payment Screenshot Uploaded</span>'}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+async function openDisputeOrderDetailsModal(disputeId) {
+    const modal = document.getElementById('disputeOrderDetailsModal');
+    const content = document.getElementById('disputeOrderDetailsContent');
+    const badge = document.getElementById('modalDisputeStatusBadge');
+    if (!modal || !content) return;
+
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    content.innerHTML = '<div class="p-8 text-center text-slate-500 font-sans">Loading immutable seller payment snapshot...</div>';
+
+    try {
+        const res = await fetch(`/api/admin.php?action=get_dispute&dispute_id=${encodeURIComponent(disputeId)}`);
+        const data = await res.json();
+        if (!data.success || !data.dispute) {
+            content.innerHTML = `<div class="p-6 text-center text-rose-400 font-sans">${escapeHtml(data.error || 'Failed to load dispute order details.')}</div>`;
+            return;
+        }
+
+        const d = data.dispute;
+        if (badge) {
+            badge.textContent = d.status || '';
+            badge.className = `text-xs px-2.5 py-0.5 rounded font-mono font-bold uppercase ${d.status === 'resolved_buyer' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : (d.status === 'resolved_seller' ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30')}`;
+        }
+
+        content.innerHTML = `
+            ${renderSellerPaymentDetailsHtml(d)}
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                <!-- Seller Notice -->
+                <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-1.5">
+                    <span class="text-red-400 font-bold uppercase tracking-wider block">Seller Appeal Notice</span>
+                    <p class="text-slate-300 italic">"${escapeHtml(d.reason || 'No statement provided')}"</p>
+                    ${d.evidence_screenshot_path ? `
+                        <button type="button" onclick="openEvidenceLightbox('${escapeHtml(d.evidence_screenshot_path)}', 'Seller Evidence Document - Dispute #${d.id}')" class="inline-flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 underline font-semibold mt-1">
+                            <span>Inspect Seller Evidence Document &rarr;</span>
+                        </button>
+                    ` : '<span class="text-slate-600 text-[11px] block">No seller file attached</span>'}
+                </div>
+
+                <!-- Buyer Proof -->
+                <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-1.5">
+                    <span class="text-emerald-400 font-bold uppercase tracking-wider block">Buyer Payment Submission</span>
+                    <div class="text-slate-300 font-mono">UTR: <strong class="text-white">${escapeHtml(d.utr_number || 'N/A')}</strong></div>
+                    <div class="text-slate-400 text-[11px]">Notes: ${escapeHtml(d.buyer_notes || 'None')}</div>
+                    ${d.buyer_screenshot ? `
+                        <button type="button" onclick="openEvidenceLightbox('${escapeHtml(d.buyer_screenshot)}', 'Buyer Payment Proof - Dispute #${d.id}')" class="inline-flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300 underline font-semibold mt-1">
+                            <span>View Screenshot in Lightbox &rarr;</span>
+                        </button>
+                    ` : '<span class="text-slate-600 text-[11px] block">No payment screenshot attached</span>'}
+                </div>
+            </div>
+
+            ${d.resolution_notes ? `
+                <div class="bg-slate-950 p-3.5 rounded-xl border border-slate-800 text-xs font-mono text-slate-300">
+                    <span class="text-slate-500 font-sans block text-[10px] uppercase font-bold">Resolution Log</span>
+                    ${escapeHtml(d.resolution_notes)}
+                </div>
+            ` : ''}
+        `;
+    } catch (e) {
+        content.innerHTML = `<div class="p-6 text-center text-rose-400 font-sans">Server communication error loading dispute details.</div>`;
+    }
+}
+
+function closeDisputeOrderDetailsModal() {
+    const modal = document.getElementById('disputeOrderDetailsModal');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+}
+window.renderSellerPaymentDetailsHtml = renderSellerPaymentDetailsHtml;
+window.openDisputeOrderDetailsModal = openDisputeOrderDetailsModal;
+window.closeDisputeOrderDetailsModal = closeDisputeOrderDetailsModal;
 
 // -------------------------------------------------------------
 // TAB 5 & 6: REWARDS, CONTENT & GLOBAL CONFIGURATIONS

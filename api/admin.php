@@ -221,17 +221,26 @@ switch ($action) {
 
     case 'disputes':
         // Requirement 4 & Part 10 Item 2: List disputes and evidence with live search
+        if (!AdminManager::checkPermission($user, 'disputes_view')) {
+            jsonError('Access denied. Insufficient permissions to view dispute details.', 403);
+        }
+
         $pdo = Database::getConnection();
         $statusFilter = $_GET['status'] ?? 'all';
         $query = trim($_GET['query'] ?? '');
 
         $sql = "
             SELECT d.*, c.amount, c.snapshotted_reward_amount, c.seller_id, c.buyer_id, c.status as order_status,
+                   c.parent_order_id, c.created_at as order_created_at, c.proof_submitted_at,
+                   c.snapshotted_upi_id, c.snapshotted_account_holder,
+                   ps.snapshotted_upi_id as parent_snapshotted_upi_id, ps.snapshotted_account_holder as parent_snapshotted_account_holder,
                    u_seller.phone as seller_phone, u_seller.account_holder_name as seller_name,
                    u_buyer.phone as buyer_phone, u_buyer.account_holder_name as buyer_name,
-                   p.utr_number, p.screenshot_path as buyer_screenshot, p.notes as buyer_notes
+                   p.utr_number, p.screenshot_path as buyer_screenshot, p.notes as buyer_notes,
+                   p.created_at as proof_created_at
             FROM disputes d
             JOIN child_orders c ON d.child_order_id = c.id
+            LEFT JOIN parent_sell_orders ps ON c.parent_order_id = ps.id
             LEFT JOIN users u_seller ON c.seller_id = u_seller.id
             LEFT JOIN users u_buyer ON c.buyer_id = u_buyer.id
             LEFT JOIN payment_proofs p ON c.id = p.child_order_id
@@ -254,6 +263,8 @@ switch ($action) {
                 OR u_buyer.phone LIKE :qlike
                 OR u_buyer.account_holder_name LIKE :qlike
                 OR d.reason LIKE :qlike
+                OR c.snapshotted_upi_id LIKE :qlike
+                OR ps.snapshotted_upi_id LIKE :qlike
             )";
             $params[':qid'] = is_numeric($query) ? (int)$query : -1;
             $params[':qchild'] = is_numeric($query) ? (int)$query : -1;
@@ -273,7 +284,104 @@ switch ($action) {
         $stmt->execute();
         $disputes = $stmt->fetchAll();
 
+        foreach ($disputes as &$d) {
+            // Strictly resolve the exact snapshotted UPI ID used for this specific order
+            $childUpi = trim((string)($d['snapshotted_upi_id'] ?? ''));
+            $parentUpi = trim((string)($d['parent_snapshotted_upi_id'] ?? ''));
+            $resolvedUpi = ($childUpi !== '') ? $childUpi : $parentUpi;
+
+            if ($resolvedUpi !== '') {
+                $d['seller_order_upi_id'] = $resolvedUpi;
+                $d['has_historical_upi'] = true;
+            } else {
+                // Strictly do NOT invent or dynamically display current user UPI ID if not in order snapshot
+                $d['seller_order_upi_id'] = 'Historical UPI Details Unavailable';
+                $d['has_historical_upi'] = false;
+            }
+
+            $childHolder = trim((string)($d['snapshotted_account_holder'] ?? ''));
+            $parentHolder = trim((string)($d['parent_snapshotted_account_holder'] ?? ''));
+            $resolvedHolder = ($childHolder !== '') ? $childHolder : $parentHolder;
+            $d['seller_order_account_holder'] = ($resolvedHolder !== '') ? $resolvedHolder : ($d['seller_name'] ?: 'Unavailable');
+
+            $d['payment_method'] = 'UPI';
+            $d['proof_submission_timestamp'] = $d['proof_submitted_at'] ?? $d['proof_created_at'] ?? null;
+        }
+        unset($d);
+
         jsonResponse(true, ['disputes' => $disputes]);
+        break;
+
+    case 'get_dispute':
+        if (!AdminManager::checkPermission($user, 'disputes_view')) {
+            jsonError('Access denied. Insufficient permissions to view dispute details.', 403);
+        }
+
+        $disputeId = (int)($_GET['dispute_id'] ?? $input['dispute_id'] ?? 0);
+        $childOrderId = (int)($_GET['child_order_id'] ?? $input['child_order_id'] ?? 0);
+
+        if ($disputeId <= 0 && $childOrderId <= 0) {
+            jsonError('Dispute ID or Order ID required.');
+        }
+
+        $pdo = Database::getConnection();
+        $sql = "
+            SELECT d.*, c.amount, c.snapshotted_reward_amount, c.seller_id, c.buyer_id, c.status as order_status,
+                   c.parent_order_id, c.created_at as order_created_at, c.proof_submitted_at,
+                   c.snapshotted_upi_id, c.snapshotted_account_holder,
+                   ps.snapshotted_upi_id as parent_snapshotted_upi_id, ps.snapshotted_account_holder as parent_snapshotted_account_holder,
+                   u_seller.phone as seller_phone, u_seller.account_holder_name as seller_name,
+                   u_buyer.phone as buyer_phone, u_buyer.account_holder_name as buyer_name,
+                   p.utr_number, p.screenshot_path as buyer_screenshot, p.notes as buyer_notes,
+                   p.created_at as proof_created_at
+            FROM disputes d
+            JOIN child_orders c ON d.child_order_id = c.id
+            LEFT JOIN parent_sell_orders ps ON c.parent_order_id = ps.id
+            LEFT JOIN users u_seller ON c.seller_id = u_seller.id
+            LEFT JOIN users u_buyer ON c.buyer_id = u_buyer.id
+            LEFT JOIN payment_proofs p ON c.id = p.child_order_id
+            WHERE " . ($disputeId > 0 ? "d.id = ?" : "c.id = ?") . "
+            LIMIT 1
+        ";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute([$disputeId > 0 ? $disputeId : $childOrderId]);
+        $disp = $stmt->fetch();
+
+        if (!$disp) {
+            jsonError('Dispute / Appeal order record not found.', 404);
+        }
+
+        $childUpi = trim((string)($disp['snapshotted_upi_id'] ?? ''));
+        $parentUpi = trim((string)($disp['parent_snapshotted_upi_id'] ?? ''));
+        $resolvedUpi = ($childUpi !== '') ? $childUpi : $parentUpi;
+
+        if ($resolvedUpi !== '') {
+            $disp['seller_order_upi_id'] = $resolvedUpi;
+            $disp['has_historical_upi'] = true;
+        } else {
+            $disp['seller_order_upi_id'] = 'Historical UPI Details Unavailable';
+            $disp['has_historical_upi'] = false;
+        }
+
+        $childHolder = trim((string)($disp['snapshotted_account_holder'] ?? ''));
+        $parentHolder = trim((string)($disp['parent_snapshotted_account_holder'] ?? ''));
+        $resolvedHolder = ($childHolder !== '') ? $childHolder : $parentHolder;
+        $disp['seller_order_account_holder'] = ($resolvedHolder !== '') ? $resolvedHolder : ($disp['seller_name'] ?: 'Unavailable');
+
+        $disp['payment_method'] = 'UPI';
+        $disp['proof_submission_timestamp'] = $disp['proof_submitted_at'] ?? $disp['proof_created_at'] ?? null;
+
+        AdminManager::logAudit(
+            (int)$adminId,
+            'VIEW_DISPUTE_PAYMENT_DETAILS',
+            'disputes',
+            (string)$disp['id'],
+            null,
+            ['child_order_id' => $disp['child_order_id'], 'seller_upi_id' => $disp['seller_order_upi_id']],
+            'Admin viewed seller payment details for dispute'
+        );
+
+        jsonResponse(true, ['dispute' => $disp]);
         break;
 
     case 'arbitrate':
