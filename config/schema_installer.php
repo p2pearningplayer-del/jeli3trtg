@@ -484,14 +484,26 @@ class SchemaInstaller {
                 if ($driver === 'sqlite') {
                     $pdo->exec("ALTER TABLE child_orders ADD COLUMN {$col} {$type}");
                 } else {
-                    $pdo->exec("ALTER TABLE child_orders ADD COLUMN IF NOT EXISTS `{$col}` {$type}");
+                    try {
+                        $pdo->exec("ALTER TABLE `child_orders` ADD COLUMN `{$col}` {$type}");
+                    } catch (Exception $e) {
+                        try {
+                            $pdo->exec("ALTER TABLE `child_orders` ADD COLUMN IF NOT EXISTS `{$col}` {$type}");
+                        } catch (Exception $e2) {}
+                    }
                 }
             } catch (Exception $e) {}
             try {
                 if ($driver === 'sqlite') {
                     $pdo->exec("ALTER TABLE parent_sell_orders ADD COLUMN {$col} {$type}");
                 } else {
-                    $pdo->exec("ALTER TABLE parent_sell_orders ADD COLUMN IF NOT EXISTS `{$col}` {$type}");
+                    try {
+                        $pdo->exec("ALTER TABLE `parent_sell_orders` ADD COLUMN `{$col}` {$type}");
+                    } catch (Exception $e) {
+                        try {
+                            $pdo->exec("ALTER TABLE `parent_sell_orders` ADD COLUMN IF NOT EXISTS `{$col}` {$type}");
+                        } catch (Exception $e2) {}
+                    }
                 }
             } catch (Exception $e) {}
         }

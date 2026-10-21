@@ -58,8 +58,13 @@ $input = getJsonInput();
 switch ($action) {
     case 'stats':
         // Requirement 1: Comprehensive real-time platform statistics
-        $stats = AdminManager::getPlatformStats();
-        jsonResponse(true, ['stats' => $stats]);
+        try {
+            $stats = AdminManager::getPlatformStats();
+            jsonResponse(true, ['stats' => $stats]);
+        } catch (Exception $e) {
+            error_log("api/admin.php stats error: " . $e->getMessage());
+            jsonError('Failed to calculate platform statistics: ' . $e->getMessage(), 500);
+        }
         break;
 
     case 'users':

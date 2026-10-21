@@ -186,35 +186,65 @@ class AdminManager {
         $ordersCompletedTotal = (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE LOWER(status) IN ('completed', 'success')")->fetchColumn();
 
         // E. Cancelled Orders (actual cancellation timestamp, excluding expired)
-        $cancTodayStmt = $pdo->prepare("
-            SELECT COUNT(*) FROM child_orders
-            WHERE LOWER(status) IN ('cancelled', 'cancelled / reversed', 'reversed')
-              AND (
-                  (cancelled_at IS NOT NULL AND cancelled_at >= ? AND cancelled_at < ?)
-                  OR (cancelled_at IS NULL AND id IN (
-                      SELECT CAST(target_id AS INTEGER) FROM admin_audit_logs
+        try {
+            $cancTodayStmt = $pdo->prepare("
+                SELECT COUNT(*) FROM child_orders
+                WHERE LOWER(status) IN ('cancelled', 'cancelled / reversed', 'reversed')
+                  AND (
+                      (cancelled_at IS NOT NULL AND cancelled_at >= ? AND cancelled_at < ?)
+                      OR (cancelled_at IS NULL AND id IN (
+                          SELECT target_id FROM admin_audit_logs
+                          WHERE action_type IN ('ADMIN_CANCEL_ORDER', 'CANCEL_REVERSE_DISPUTE')
+                            AND created_at >= ? AND created_at < ?
+                      ))
+                  )
+            ");
+            $cancTodayStmt->execute([$todayStart, $todayEnd, $todayStart, $todayEnd]);
+            $ordersCancelledToday = (int)$cancTodayStmt->fetchColumn();
+        } catch (Exception $e) {
+            // Graceful fallback for legacy tables without cancelled_at column
+            $cancTodayStmt = $pdo->prepare("
+                SELECT COUNT(*) FROM child_orders
+                WHERE LOWER(status) IN ('cancelled', 'cancelled / reversed', 'reversed')
+                  AND id IN (
+                      SELECT target_id FROM admin_audit_logs
                       WHERE action_type IN ('ADMIN_CANCEL_ORDER', 'CANCEL_REVERSE_DISPUTE')
                         AND created_at >= ? AND created_at < ?
-                  ))
-              )
-        ");
-        $cancTodayStmt->execute([$todayStart, $todayEnd, $todayStart, $todayEnd]);
-        $ordersCancelledToday = (int)$cancTodayStmt->fetchColumn();
+                  )
+            ");
+            $cancTodayStmt->execute([$todayStart, $todayEnd]);
+            $ordersCancelledToday = (int)$cancTodayStmt->fetchColumn();
+        }
 
-        $cancYestStmt = $pdo->prepare("
-            SELECT COUNT(*) FROM child_orders
-            WHERE LOWER(status) IN ('cancelled', 'cancelled / reversed', 'reversed')
-              AND (
-                  (cancelled_at IS NOT NULL AND cancelled_at >= ? AND cancelled_at < ?)
-                  OR (cancelled_at IS NULL AND id IN (
-                      SELECT CAST(target_id AS INTEGER) FROM admin_audit_logs
+        try {
+            $cancYestStmt = $pdo->prepare("
+                SELECT COUNT(*) FROM child_orders
+                WHERE LOWER(status) IN ('cancelled', 'cancelled / reversed', 'reversed')
+                  AND (
+                      (cancelled_at IS NOT NULL AND cancelled_at >= ? AND cancelled_at < ?)
+                      OR (cancelled_at IS NULL AND id IN (
+                          SELECT target_id FROM admin_audit_logs
+                          WHERE action_type IN ('ADMIN_CANCEL_ORDER', 'CANCEL_REVERSE_DISPUTE')
+                            AND created_at >= ? AND created_at < ?
+                      ))
+                  )
+            ");
+            $cancYestStmt->execute([$yesterdayStart, $yesterdayEnd, $yesterdayStart, $yesterdayEnd]);
+            $ordersCancelledYesterday = (int)$cancYestStmt->fetchColumn();
+        } catch (Exception $e) {
+            // Graceful fallback for legacy tables without cancelled_at column
+            $cancYestStmt = $pdo->prepare("
+                SELECT COUNT(*) FROM child_orders
+                WHERE LOWER(status) IN ('cancelled', 'cancelled / reversed', 'reversed')
+                  AND id IN (
+                      SELECT target_id FROM admin_audit_logs
                       WHERE action_type IN ('ADMIN_CANCEL_ORDER', 'CANCEL_REVERSE_DISPUTE')
                         AND created_at >= ? AND created_at < ?
-                  ))
-              )
-        ");
-        $cancYestStmt->execute([$yesterdayStart, $yesterdayEnd, $yesterdayStart, $yesterdayEnd]);
-        $ordersCancelledYesterday = (int)$cancYestStmt->fetchColumn();
+                  )
+            ");
+            $cancYestStmt->execute([$yesterdayStart, $yesterdayEnd]);
+            $ordersCancelledYesterday = (int)$cancYestStmt->fetchColumn();
+        }
 
         $ordersCancelledTotal = (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE LOWER(status) IN ('cancelled', 'cancelled / reversed', 'reversed')")->fetchColumn();
 
