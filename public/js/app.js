@@ -84,6 +84,24 @@ async function initApp() {
     } else {
         switchTab('home');
     }
+
+    const otpInput = document.getElementById('authEmailOtp');
+    if (otpInput && !otpInput._bound) {
+        otpInput._bound = true;
+        otpInput.addEventListener('input', (e) => {
+            const val = e.target.value.replace(/\D/g, '').slice(0, 6);
+            e.target.value = val;
+            if (val.length === 6) {
+                submitEmailOtpVerification();
+            }
+        });
+        otpInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                submitEmailOtpVerification();
+            }
+        });
+    }
 }
 
 // -------------------------------------------------------------
@@ -2795,6 +2813,9 @@ function formatSeconds(secs) {
 // AUTH MODAL & PROFILE HANDLERS
 // -------------------------------------------------------------
 
+let pendingVerificationEmail = '';
+let resendOtpCooldownTimer = null;
+
 function openAuthModal(mode = 'login') {
     const modal = document.getElementById('authModal');
     const modeInput = document.getElementById('authMode');
@@ -2804,6 +2825,14 @@ function openAuthModal(mode = 'login') {
     const toggleText = document.getElementById('authToggleText');
     const toggleBtn = document.getElementById('authToggleBtn');
     const submitBtn = document.getElementById('authSubmitBtn');
+    const authForm = document.getElementById('authForm');
+    const emailVerifyStep = document.getElementById('emailVerifyStep');
+    const authToggleContainer = document.getElementById('authToggleContainer');
+
+    // Reset step visibility
+    if (authForm) authForm.classList.remove('hidden');
+    if (emailVerifyStep) emailVerifyStep.classList.add('hidden');
+    if (authToggleContainer) authToggleContainer.classList.remove('hidden');
 
     modeInput.value = mode;
     document.getElementById('authError').classList.add('hidden');
@@ -2842,13 +2871,28 @@ async function handleAuthSubmit(e) {
     const phone = document.getElementById('authPhone').value.trim();
     const password = document.getElementById('authPassword').value;
     const errEl = document.getElementById('authError');
+    const submitBtn = document.getElementById('authSubmitBtn');
 
     const payload = { identifier: phone, phone, password };
 
     if (mode === 'register') {
+        const emailEl = document.getElementById('authEmail');
+        const email = emailEl ? emailEl.value.trim() : '';
+        if (!email || !filterValidEmail(email)) {
+            errEl.innerText = 'Please provide a valid email address for verification.';
+            errEl.classList.remove('hidden');
+            return;
+        }
+        payload.email = email;
+
         const refEl = document.getElementById('authReferralCode');
         if (refEl && refEl.value.trim()) payload.referral_code = refEl.value.trim();
     }
+
+    const origBtnText = submitBtn.innerText;
+    submitBtn.disabled = true;
+    submitBtn.innerText = mode === 'register' ? 'Creating Account & Sending OTP...' : 'Signing In...';
+    errEl.classList.add('hidden');
 
     try {
         const res = await fetch(`/api/auth.php?action=${mode}`, {
@@ -2858,15 +2902,216 @@ async function handleAuthSubmit(e) {
         });
         const data = await res.json();
         if (data.success) {
-            window.location.reload();
+            if (data.step === 'verify_email') {
+                showEmailVerificationStep(data.email || payload.email);
+            } else {
+                window.location.reload();
+            }
         } else {
-            errEl.innerText = data.error || 'Authentication error.';
-            errEl.classList.remove('hidden');
+            if (data.is_pending_verification && data.email) {
+                showEmailVerificationStep(data.email, data.error);
+            } else {
+                errEl.innerText = data.error || 'Authentication error.';
+                errEl.classList.remove('hidden');
+            }
         }
     } catch (e) {
         errEl.innerText = 'Network error during authentication.';
         errEl.classList.remove('hidden');
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerText = origBtnText;
     }
+}
+
+function filterValidEmail(email) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function showEmailVerificationStep(email, noticeMessage = null) {
+    pendingVerificationEmail = email;
+    const authForm = document.getElementById('authForm');
+    const emailVerifyStep = document.getElementById('emailVerifyStep');
+    const authToggleContainer = document.getElementById('authToggleContainer');
+    const targetEl = document.getElementById('verifyEmailTarget');
+    const otpInput = document.getElementById('authEmailOtp');
+    const errEl = document.getElementById('emailVerifyError');
+    const succEl = document.getElementById('emailVerifySuccess');
+
+    if (authForm) authForm.classList.add('hidden');
+    if (authToggleContainer) authToggleContainer.classList.add('hidden');
+    if (emailVerifyStep) emailVerifyStep.classList.remove('hidden');
+
+    if (targetEl) targetEl.innerText = email;
+    if (errEl) {
+        errEl.classList.add('hidden');
+        errEl.innerText = '';
+    }
+    if (succEl) {
+        if (noticeMessage) {
+            succEl.innerText = noticeMessage;
+            succEl.classList.remove('hidden');
+        } else {
+            succEl.classList.add('hidden');
+            succEl.innerText = '';
+        }
+    }
+    if (otpInput) {
+        otpInput.value = '';
+        setTimeout(() => otpInput.focus(), 150);
+    }
+}
+
+function backToRegisterStep() {
+    const authForm = document.getElementById('authForm');
+    const emailVerifyStep = document.getElementById('emailVerifyStep');
+    const authToggleContainer = document.getElementById('authToggleContainer');
+
+    if (emailVerifyStep) emailVerifyStep.classList.add('hidden');
+    if (authForm) authForm.classList.remove('hidden');
+    if (authToggleContainer) authToggleContainer.classList.remove('hidden');
+}
+
+async function submitEmailOtpVerification() {
+    const otpInput = document.getElementById('authEmailOtp');
+    const otp = otpInput ? otpInput.value.trim() : '';
+    const email = pendingVerificationEmail || (document.getElementById('authEmail') ? document.getElementById('authEmail').value.trim() : '');
+    const errEl = document.getElementById('emailVerifyError');
+    const succEl = document.getElementById('emailVerifySuccess');
+    const verifyBtn = document.getElementById('emailVerifyBtn');
+
+    if (!email) {
+        if (errEl) {
+            errEl.innerText = 'Email reference missing. Please try registering again.';
+            errEl.classList.remove('hidden');
+        }
+        return;
+    }
+
+    if (!otp || !/^\d{6}$/.test(otp)) {
+        if (errEl) {
+            errEl.innerText = 'Please enter the 6-digit verification code.';
+            errEl.classList.remove('hidden');
+        }
+        if (succEl) succEl.classList.add('hidden');
+        if (otpInput) otpInput.focus();
+        return;
+    }
+
+    if (errEl) errEl.classList.add('hidden');
+    if (succEl) succEl.classList.add('hidden');
+
+    const origBtnText = verifyBtn ? verifyBtn.innerText : 'Verify';
+    if (verifyBtn) {
+        verifyBtn.disabled = true;
+        verifyBtn.innerText = 'Verifying Code...';
+    }
+
+    try {
+        const res = await fetch('/api/auth.php?action=verify_email_otp', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, otp })
+        });
+        const data = await res.json();
+        if (data.success) {
+            if (succEl) {
+                succEl.innerText = 'Verification successful! Logging you in...';
+                succEl.classList.remove('hidden');
+            }
+            setTimeout(() => {
+                window.location.reload();
+            }, 800);
+        } else {
+            if (errEl) {
+                errEl.innerText = data.error || 'Verification failed. Please check the code and try again.';
+                errEl.classList.remove('hidden');
+            }
+            if (verifyBtn) {
+                verifyBtn.disabled = false;
+                verifyBtn.innerText = origBtnText;
+            }
+            if (otpInput) otpInput.focus();
+        }
+    } catch (e) {
+        if (errEl) {
+            errEl.innerText = 'Network error while verifying OTP.';
+            errEl.classList.remove('hidden');
+        }
+        if (verifyBtn) {
+            verifyBtn.disabled = false;
+            verifyBtn.innerText = origBtnText;
+        }
+    }
+}
+
+async function resendEmailOtp() {
+    const email = pendingVerificationEmail || (document.getElementById('authEmail') ? document.getElementById('authEmail').value.trim() : '');
+    const errEl = document.getElementById('emailVerifyError');
+    const succEl = document.getElementById('emailVerifySuccess');
+    const resendBtn = document.getElementById('resendOtpBtn');
+
+    if (!email) {
+        if (errEl) {
+            errEl.innerText = 'Email reference missing. Please register again.';
+            errEl.classList.remove('hidden');
+        }
+        return;
+    }
+
+    if (errEl) errEl.classList.add('hidden');
+    if (succEl) succEl.classList.add('hidden');
+    if (resendBtn) resendBtn.disabled = true;
+
+    try {
+        const res = await fetch('/api/auth.php?action=resend_email_otp', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email })
+        });
+        const data = await res.json();
+        if (data.success) {
+            if (succEl) {
+                succEl.innerText = 'A fresh 6-digit code has been sent to your email!';
+                succEl.classList.remove('hidden');
+            }
+            startResendCooldown(60);
+        } else {
+            if (errEl) {
+                errEl.innerText = data.error || 'Could not resend OTP. Please try again later.';
+                errEl.classList.remove('hidden');
+            }
+            if (resendBtn) resendBtn.disabled = false;
+        }
+    } catch (e) {
+        if (errEl) {
+            errEl.innerText = 'Network error while requesting new OTP.';
+            errEl.classList.remove('hidden');
+        }
+        if (resendBtn) resendBtn.disabled = false;
+    }
+}
+
+function startResendCooldown(seconds) {
+    const resendBtn = document.getElementById('resendOtpBtn');
+    if (!resendBtn) return;
+    if (resendOtpCooldownTimer) clearInterval(resendOtpCooldownTimer);
+
+    let remaining = seconds;
+    resendBtn.disabled = true;
+    resendBtn.innerText = `Resend Code (${remaining}s)`;
+
+    resendOtpCooldownTimer = setInterval(() => {
+        remaining -= 1;
+        if (remaining <= 0) {
+            clearInterval(resendOtpCooldownTimer);
+            resendOtpCooldownTimer = null;
+            resendBtn.disabled = false;
+            resendBtn.innerText = 'Resend Code';
+        } else {
+            resendBtn.innerText = `Resend Code (${remaining}s)`;
+        }
+    }, 1000);
 }
 
 async function logout() {

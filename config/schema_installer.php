@@ -389,6 +389,24 @@ class SchemaInstaller {
         );
         CREATE INDEX IF NOT EXISTS idx_aal_agent ON agent_audit_logs(agent_id);
         CREATE INDEX IF NOT EXISTS idx_aal_action ON agent_audit_logs(action);
+
+        CREATE TABLE IF NOT EXISTS email_verifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            email TEXT NOT NULL,
+            otp_code TEXT NOT NULL,
+            verification_token TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            attempts INTEGER NOT NULL DEFAULT 0,
+            ip_address TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            expires_at TEXT NOT NULL,
+            verified_at TEXT,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_ev_email ON email_verifications(email);
+        CREATE INDEX IF NOT EXISTS idx_ev_token ON email_verifications(verification_token);
+        CREATE INDEX IF NOT EXISTS idx_ev_status ON email_verifications(status);
         ";
 
         $pdo->exec($schema);
@@ -411,7 +429,11 @@ class SchemaInstaller {
             'totp_temp_created_at' => 'TEXT DEFAULT NULL',
             'totp_last_timestamp' => 'INTEGER NOT NULL DEFAULT 0',
             'totp_recovery_codes' => 'TEXT DEFAULT NULL',
-            'password_changed_at' => 'TEXT DEFAULT NULL'
+            'password_changed_at' => 'TEXT DEFAULT NULL',
+            'email_verified_at' => 'TEXT DEFAULT NULL',
+            'email_verification_otp' => 'TEXT DEFAULT NULL',
+            'email_verification_token' => 'TEXT DEFAULT NULL',
+            'email_verification_expires_at' => 'TEXT DEFAULT NULL'
         ];
 
         $dispCols = [
@@ -434,7 +456,11 @@ class SchemaInstaller {
                 'totp_temp_created_at' => 'DATETIME DEFAULT NULL',
                 'totp_last_timestamp' => 'BIGINT NOT NULL DEFAULT 0',
                 'totp_recovery_codes' => 'TEXT DEFAULT NULL',
-                'password_changed_at' => 'DATETIME DEFAULT NULL'
+                'password_changed_at' => 'DATETIME DEFAULT NULL',
+                'email_verified_at' => 'DATETIME DEFAULT NULL',
+                'email_verification_otp' => 'VARCHAR(10) DEFAULT NULL',
+                'email_verification_token' => 'VARCHAR(128) DEFAULT NULL',
+                'email_verification_expires_at' => 'DATETIME DEFAULT NULL'
             ];
             $dispCols = [
                 'additional_evidence_requested' => 'TINYINT(1) NOT NULL DEFAULT 0',
@@ -1024,6 +1050,50 @@ class SchemaInstaller {
                         ");
                     } catch (Exception $e2) {}
                 }
+            }
+
+            // Create email_verifications table for persistent OTP and token tracking
+            if ($driver === 'sqlite') {
+                $pdo->exec("
+                    CREATE TABLE IF NOT EXISTS email_verifications (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER,
+                        email TEXT NOT NULL,
+                        otp_code TEXT NOT NULL,
+                        verification_token TEXT NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'pending',
+                        attempts INTEGER NOT NULL DEFAULT 0,
+                        ip_address TEXT,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        expires_at TEXT NOT NULL,
+                        verified_at TEXT,
+                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_ev_email ON email_verifications(email);
+                    CREATE INDEX IF NOT EXISTS idx_ev_token ON email_verifications(verification_token);
+                    CREATE INDEX IF NOT EXISTS idx_ev_status ON email_verifications(status);
+                ");
+            } else {
+                try {
+                    $pdo->exec("
+                        CREATE TABLE IF NOT EXISTS `email_verifications` (
+                            `id` INT AUTO_INCREMENT PRIMARY KEY,
+                            `user_id` INT NULL,
+                            `email` VARCHAR(191) NOT NULL,
+                            `otp_code` VARCHAR(10) NOT NULL,
+                            `verification_token` VARCHAR(128) NOT NULL,
+                            `status` VARCHAR(30) NOT NULL DEFAULT 'pending',
+                            `attempts` INT NOT NULL DEFAULT 0,
+                            `ip_address` VARCHAR(45) DEFAULT NULL,
+                            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                            `expires_at` DATETIME NOT NULL,
+                            `verified_at` DATETIME DEFAULT NULL,
+                            INDEX `idx_ev_email` (`email`),
+                            INDEX `idx_ev_token` (`verification_token`),
+                            INDEX `idx_ev_status` (`status`)
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                    ");
+                } catch (Exception $e3) {}
             }
         } catch (Exception $e) {
             // Tables already exist or migration handled

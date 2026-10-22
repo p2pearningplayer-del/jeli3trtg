@@ -17,6 +17,23 @@ SchemaInstaller::ensureSchema();
 // Sync expired orders
 StateMachine::checkAndExpireOrders();
 
+// Handle 1-click Email Verification Link
+$emailVerificationNotice = null;
+if (!empty($_GET['verify_email_token']) && !empty($_GET['email'])) {
+    $tokenRes = Auth::verifyEmailToken($_GET['email'], $_GET['verify_email_token']);
+    if ($tokenRes['success']) {
+        $emailVerificationNotice = [
+            'type' => 'success',
+            'message' => 'Email verified successfully! Your account is active and you are now logged in.'
+        ];
+    } else {
+        $emailVerificationNotice = [
+            'type' => 'error',
+            'message' => $tokenRes['error'] ?? 'Invalid or expired verification link.'
+        ];
+    }
+}
+
 $currentUser = Auth::getCurrentUser();
 $isImpersonating = !empty($_SESSION['is_impersonating']);
 $refFromQuery = htmlspecialchars($_GET['ref'] ?? '');
@@ -292,6 +309,16 @@ endif;
 
     <!-- Main View Containers (with bottom padding for fixed mobile nav) -->
     <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24 sm:pb-28">
+
+        <?php if (!empty($emailVerificationNotice)): ?>
+        <div class="mb-6 p-4 rounded-2xl border <?= $emailVerificationNotice['type'] === 'success' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-red-500/10 border-red-500/30 text-red-300' ?> flex items-center justify-between gap-3 text-sm font-semibold shadow-lg">
+            <div class="flex items-center gap-2">
+                <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="<?= $emailVerificationNotice['type'] === 'success' ? 'M5 13l4 4L19 7' : 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z' ?>"/></svg>
+                <span><?= htmlspecialchars($emailVerificationNotice['message']) ?></span>
+            </div>
+            <button onclick="this.parentElement.remove()" class="text-slate-400 hover:text-white text-lg font-bold">&times;</button>
+        </div>
+        <?php endif; ?>
 
         <?php if (!$currentUser): ?>
         <!-- ========================================== -->
@@ -1281,6 +1308,12 @@ endif;
                 <!-- Registration-only fields -->
                 <div id="registerFields" class="space-y-4 hidden">
                     <div>
+                        <label class="text-xs font-semibold text-slate-300 block mb-1">Email Address (for Verification)</label>
+                        <input type="email" id="authEmail" placeholder="yourname@gmail.com" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:border-indigo-500 focus:outline-none">
+                        <span class="text-[11px] text-slate-500 mt-1 block">A 6-digit verification code will be sent to this email</span>
+                    </div>
+
+                    <div>
                         <label class="text-xs font-semibold text-slate-300 block mb-1">Referral Code (Optional)</label>
                         <input type="text" id="authReferralCode" value="<?= $refFromQuery ?>" placeholder="JPXXXXXX" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white font-mono uppercase focus:border-indigo-500 focus:outline-none">
                     </div>
@@ -1293,7 +1326,41 @@ endif;
                 </button>
             </form>
 
-            <div class="mt-6 text-center text-xs text-slate-400">
+            <!-- 1A. Email Verification Step (OTP) -->
+            <div id="emailVerifyStep" class="space-y-4 hidden">
+                <div class="text-center">
+                    <div class="w-12 h-12 bg-indigo-600/20 border border-indigo-500/30 rounded-2xl flex items-center justify-center mx-auto text-indigo-400 mb-2">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                    </div>
+                    <h3 class="text-xl font-bold text-white">Verify Your Email</h3>
+                    <p class="text-xs text-slate-400 mt-1">
+                        Enter the 6-digit OTP code sent to <strong id="verifyEmailTarget" class="text-white font-mono">user@example.com</strong>
+                    </p>
+                </div>
+
+                <div>
+                    <label class="text-xs font-semibold text-slate-300 block mb-1 text-center">6-Digit Verification Code</label>
+                    <input type="text" id="authEmailOtp" maxlength="6" pattern="[0-9]{6}" placeholder="123456" class="w-full text-center tracking-[8px] font-mono font-bold text-xl bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:border-indigo-500 focus:outline-none">
+                </div>
+
+                <div id="emailVerifyError" class="text-xs text-red-400 font-semibold text-center hidden"></div>
+                <div id="emailVerifySuccess" class="text-xs text-emerald-400 font-semibold text-center hidden"></div>
+
+                <button type="button" onclick="submitEmailOtpVerification()" id="emailVerifyBtn" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-emerald-600/30 transition text-sm">
+                    Verify & Activate Account
+                </button>
+
+                <div class="flex items-center justify-between text-xs pt-1">
+                    <button type="button" onclick="resendEmailOtp()" id="resendOtpBtn" class="text-indigo-400 hover:text-indigo-300 font-semibold">
+                        Resend Code
+                    </button>
+                    <button type="button" onclick="backToRegisterStep()" class="text-slate-400 hover:text-white">
+                        Back / Change Email
+                    </button>
+                </div>
+            </div>
+
+            <div id="authToggleContainer" class="mt-6 text-center text-xs text-slate-400">
                 <span id="authToggleText">Don't have an account?</span>
                 <button type="button" onclick="toggleAuthMode()" class="text-indigo-400 font-bold hover:underline ml-1" id="authToggleBtn">
                     Create Account

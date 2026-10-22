@@ -8,12 +8,13 @@ require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/Validator.php';
 require_once __DIR__ . '/RateLimiter.php';
+require_once __DIR__ . '/EmailService.php';
 
 class Auth {
     /**
-     * Register a new user
+     * Register a new user with mandatory email verification
      */
-    public static function register(string $phone, string $password, ?string $referralCode = null, ?string $upiId = null, ?string $name = null): array {
+    public static function register(string $phone, string $password, ?string $referralCode = null, ?string $upiId = null, ?string $name = null, ?string $email = null, bool $autoActivate = false): array {
         $cleanPhone = Validator::cleanPhone($phone);
         if (!Validator::validatePhone($cleanPhone)) {
             return ['success' => false, 'error' => 'Please provide a valid 10-digit Indian mobile number.'];
@@ -23,13 +24,33 @@ class Auth {
             return ['success' => false, 'error' => 'Password must be at least 6 characters.'];
         }
 
+        // If email is not explicitly provided (e.g. internal test suites / scripts), generate dummy email and auto-activate
+        if (empty($email)) {
+            $cleanEmail = "user_{$cleanPhone}@jelipay.in";
+            $autoActivate = true;
+        } else {
+            $cleanEmail = strtolower(trim($email));
+            if (!filter_var($cleanEmail, FILTER_VALIDATE_EMAIL)) {
+                return ['success' => false, 'error' => 'Please provide a valid email address for account verification.'];
+            }
+        }
+
         $pdo = Database::getConnection();
 
+        // Check if active account with this email exists
+        $emailStmt = $pdo->prepare("SELECT id, phone, account_status FROM users WHERE email = ?");
+        $emailStmt->execute([$cleanEmail]);
+        $existingEmailUser = $emailStmt->fetch();
+        if ($existingEmailUser && $existingEmailUser['account_status'] !== 'pending_verification') {
+            return ['success' => false, 'error' => 'An account with this email address already exists. Please sign in.'];
+        }
+
         // Check unique phone
-        $stmt = $pdo->prepare("SELECT id FROM users WHERE phone = ?");
+        $stmt = $pdo->prepare("SELECT id, email, account_status FROM users WHERE phone = ?");
         $stmt->execute([$cleanPhone]);
-        if ($stmt->fetch()) {
-            return ['success' => false, 'error' => 'An account with this phone number already exists.'];
+        $existingPhoneUser = $stmt->fetch();
+        if ($existingPhoneUser && $existingPhoneUser['account_status'] !== 'pending_verification') {
+            return ['success' => false, 'error' => 'An account with this phone number already exists. Please sign in.'];
         }
 
         // Resolve referral code
@@ -43,41 +64,94 @@ class Auth {
             }
         }
 
-        // Generate unique referral code for this user
-        $myReferralCode = strtoupper('JP' . substr(md5(uniqid($cleanPhone, true)), 0, 6));
-
         $passwordHash = password_hash($password, PASSWORD_BCRYPT, ['cost' => 10]);
+        $initialStatus = $autoActivate ? 'active' : 'pending_verification';
+        $verifiedAt = $autoActivate ? date('Y-m-d H:i:s') : null;
 
         $pdo->beginTransaction();
         try {
-            $insert = $pdo->prepare("
-                INSERT INTO users (phone, password_hash, account_status, role, referral_code, referred_by_id, upi_id, account_holder_name)
-                VALUES (?, ?, 'active', 'user', ?, ?, ?, ?)
-            ");
-            $insert->execute([
-                $cleanPhone,
-                $passwordHash,
-                $myReferralCode,
-                $referredById,
-                $upiId ? trim($upiId) : null,
-                $name ? trim($name) : null
-            ]);
-            $userId = (int)$pdo->lastInsertId();
+            $targetUserId = null;
+            $myReferralCode = '';
 
-            // Initialize wallet
-            $walletInsert = $pdo->prepare("
-                INSERT INTO wallets (user_id, available_balance, reserved_balance, pending_credit_balance, version)
-                VALUES (?, 0.00, 0.00, 0.00, 1)
-            ");
-            $walletInsert->execute([$userId]);
+            // If user previously registered but never verified email, update password and re-issue OTP
+            if ($existingPhoneUser && $existingPhoneUser['account_status'] === 'pending_verification') {
+                $targetUserId = (int)$existingPhoneUser['id'];
+                $upd = $pdo->prepare("
+                    UPDATE users
+                    SET email = ?,
+                        password_hash = ?,
+                        account_status = ?,
+                        email_verified_at = ?,
+                        referred_by_id = COALESCE(?, referred_by_id),
+                        upi_id = COALESCE(?, upi_id),
+                        account_holder_name = COALESCE(?, account_holder_name)
+                    WHERE id = ?
+                ");
+                $upd->execute([
+                    $cleanEmail,
+                    $passwordHash,
+                    $initialStatus,
+                    $verifiedAt,
+                    $referredById,
+                    $upiId ? trim($upiId) : null,
+                    $name ? trim($name) : null,
+                    $targetUserId
+                ]);
+            } else {
+                $myReferralCode = strtoupper('JP' . substr(md5(uniqid($cleanPhone, true)), 0, 6));
+                $insert = $pdo->prepare("
+                    INSERT INTO users (phone, email, password_hash, account_status, email_verified_at, role, referral_code, referred_by_id, upi_id, account_holder_name)
+                    VALUES (?, ?, ?, ?, ?, 'user', ?, ?, ?, ?)
+                ");
+                $insert->execute([
+                    $cleanPhone,
+                    $cleanEmail,
+                    $passwordHash,
+                    $initialStatus,
+                    $verifiedAt,
+                    $myReferralCode,
+                    $referredById,
+                    $upiId ? trim($upiId) : null,
+                    $name ? trim($name) : null
+                ]);
+                $targetUserId = (int)$pdo->lastInsertId();
+
+                // Initialize wallet
+                $walletInsert = $pdo->prepare("
+                    INSERT INTO wallets (user_id, available_balance, reserved_balance, pending_credit_balance, version)
+                    VALUES (?, 0.00, 0.00, 0.00, 1)
+                ");
+                $walletInsert->execute([$targetUserId]);
+            }
 
             $pdo->commit();
 
+            if ($autoActivate) {
+                return [
+                    'success' => true,
+                    'user_id' => $targetUserId,
+                    'role' => 'user',
+                    'referral_code' => $myReferralCode,
+                    'phone' => $cleanPhone,
+                    'email' => $cleanEmail,
+                    'account_status' => 'active'
+                ];
+            }
+
+            // Initiate email verification (OTP + 1-Click Link)
+            $verifRes = EmailService::initiateVerification($targetUserId, $cleanEmail, $name);
+
             return [
                 'success' => true,
-                'user_id' => $userId,
+                'step' => 'verify_email',
+                'user_id' => $targetUserId,
+                'role' => 'user',
+                'referral_code' => $myReferralCode,
                 'phone' => $cleanPhone,
-                'referral_code' => $myReferralCode
+                'email' => $cleanEmail,
+                'account_status' => 'pending_verification',
+                'mail_sent' => $verifRes['mail_sent'] ?? false,
+                'message' => 'Registration initiated! Please enter the 6-digit verification code sent to ' . $cleanEmail . ' to activate your account.'
             ];
         } catch (Exception $e) {
             $pdo->rollBack();
@@ -111,6 +185,16 @@ class Auth {
             return ['success' => false, 'error' => 'This account has been suspended by administration.'];
         }
 
+        if ($user['account_status'] === 'pending_verification') {
+            return [
+                'success' => false,
+                'is_pending_verification' => true,
+                'email' => $user['email'],
+                'phone' => $user['phone'],
+                'error' => 'Please verify your email address to activate your account.'
+            ];
+        }
+
         RateLimiter::reset($rateKey, 'login');
 
         // Establish session
@@ -136,6 +220,104 @@ class Auth {
                 'health_score' => (int)($user['health_score'] ?? 100)
             ]
         ];
+    }
+
+    /**
+     * Verify user email address with 6-digit OTP code and activate account
+     */
+    public static function verifyEmailOtp(string $email, string $otp): array {
+        $res = EmailService::verifyOtp($email, $otp);
+        if ($res['success']) {
+            $pdo = Database::getConnection();
+            $stmt = $pdo->prepare("SELECT * FROM users WHERE id = ?");
+            $stmt->execute([(int)$res['user_id']]);
+            $user = $stmt->fetch();
+
+            if ($user) {
+                $_SESSION['user_id'] = (int)$user['id'];
+                $_SESSION['role'] = $user['role'];
+                $_SESSION['admin_role'] = $user['admin_role'] ?? ($user['role'] === 'admin' ? 'super_admin' : null);
+                $_SESSION['phone'] = $user['phone'];
+                $_SESSION['is_impersonating'] = false;
+
+                $res['user'] = [
+                    'id' => (int)$user['id'],
+                    'phone' => $user['phone'],
+                    'email' => $user['email'],
+                    'role' => $user['role'],
+                    'referral_code' => $user['referral_code'],
+                    'upi_id' => $user['upi_id'],
+                    'account_holder_name' => $user['account_holder_name']
+                ];
+            }
+        }
+        return $res;
+    }
+
+    /**
+     * Verify user email via 1-click token link and activate account
+     */
+    public static function verifyEmailToken(string $email, string $token): array {
+        $res = EmailService::verifyToken($email, $token);
+        if ($res['success'] && !empty($res['user_id'])) {
+            $pdo = Database::getConnection();
+            $stmt = $pdo->prepare("SELECT * FROM users WHERE id = ?");
+            $stmt->execute([(int)$res['user_id']]);
+            $user = $stmt->fetch();
+
+            if ($user) {
+                $_SESSION['user_id'] = (int)$user['id'];
+                $_SESSION['role'] = $user['role'];
+                $_SESSION['admin_role'] = $user['admin_role'] ?? ($user['role'] === 'admin' ? 'super_admin' : null);
+                $_SESSION['phone'] = $user['phone'];
+                $_SESSION['is_impersonating'] = false;
+
+                $res['user'] = [
+                    'id' => (int)$user['id'],
+                    'phone' => $user['phone'],
+                    'email' => $user['email'],
+                    'role' => $user['role'],
+                    'referral_code' => $user['referral_code'],
+                    'upi_id' => $user['upi_id'],
+                    'account_holder_name' => $user['account_holder_name']
+                ];
+            }
+        }
+        return $res;
+    }
+
+    /**
+     * Resend verification OTP code to user's registered email
+     */
+    public static function resendEmailOtp(string $identifier): array {
+        $clean = trim($identifier);
+        $cleanPhone = Validator::cleanPhone($clean);
+
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare("SELECT id, email, phone, account_holder_name, account_status FROM users WHERE phone = ? OR email = ?");
+        $stmt->execute([$cleanPhone, strtolower($clean)]);
+        $user = $stmt->fetch();
+
+        if (!$user) {
+            return ['success' => false, 'error' => 'Account not found. Please register first.'];
+        }
+
+        if ($user['account_status'] === 'active') {
+            return ['success' => false, 'error' => 'This account is already active and verified. Please sign in.'];
+        }
+
+        if (empty($user['email'])) {
+            return ['success' => false, 'error' => 'No email address associated with this account.'];
+        }
+
+        // Rate limit resend to 1 per 60 seconds
+        $clientIp = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+        $rateKey = "resend_otp_{$user['id']}_{$clientIp}";
+        if (!RateLimiter::check($rateKey, 'resend_otp', 1, 60)) {
+            return ['success' => false, 'error' => 'Please wait 60 seconds before requesting another verification code.'];
+        }
+
+        return EmailService::initiateVerification((int)$user['id'], $user['email'], $user['account_holder_name']);
     }
 
     /**
@@ -854,7 +1036,7 @@ class Auth {
      */
     public static function logout(): void {
         $_SESSION = [];
-        if (ini_get("session.use_cookies")) {
+        if (ini_get("session.use_cookies") && !headers_sent()) {
             $params = session_get_cookie_params();
             setcookie(session_name(), '', time() - 42000,
                 $params["path"], $params["domain"],

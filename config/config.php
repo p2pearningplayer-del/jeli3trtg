@@ -41,6 +41,16 @@ define('BUYER_PAYMENT_WINDOW_SECONDS', 600);    // 10 minutes (600 seconds)
 define('SELLER_VERIFY_WINDOW_SECONDS', 900);    // 15 minutes (900 seconds)
 define('MAX_CHILD_SPLITS', 8);                  // Up to 8 child micro-orders
 
+// Hostinger Email / SMTP Configuration
+define('SMTP_HOST', getenv('SMTP_HOST') ?: 'smtp.hostinger.com');
+define('SMTP_PORT', (int)(getenv('SMTP_PORT') ?: 465));
+define('SMTP_USER', getenv('SMTP_USER') ?: 'team@jelipay.in');
+define('SMTP_PASS', getenv('SMTP_PASS') ?: 'Owner@team4');
+define('SMTP_SECURE', getenv('SMTP_SECURE') ?: 'ssl'); // 'ssl' for port 465
+define('SMTP_FROM_EMAIL', getenv('SMTP_FROM_EMAIL') ?: 'team@jelipay.in');
+define('SMTP_FROM_NAME', getenv('SMTP_FROM_NAME') ?: 'JeliPay Security');
+define('HOSTINGER_MAIL_API_TOKEN', getenv('HOSTINGER_MAIL_API_TOKEN') ?: '069b9b004dddb6d9c54df37acc3233147402f685d5654cef44ca0813663f4420');
+
 // Session & Security Settings (Part 12, Item 1: 48-Hour Session Stability)
 ini_set('session.gc_maxlifetime', '172800'); // 48 hours
 ini_set('session.cookie_lifetime', '172800'); // 48 hours

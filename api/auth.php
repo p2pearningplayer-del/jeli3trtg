@@ -18,16 +18,73 @@ $input = getJsonInput();
 switch ($action) {
     case 'register':
         $phone = $input['phone'] ?? '';
+        $email = $input['email'] ?? '';
         $password = $input['password'] ?? '';
         $refCode = $input['referral_code'] ?? null;
         $upiId = $input['upi_id'] ?? null;
         $name = $input['name'] ?? null;
 
-        $res = Auth::register($phone, $password, $refCode, $upiId, $name);
+        if (empty($email) || !filter_var(trim($email), FILTER_VALIDATE_EMAIL)) {
+            jsonError('Please provide a valid email address for account verification.');
+        }
+
+        $res = Auth::register($phone, $password, $refCode, $upiId, $name, trim($email), false);
         if ($res['success']) {
-            // Auto login upon registration
-            Auth::login($phone, $password);
-            jsonResponse(true, ['message' => 'Registration successful.', 'user' => Auth::getCurrentUser()]);
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
+    case 'verify_email_otp':
+        $email = $input['email'] ?? '';
+        $otp = $input['otp'] ?? '';
+
+        if (empty($email) || empty($otp)) {
+            jsonError('Email and 6-digit verification code are required.');
+        }
+
+        $res = Auth::verifyEmailOtp($email, $otp);
+        if ($res['success']) {
+            jsonResponse(true, [
+                'message' => 'Email verified successfully! Your account is now active.',
+                'user' => $res['user'] ?? Auth::getCurrentUser()
+            ]);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
+    case 'verify_email_token':
+        $email = $input['email'] ?? $_GET['email'] ?? '';
+        $token = $input['token'] ?? $_GET['token'] ?? '';
+
+        if (empty($email) || empty($token)) {
+            jsonError('Email and verification token are required.');
+        }
+
+        $res = Auth::verifyEmailToken($email, $token);
+        if ($res['success']) {
+            jsonResponse(true, [
+                'message' => 'Email verified successfully! Your account is now active.',
+                'user' => $res['user'] ?? Auth::getCurrentUser()
+            ]);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
+    case 'resend_email_otp':
+        $identifier = $input['email'] ?? $input['phone'] ?? $input['identifier'] ?? '';
+        if (empty($identifier)) {
+            jsonError('Please provide your email address or phone number.');
+        }
+
+        $res = Auth::resendEmailOtp($identifier);
+        if ($res['success']) {
+            jsonResponse(true, [
+                'message' => 'A new 6-digit verification code has been dispatched to your email.'
+            ]);
         } else {
             jsonError($res['error']);
         }
@@ -41,7 +98,12 @@ switch ($action) {
         if ($res['success']) {
             jsonResponse(true, ['message' => 'Login successful.', 'user' => $res['user']]);
         } else {
-            jsonError($res['error'], 401);
+            $extra = [];
+            if (!empty($res['is_pending_verification'])) {
+                $extra['is_pending_verification'] = true;
+                $extra['email'] = $res['email'] ?? null;
+            }
+            jsonError($res['error'], 401, $extra);
         }
         break;
 
