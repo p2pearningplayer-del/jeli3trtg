@@ -104,12 +104,35 @@ class StateMachine {
      */
     public static function cancelReservation(int $childOrderId, int $buyerId): array {
         $pdo = Database::getConnection();
-        $stmt = $pdo->prepare("SELECT * FROM child_orders WHERE id = ? AND buyer_id = ? AND status = 'Reserved'");
-        $stmt->execute([$childOrderId, $buyerId]);
+        $stmt = $pdo->prepare("SELECT * FROM child_orders WHERE id = ?");
+        $stmt->execute([$childOrderId]);
         $order = $stmt->fetch();
 
         if (!$order) {
-            return ['success' => false, 'error' => 'Active reservation not found or order already submitted.'];
+            return ['success' => false, 'error' => 'Order not found.'];
+        }
+
+        $currentStatus = strtolower(trim($order['status']));
+
+        // Idempotent cancellation: if the order is already cancelled, expired, or available in the market
+        if (in_array($currentStatus, ['available', 'expired', 'cancelled'])) {
+            return [
+                'success' => true,
+                'already_cancelled' => true,
+                'message' => 'Reservation already cancelled. Tokens returned to buy pool.'
+            ];
+        }
+
+        // Prevent cancelling orders with payment proofs or settlements
+        if (in_array($currentStatus, ['completed', 'payment proof submitted', 'seller confirmation pending', 'disputed'])) {
+            return [
+                'success' => false,
+                'error' => 'Order payment has already been submitted and cannot be cancelled.'
+            ];
+        }
+
+        if ($currentStatus !== 'reserved' || (int)$order['buyer_id'] !== $buyerId) {
+            return ['success' => false, 'error' => 'Active reservation not found or order already processed.'];
         }
 
         $pdo->beginTransaction();
@@ -126,18 +149,22 @@ class StateMachine {
 
             if ($upd->rowCount() === 0) {
                 $pdo->rollBack();
-                return ['success' => false, 'error' => 'Order is no longer reserved.'];
+                return [
+                    'success' => true,
+                    'already_cancelled' => true,
+                    'message' => 'Reservation already cancelled. Tokens returned to buy pool.'
+                ];
             }
 
             // Adjust parent order reserved/remaining amount back
             $amount = (float)$order['amount'];
             $parentUpd = $pdo->prepare("
                 UPDATE parent_sell_orders
-                SET reserved_amount = reserved_amount - ?,
+                SET reserved_amount = CASE WHEN (reserved_amount - ?) > 0 THEN (reserved_amount - ?) ELSE 0 END,
                     remaining_amount = remaining_amount + ?
                 WHERE id = ?
             ");
-            $parentUpd->execute([$amount, $amount, $order['parent_order_id']]);
+            $parentUpd->execute([$amount, $amount, $amount, $order['parent_order_id']]);
 
             $pdo->commit();
             return ['success' => true, 'message' => 'Reservation cancelled. Tokens returned to buy pool.'];

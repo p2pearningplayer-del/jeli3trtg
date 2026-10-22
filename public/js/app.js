@@ -351,7 +351,7 @@ async function loadBuyPool(silent = false) {
                     </div>
 
                     <div class="text-[11px] text-slate-400 flex items-center justify-between">
-                        <span>Seller: <strong class="text-slate-300">${escapeHtml(order.seller_name_masked || 'Verified Peer')}</strong></span>
+                        <span class="text-slate-400">Payment: <strong class="text-slate-300">UPI Transfer</strong></span>
                         <span class="text-emerald-500 font-semibold flex items-center gap-1">&bull; Instant UPI</span>
                     </div>
                 </div>
@@ -701,7 +701,7 @@ async function cancelOrderFromStatusModal(orderId) {
             body: JSON.stringify({ order_id: parseInt(orderId, 10) })
         });
         const data = await res.json();
-        if (data.success) {
+        if (data.success || data.already_cancelled) {
             closeActiveOrderDetailsModal();
             loadBuyPool();
             loadBuyPageHistory();
@@ -709,9 +709,20 @@ async function cancelOrderFromStatusModal(orderId) {
             fetchSession();
             alert('Reservation cancelled. You can now select any new buy order.');
         } else {
-            alert(data.error || 'Failed to cancel reservation.');
+            if (data.error && (data.error.includes('not found') || data.error.includes('already') || data.error.includes('expired'))) {
+                closeActiveOrderDetailsModal();
+                syncHomeActiveOrder();
+                loadBuyPool();
+                loadBuyPageHistory();
+                fetchSession();
+                alert('Reservation is no longer active.');
+            } else {
+                alert(data.error || 'Failed to cancel reservation.');
+            }
         }
     } catch (e) {
+        closeActiveOrderDetailsModal();
+        syncHomeActiveOrder();
         alert('Network error cancelling reservation.');
     }
 }
@@ -829,25 +840,38 @@ function handleHomeActiveOrderView() {
 
 async function cancelOrderFromHomeBanner() {
     if (!currentHomeActiveOrderId) return;
-    if (!confirm(`Are you sure you want to cancel order reservation #${currentHomeActiveOrderId}? Tokens will immediately return to the live sell queue.`)) return;
+    const targetId = currentHomeActiveOrderId;
+    if (!confirm(`Are you sure you want to cancel order reservation #${targetId}? Tokens will immediately return to the live sell queue.`)) return;
 
     try {
         const res = await fetch('/api/buy.php?action=cancel', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ order_id: currentHomeActiveOrderId })
+            body: JSON.stringify({ order_id: targetId })
         });
         const data = await res.json();
-        if (data.success) {
+        if (data.success || data.already_cancelled) {
+            currentHomeActiveOrderId = null;
             alert('Reservation cancelled. Tokens have returned to the live sell queue.');
             syncHomeActiveOrder();
             loadBuyPool();
             loadBuyPageHistory();
             loadWalletStats();
         } else {
-            alert(data.error || 'Failed to cancel reservation.');
+            if (data.error && (data.error.includes('not found') || data.error.includes('already') || data.error.includes('expired'))) {
+                currentHomeActiveOrderId = null;
+                syncHomeActiveOrder();
+                loadBuyPool();
+                loadBuyPageHistory();
+                loadWalletStats();
+                alert('Reservation is no longer active.');
+            } else {
+                alert(data.error || 'Failed to cancel reservation.');
+            }
         }
     } catch (e) {
+        currentHomeActiveOrderId = null;
+        syncHomeActiveOrder();
         alert('Network error while cancelling order.');
     }
 }
@@ -1306,10 +1330,10 @@ function renderSellerChildCard(child) {
                 ${child.screenshot_path ? `<button type="button" onclick="openUserEvidenceLightbox('${escapeHtml(child.screenshot_path)}', 'Buyer Proof - Order ${formatOrderId(child.id)}')" class="text-xs text-indigo-400 hover:text-indigo-300 underline font-semibold ml-auto cursor-pointer">View Buyer Proof</button>` : ''}
             </div>
         `;
-    } else if (child.status === 'Available') {
+    } else if (['Available', 'Expired'].includes(child.status)) {
         actions = `
             <div class="flex items-center justify-between mt-2 pt-2 border-t border-slate-800/80">
-                <span class="text-[11px] text-slate-500">Unsold in Buy Pool</span>
+                <span class="text-[11px] text-slate-500">${child.status === 'Expired' ? 'Buyer Timed Out' : 'Unsold in Buy Pool'}</span>
                 <button onclick="cancelChildSellPortion(${child.id})" class="px-2.5 py-1 bg-red-600/15 hover:bg-red-600/25 text-red-400 border border-red-500/25 rounded-lg text-[11px] font-bold transition flex items-center gap-1">
                     <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                     <span>Cancel</span>
@@ -1519,23 +1543,19 @@ async function loadMyPurchases(silent = false) {
                                 <div class="text-right space-y-1">
                                     <div class="flex items-center gap-1.5 sm:justify-end text-xs font-bold text-indigo-400">
                                         <span class="inline-block w-2 h-2 rounded-full bg-indigo-400 animate-ping"></span>
-                                        <span>Already Verified / Verifying</span>
+                                        <span>Payment Submitted</span>
                                     </div>
                                     <div class="text-[11px] text-slate-400">
                                         Seller SLA: <span class="font-mono font-bold text-indigo-300 ml-1" id="timer_order_${p.id}">${formatSeconds(p.seconds_remaining)}</span>
                                     </div>
-                                    <p class="text-[10px] text-slate-500 max-w-xs sm:text-right">
-                                        Auto-escalates to Appeal/Dispute if seller does not verify within 15 mins.
-                                    </p>
                                     ${p.utr_number ? `<span class="text-[11px] text-slate-400 block font-mono">UTR: ${escapeHtml(p.utr_number)}</span>` : ''}
                                 </div>
                             ` : (p.status === 'Disputed' ? `
                                 <div class="text-right space-y-1">
                                     <div class="text-red-400 font-bold text-xs flex items-center gap-1 sm:justify-end">
                                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
-                                        <span>Under Appeal / Arbitration</span>
+                                        <span>Under Appeal</span>
                                     </div>
-                                    <p class="text-[10px] text-slate-400 max-w-xs sm:text-right">Escalated to Admin Console. Tokens safely locked in escrow.</p>
                                 </div>
                             ` : (p.status === 'Completed' ? `
                                 <div class="text-emerald-400 font-bold text-xs flex items-center gap-1">
@@ -1595,7 +1615,7 @@ async function cancelCurrentReservation() {
             body: JSON.stringify({ order_id: parseInt(orderId, 10) })
         });
         const data = await res.json();
-        if (data.success) {
+        if (data.success || data.already_cancelled) {
             alert('Reservation cancelled. The order portion is back in the market pool.');
             closeProofModal();
             loadMyPurchases();
@@ -1604,9 +1624,21 @@ async function cancelCurrentReservation() {
             syncHomeActiveOrder();
             fetchSession();
         } else {
-            alert(data.error || 'Failed to cancel reservation.');
+            if (data.error && (data.error.includes('not found') || data.error.includes('already') || data.error.includes('expired'))) {
+                closeProofModal();
+                syncHomeActiveOrder();
+                loadMyPurchases();
+                loadBuyPool();
+                loadBuyPageHistory();
+                fetchSession();
+                alert('Reservation is no longer active.');
+            } else {
+                alert(data.error || 'Failed to cancel reservation.');
+            }
         }
     } catch (e) {
+        closeProofModal();
+        syncHomeActiveOrder();
         alert('Network error cancelling reservation.');
     }
 }
@@ -2123,6 +2155,21 @@ async function loadDisputesCenter(silent = false) {
             const isResolved = ['resolved_seller', 'resolved_buyer', 'cancelled'].includes(disp.status);
             const evidenceFiles = disp.evidence_screenshot_path ? disp.evidence_screenshot_path.split(',').map(s => s.trim()).filter(Boolean) : [];
 
+            // Hide internal system texts from user interface (Part 13, Item 3)
+            const rawReason = disp.reason || '';
+            const isAutoSystem = disp.is_auto_system || !rawReason ||
+                                 /^(auto[-_ ]|system|ocr_|automated)/i.test(rawReason) ||
+                                 rawReason.toLowerCase().includes('auto-selected') ||
+                                 rawReason.toLowerCase().includes('auto-escalated');
+            const cleanUserNote = isAutoSystem ? '' : (disp.clean_reason || rawReason);
+
+            if (disp.seconds_remaining > 0 && !isResolved) {
+                activeTimers[`dispute_${disp.id}`] = {
+                    seconds: disp.seconds_remaining,
+                    label: 'Arbitration Window'
+                };
+            }
+
             return `
                 <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-sm">
                     <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-800 gap-2">
@@ -2133,39 +2180,52 @@ async function loadDisputesCenter(silent = false) {
                                 ${statusLabels[disp.status] || disp.status}
                             </span>
                         </div>
-                        <div class="text-right">
-                            <span class="text-lg font-black text-white font-mono">₹${parseFloat(disp.amount).toLocaleString('en-IN')}</span>
-                            <span class="text-[11px] text-slate-500 block">Filed on ${disp.created_at}</span>
-                        </div>
-                    </div>
-
-                    <!-- Dispute Details -->
-                    <div class="bg-slate-950 border border-slate-800/80 rounded-xl p-4 text-xs space-y-2">
-                        <div class="flex items-start justify-between">
-                            <span class="text-slate-400 font-semibold">Claim Reason:</span>
-                            <span class="text-slate-200 text-right max-w-md">${escapeHtml(disp.reason)}</span>
-                        </div>
-                        ${evidenceFiles.length > 0 ? `
-                            <div class="pt-2 border-t border-slate-800/80 flex items-center gap-2 flex-wrap">
-                                <span class="text-slate-400 font-semibold">Attached Proofs:</span>
-                                ${evidenceFiles.map((path, idx) => `
-                                    <button type="button" onclick="openUserEvidenceLightbox('${escapeHtml(path)}', 'Dispute Evidence Proof #${idx + 1}')" class="px-2.5 py-1 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/20 rounded-lg text-xs font-semibold flex items-center gap-1 transition cursor-pointer">
-                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
-                                        <span>Proof #${idx + 1}</span>
-                                    </button>
-                                `).join('')}
+                        <div class="text-right flex items-center justify-between sm:justify-end gap-3">
+                            ${(disp.seconds_remaining > 0 && !isResolved) ? `
+                                <span class="text-xs font-mono font-bold text-amber-400" id="timer_dispute_${disp.id}">
+                                    ${formatSeconds(disp.seconds_remaining)}
+                                </span>
+                            ` : ''}
+                            <div>
+                                <span class="text-lg font-black text-white font-mono">₹${parseFloat(disp.amount).toLocaleString('en-IN')}</span>
+                                <span class="text-[11px] text-slate-500 block">Filed on ${disp.created_at}</span>
                             </div>
-                        ` : ''}
+                        </div>
                     </div>
 
-                    <!-- Admin Communication Box (Requirement 1) -->
-                    <div class="bg-indigo-950/30 border border-indigo-500/30 rounded-xl p-4 space-y-2">
-                        <div class="flex items-center gap-1.5 text-xs font-bold text-indigo-300">
-                            <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
-                            <span>Administrative Decision & Guidance:</span>
+                    ${(cleanUserNote || evidenceFiles.length > 0) ? `
+                        <!-- Dispute Details -->
+                        <div class="bg-slate-950 border border-slate-800/80 rounded-xl p-4 text-xs space-y-2">
+                            ${cleanUserNote ? `
+                                <div class="flex items-start justify-between">
+                                    <span class="text-slate-400 font-semibold">User Note:</span>
+                                    <span class="text-slate-200 text-right max-w-md">${escapeHtml(cleanUserNote)}</span>
+                                </div>
+                            ` : ''}
+                            ${evidenceFiles.length > 0 ? `
+                                <div class="pt-2 ${cleanUserNote ? 'border-t border-slate-800/80' : ''} flex items-center gap-2 flex-wrap">
+                                    <span class="text-slate-400 font-semibold">Attached Proofs:</span>
+                                    ${evidenceFiles.map((path, idx) => `
+                                        <button type="button" onclick="openUserEvidenceLightbox('${escapeHtml(path)}', 'Dispute Evidence Proof #${idx + 1}')" class="px-2.5 py-1 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/20 rounded-lg text-xs font-semibold flex items-center gap-1 transition cursor-pointer">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                                            <span>Proof #${idx + 1}</span>
+                                        </button>
+                                    `).join('')}
+                                </div>
+                            ` : ''}
                         </div>
-                        <p class="text-xs text-slate-300 leading-relaxed font-mono whitespace-pre-wrap">${escapeHtml(disp.resolution_notes || 'Case assigned to Admin arbitration desk. Both parties have evidence rights. Tokens remain securely locked in double-entry escrow.')}</p>
-                    </div>
+                    ` : ''}
+
+                    ${disp.resolution_notes ? `
+                        <!-- Admin Communication Box (Requirement 1) -->
+                        <div class="bg-indigo-950/30 border border-indigo-500/30 rounded-xl p-4 space-y-2">
+                            <div class="flex items-center gap-1.5 text-xs font-bold text-indigo-300">
+                                <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+                                <span>Administrative Decision & Guidance:</span>
+                            </div>
+                            <p class="text-xs text-slate-300 leading-relaxed font-mono whitespace-pre-wrap">${escapeHtml(disp.resolution_notes)}</p>
+                        </div>
+                    ` : ''}
 
                     ${(disp.additional_evidence_requested == 1 || disp.status === 'under_review') ? `
                         <div class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3.5 flex items-start gap-3">

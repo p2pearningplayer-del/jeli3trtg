@@ -659,7 +659,7 @@ endif;
                         <span class="text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2.5 py-0.5 rounded-full font-semibold">Live Admin Arbitration</span>
                     </div>
                     <h2 class="text-xl sm:text-2xl font-bold text-white mt-1">Dispute & Appeal Center</h2>
-                    <p class="text-xs text-slate-400 mt-1">Track raised claims, review administrative decisions, and submit photo or video evidence.</p>
+                    <p class="text-xs text-slate-400 mt-1">Review active appeals, administrative decisions, and submit photo or video evidence.</p>
                 </div>
                 <button onclick="loadDisputesCenter()" class="p-2.5 text-slate-400 hover:text-white bg-slate-950 border border-slate-800 rounded-xl transition flex items-center gap-2 text-xs font-semibold self-start sm:self-auto">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>

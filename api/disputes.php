@@ -24,6 +24,7 @@ switch ($action) {
     case 'list':
         $stmt = $pdo->prepare("
             SELECT d.*, c.amount, c.seller_id, c.buyer_id, c.status as order_status,
+                   c.verification_deadline, c.payment_deadline,
                    p.screenshot_path as buyer_screenshot, p.utr_number as buyer_utr,
                    u_buyer.account_holder_name as buyer_name, u_buyer.phone as buyer_phone,
                    u_seller.account_holder_name as seller_name, u_seller.phone as seller_phone
@@ -48,6 +49,21 @@ switch ($action) {
             $disp['amount'] = (float)$disp['amount'];
             $disp['user_role'] = ((int)$user['id'] === (int)$disp['seller_id']) ? 'seller' : 'buyer';
             $disp['is_initiator'] = ((int)$user['id'] === (int)$disp['raised_by_user_id']);
+
+            // Active SLA timer if under review or within verification window
+            $disp['seconds_remaining'] = 0;
+            if (!empty($disp['verification_deadline'])) {
+                $rem = strtotime($disp['verification_deadline']) - time();
+                $disp['seconds_remaining'] = max(0, $rem);
+            }
+
+            // Flag internal system strings for client sanitization (Part 13, Item 3)
+            $rawReason = trim($disp['reason'] ?? '');
+            $isAutoSystem = preg_match('/^(auto[-_ ]|system|ocr_|automated)/i', $rawReason) ||
+                            stripos($rawReason, 'auto-selected') !== false ||
+                            stripos($rawReason, 'auto-escalated') !== false;
+            $disp['is_auto_system'] = (bool)$isAutoSystem;
+            $disp['clean_reason'] = $isAutoSystem ? '' : $rawReason;
             if ($disp['user_role'] === 'seller') {
                 // Buyer Privacy (Part 6): Seller only sees Order ID, never buyer personal details
                 unset($disp['buyer_name'], $disp['buyer_phone'], $disp['buyer_name_masked'], $disp['buyer_phone_masked']);

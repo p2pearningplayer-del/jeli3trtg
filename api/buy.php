@@ -23,13 +23,13 @@ $input = getJsonInput();
 
 switch ($action) {
     case 'pool':
-        // Display available child portions to buyers (FR-006)
+        // Display available child portions to buyers (FR-006 & Part 13 Privacy)
+        // Seller details (UPI ID, Account Holder Name) are strictly hidden pre-pickup
         $pdo = Database::getConnection();
         $stmt = $pdo->prepare("
             SELECT c.id, c.parent_order_id, c.amount, c.snapshotted_reward_rate,
                    c.snapshotted_reward_amount, (c.amount + c.snapshotted_reward_amount) as total_credit,
-                   c.snapshotted_upi_id, c.snapshotted_account_holder, c.created_at,
-                   c.seller_id
+                   c.created_at, c.seller_id
             FROM child_orders c
             WHERE c.status = 'Available' AND c.seller_id != ?
             ORDER BY c.amount ASC, c.id ASC
@@ -39,12 +39,12 @@ switch ($action) {
         $orders = $stmt->fetchAll();
 
         foreach ($orders as &$ord) {
+            $ord['formatted_order_id'] = sprintf('#%04d', (int)$ord['id']);
             $ord['amount'] = (float)$ord['amount'];
             $ord['reward_amount'] = (float)$ord['snapshotted_reward_amount'];
             $ord['total_credit'] = (float)$ord['total_credit'];
             $ord['reward_rate'] = (float)$ord['snapshotted_reward_rate'];
             $ord['seller_id'] = (int)$ord['seller_id'];
-            $ord['seller_name_masked'] = Validator::maskName($ord['snapshotted_account_holder']);
         }
 
         jsonResponse(true, ['orders' => $orders]);
