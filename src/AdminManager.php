@@ -920,42 +920,55 @@ class AdminManager {
             if ($extractedDigits !== '') {
                 $numId = (int)$extractedDigits;
                 $searchClauses[] = "(
-                    d.id = :num_id
-                    OR c.id = :num_id
-                    OR c.parent_order_id = :num_id
-                    OR ps.id = :num_id
-                    OR c.buyer_id = :num_id
-                    OR c.seller_id = :num_id
-                    OR ps.seller_id = :num_id
-                    OR d.raised_by_user_id = :num_id
+                    d.id = :num_id_1
+                    OR c.id = :num_id_2
+                    OR c.parent_order_id = :num_id_3
+                    OR ps.id = :num_id_4
+                    OR c.buyer_id = :num_id_5
+                    OR c.seller_id = :num_id_6
+                    OR ps.seller_id = :num_id_7
+                    OR d.raised_by_user_id = :num_id_8
                 )";
-                $searchParams[':num_id'] = $numId;
+                $searchParams[':num_id_1'] = $numId;
+                $searchParams[':num_id_2'] = $numId;
+                $searchParams[':num_id_3'] = $numId;
+                $searchParams[':num_id_4'] = $numId;
+                $searchParams[':num_id_5'] = $numId;
+                $searchParams[':num_id_6'] = $numId;
+                $searchParams[':num_id_7'] = $numId;
+                $searchParams[':num_id_8'] = $numId;
             }
 
-            $textConditions = [
-                "LOWER(p.utr_number) LIKE :qlike",
-                "LOWER(d.refund_reference) LIKE :qlike",
-                "u_seller.phone LIKE :qlike",
-                "LOWER(u_seller.account_holder_name) LIKE :qlike",
-                "LOWER(u_seller.email) LIKE :qlike",
-                "u_buyer.phone LIKE :qlike",
-                "LOWER(u_buyer.account_holder_name) LIKE :qlike",
-                "LOWER(u_buyer.email) LIKE :qlike",
-                "LOWER(d.reason) LIKE :qlike",
-                "LOWER(d.resolution_notes) LIKE :qlike",
-                "LOWER(c.snapshotted_upi_id) LIKE :qlike",
-                "LOWER(ps.snapshotted_upi_id) LIKE :qlike"
+            $textCols = [
+                "LOWER(p.utr_number)",
+                "LOWER(d.refund_reference)",
+                "u_seller.phone",
+                "LOWER(u_seller.account_holder_name)",
+                "LOWER(u_seller.email)",
+                "u_buyer.phone",
+                "LOWER(u_buyer.account_holder_name)",
+                "LOWER(u_buyer.email)",
+                "LOWER(d.reason)",
+                "LOWER(d.resolution_notes)",
+                "LOWER(c.snapshotted_upi_id)",
+                "LOWER(ps.snapshotted_upi_id)"
             ];
-            $searchParams[':qlike'] = '%' . strtolower($cleanQuery) . '%';
+            $qLikeVal = '%' . strtolower($cleanQuery) . '%';
+            $tClauses = [];
+            foreach ($textCols as $idx => $colExpr) {
+                $pName = ":qlike_{$idx}";
+                $tClauses[] = "{$colExpr} LIKE {$pName}";
+                $searchParams[$pName] = $qLikeVal;
+            }
 
             // Also check for stripped 'UTR' prefix if admin typed e.g. UTR12345
             $strippedUtr = preg_replace('/^utr[:\s_-]*/i', '', $cleanQuery);
             if ($strippedUtr !== '' && $strippedUtr !== $cleanQuery) {
-                $textConditions[] = "LOWER(p.utr_number) LIKE :qutr_stripped";
+                $tClauses[] = "LOWER(p.utr_number) LIKE :qutr_stripped";
                 $searchParams[':qutr_stripped'] = '%' . strtolower($strippedUtr) . '%';
             }
 
-            $searchClauses[] = "(" . implode(" OR ", $textConditions) . ")";
+            $searchClauses[] = "(" . implode(" OR ", $tClauses) . ")";
             $searchClause = " AND (" . implode(" OR ", $searchClauses) . ")";
         }
 
