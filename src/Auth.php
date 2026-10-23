@@ -173,8 +173,14 @@ class Auth {
         }
 
         $pdo = Database::getConnection();
-        $stmt = $pdo->prepare("SELECT * FROM users WHERE phone = ? OR email = ? OR referral_code = ?");
-        $stmt->execute([$cleanPhone, $trimmed, $trimmed]);
+        // Support login with Phone Number, Email, User ID, or Referral Code
+        if (is_numeric($trimmed) && (int)$trimmed > 0 && strlen($cleanPhone) !== 10) {
+            $stmt = $pdo->prepare("SELECT * FROM users WHERE id = ? OR phone = ? OR LOWER(email) = ? OR referral_code = ?");
+            $stmt->execute([(int)$trimmed, $cleanPhone, strtolower($trimmed), $trimmed]);
+        } else {
+            $stmt = $pdo->prepare("SELECT * FROM users WHERE phone = ? OR LOWER(email) = ? OR referral_code = ?");
+            $stmt->execute([$cleanPhone, strtolower($trimmed), $trimmed]);
+        }
         $user = $stmt->fetch();
 
         if (!$user || !password_verify($password, $user['password_hash'])) {
@@ -183,6 +189,14 @@ class Auth {
 
         if ($user['account_status'] === 'suspended') {
             return ['success' => false, 'error' => 'This account has been suspended by administration.'];
+        }
+
+        if ($user['account_status'] === 'temporarily_blocked') {
+            return [
+                'success' => false,
+                'is_temporarily_blocked' => true,
+                'error' => 'Your account is temporarily restricted pending review. Please contact support.'
+            ];
         }
 
         if ($user['account_status'] === 'pending_verification') {
@@ -196,6 +210,14 @@ class Auth {
         }
 
         RateLimiter::reset($rateKey, 'login');
+
+        // Safely start and regenerate session to prevent session fixation and stale session ID reuse
+        if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
+            session_start();
+        }
+        if (session_status() === PHP_SESSION_ACTIVE && !headers_sent()) {
+            session_regenerate_id(true);
+        }
 
         // Establish session
         $_SESSION['user_id'] = (int)$user['id'];
@@ -445,17 +467,22 @@ class Auth {
 
         $pdo = Database::getConnection();
 
-        if ($email !== null) {
-            $trimmedEmail = trim($email);
-            if ($trimmedEmail !== '' && !filter_var($trimmedEmail, FILTER_VALIDATE_EMAIL)) {
-                return ['success' => false, 'error' => 'Please provide a valid email address.'];
+        // Enforce email immutability (Requirement 5):
+        // The email address supplied during registration remains associated with the account and cannot be modified.
+        $userStmt = $pdo->prepare("SELECT email FROM users WHERE id = ?");
+        $userStmt->execute([$userId]);
+        $existingEmail = $userStmt->fetchColumn();
+
+        if ($email !== null && !empty($existingEmail)) {
+            $trimmedEmail = strtolower(trim($email));
+            if ($trimmedEmail !== '' && $trimmedEmail !== strtolower($existingEmail)) {
+                return ['success' => false, 'error' => 'Registered email address is immutable and cannot be changed.'];
             }
-            $stmt = $pdo->prepare("UPDATE users SET upi_id = ?, account_holder_name = ?, email = ? WHERE id = ?");
-            $stmt->execute([$trimmedUpi, $trimmedName, $trimmedEmail ?: null, $userId]);
-        } else {
-            $stmt = $pdo->prepare("UPDATE users SET upi_id = ?, account_holder_name = ? WHERE id = ?");
-            $stmt->execute([$trimmedUpi, $trimmedName, $userId]);
         }
+
+        // Update banking settlement details only
+        $stmt = $pdo->prepare("UPDATE users SET upi_id = ?, account_holder_name = ? WHERE id = ?");
+        $stmt->execute([$trimmedUpi, $trimmedName, $userId]);
 
         return ['success' => true, 'message' => 'Banking details updated successfully.'];
     }
@@ -1035,6 +1062,9 @@ class Auth {
      * Logout
      */
     public static function logout(): void {
+        if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
+            session_start();
+        }
         $_SESSION = [];
         if (ini_get("session.use_cookies") && !headers_sent()) {
             $params = session_get_cookie_params();
@@ -1043,6 +1073,8 @@ class Auth {
                 $params["secure"], $params["httponly"]
             );
         }
-        session_destroy();
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_destroy();
+        }
     }
 }

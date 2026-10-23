@@ -381,6 +381,11 @@ class StateMachine {
 
             $pdo->commit();
 
+            // Reward Health Score points for legitimate trade completion (Requirement 7)
+            require_once __DIR__ . '/HealthScoreService.php';
+            HealthScoreService::adjustScore($buyerId, 2, "Successful trade completion - Buyer on Order #{$childOrderId}", 'TRADE_SUCCESS');
+            HealthScoreService::adjustScore($sellerId, 2, "Successful trade completion - Seller on Order #{$childOrderId}", 'TRADE_SUCCESS');
+
             return [
                 'success' => true,
                 'status' => 'Completed',

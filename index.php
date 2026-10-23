@@ -388,7 +388,7 @@ endif;
                     <div class="w-12 h-12 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center">
                         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
                     </div>
-                    <h3 class="text-xl font-bold text-white">Direct UPI Payouts</h3>
+                    <h3 class="text-xl font-bold text-white">Direct Peer Settlements</h3>
                     <p class="text-sm text-slate-400 leading-relaxed">
                         Settlements happen directly between buyers and sellers via any Indian UPI app — Google Pay, PhonePe, Paytm, or BHIM. Zero deposit or withdrawal deductions.
                     </p>
@@ -447,6 +447,44 @@ endif;
         <!-- TAB 1: HOME (Unified Dashboard & Shared Wallet Overview) -->
         <!-- ========================================== -->
         <section id="view-home" class="tab-view space-y-6">
+            <!-- Health Score & Account Risk Status Indicator (Requirement 7) -->
+            <?php 
+                $hScore = (int)($currentUser['health_score'] ?? 100);
+                $isLowHealth = ($hScore <= 50);
+                $isBlocked = (($currentUser['account_status'] ?? '') === 'temporarily_blocked');
+            ?>
+            <div id="homeHealthScoreBanner" class="bg-slate-900 border <?= $isLowHealth ? 'border-rose-500/50 bg-rose-950/20' : 'border-slate-800' ?> rounded-2xl p-4 sm:p-5 shadow-sm transition">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div class="flex items-center gap-3">
+                        <div class="w-11 h-11 rounded-xl <?= $isLowHealth ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' : ($hScore >= 80 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/20 text-amber-400 border border-amber-500/30') ?> flex items-center justify-center font-bold text-lg font-mono">
+                            <span id="homeHealthScoreVal"><?= $hScore ?></span>
+                        </div>
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <h4 class="text-sm font-bold text-white">Platform Health Score</h4>
+                                <span id="homeHealthScoreBadge" class="px-2 py-0.5 rounded text-[10px] font-bold uppercase <?= $isLowHealth ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' : ($hScore >= 80 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/20 text-amber-400 border border-amber-500/30') ?>">
+                                    <?= $isLowHealth ? 'Action Required' : ($hScore >= 80 ? 'Excellent Standing' : 'Good Standing') ?>
+                                </span>
+                            </div>
+                            <p class="text-xs text-slate-400 mt-0.5">Internal transaction reliability rating (0–100 scale). Not a CIBIL credit score.</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 text-xs">
+                        <button type="button" onclick="document.getElementById('healthScoreExplainerModal').classList.remove('hidden')" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl border border-slate-700 transition cursor-pointer">
+                            How Score Works &rarr;
+                        </button>
+                    </div>
+                </div>
+
+                <div id="homeHealthScoreNotice" class="<?= ($isLowHealth || $isBlocked) ? '' : 'hidden ' ?>mt-3.5 pt-3.5 border-t border-rose-500/30 flex items-start gap-2.5 text-xs text-rose-300">
+                    <svg class="w-5 h-5 text-rose-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                    <div>
+                        <strong class="font-bold block text-rose-200">Account Temporarily Restricted Pending Review</strong>
+                        <span>Your Health Score is at or below 50. In accordance with safety policies, new sell orders are temporarily restricted while our compliance team reviews your activity. Your existing token balances and wallet funds remain 100% secure.</span>
+                    </div>
+                </div>
+            </div>
+
             <!-- Shared Wallet Segregated Pools -->
             <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
                 <div class="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 sm:p-5 shadow-sm min-w-0 overflow-hidden flex flex-col justify-between">
@@ -809,13 +847,13 @@ endif;
             <!-- 2. Main 2x2 Grid: Banking Details, Account Info, Selling TPIN, Change Password -->
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
-                <!-- CARD A: Banking & UPI Payout Details (Direct Seller Payouts) -->
+                <!-- CARD A: Banking & UPI Details (Direct Seller Settlements) -->
                 <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-7 space-y-4 shadow-sm flex flex-col justify-between">
                     <div>
                         <div class="border-b border-slate-800 pb-3 flex items-center justify-between">
                             <div>
-                                <span class="text-xs uppercase font-bold text-emerald-400 tracking-wider">Direct Payouts</span>
-                                <h3 class="text-lg font-bold text-white mt-1">Bank & UPI Payout Details</h3>
+                                <span class="text-xs uppercase font-bold text-emerald-400 tracking-wider">Seller Settlement</span>
+                                <h3 class="text-lg font-bold text-white mt-1">Bank & UPI Settlement Details</h3>
                                 <p class="text-xs text-slate-400">Buyers will transfer funds directly to this UPI ID when you sell tokens</p>
                             </div>
                             <div class="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center flex-shrink-0">
@@ -837,15 +875,21 @@ endif;
                             </div>
 
                             <div>
-                                <label class="text-xs font-semibold text-slate-300 block mb-1">Email Address (Optional)</label>
-                                <input type="email" id="profEmail" placeholder="e.g. trader@example.com" value="<?= htmlspecialchars($currentUser['email'] ?? '') ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:border-emerald-500 focus:outline-none transition">
-                                <span class="text-[11px] text-slate-500 mt-1 block">For order alerts, dispute notices, and account security.</span>
+                                <div class="flex items-center justify-between mb-1">
+                                    <label class="text-xs font-semibold text-slate-300">Registered Email Address</label>
+                                    <span class="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                                        Immutable
+                                    </span>
+                                </div>
+                                <input type="email" id="profEmail" readonly disabled value="<?= htmlspecialchars($currentUser['email'] ?? '') ?>" class="w-full bg-slate-950/60 border border-slate-800/80 rounded-xl px-4 py-2.5 text-sm text-slate-400 cursor-not-allowed font-mono">
+                                <span class="text-[11px] text-slate-500 mt-1 block">Your email address was verified during registration and cannot be modified.</span>
                             </div>
 
                             <div id="profUpdateStatus" class="text-xs font-semibold hidden"></div>
 
                             <button type="submit" id="profUpdateBtn" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition shadow-md shadow-emerald-600/20">
-                                Save Payout Details
+                                Save Banking Details
                             </button>
                         </form>
                     </div>
@@ -1296,8 +1340,8 @@ endif;
                 <input type="hidden" id="authMode" value="login">
 
                 <div>
-                    <label class="text-xs font-semibold text-slate-300 block mb-1">Phone Number</label>
-                    <input type="tel" id="authPhone" required placeholder="Enter 10-digit mobile number" maxlength="10" pattern="[0-9]{10}" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white font-mono focus:border-indigo-500 focus:outline-none">
+                    <label id="authIdentifierLabel" class="text-xs font-semibold text-slate-300 block mb-1">Phone Number, Email, or User ID</label>
+                    <input type="text" id="authPhone" required placeholder="Enter mobile, email, or User ID" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white font-mono focus:border-indigo-500 focus:outline-none">
                 </div>
 
                 <div>
@@ -1466,6 +1510,46 @@ endif;
             <!-- Dynamic Action Buttons (Part 7, Item 1) -->
             <div id="activeDetailsActionButtons" class="grid grid-cols-2 gap-3 pt-1">
                 <!-- Populated dynamically via JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Health Score Explainer Modal (Requirement 7.1) -->
+    <div id="healthScoreExplainerModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl relative space-y-4">
+            <button onclick="document.getElementById('healthScoreExplainerModal').classList.add('hidden')" class="absolute right-4 top-4 text-slate-400 hover:text-white">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+            <div class="border-b border-slate-800 pb-3 pr-8">
+                <span class="text-xs font-bold uppercase tracking-wider text-emerald-400">Platform Reliability Indicator</span>
+                <h3 class="text-lg font-bold text-white mt-0.5">How Health Score Works</h3>
+                <p class="text-xs text-slate-400">An explainable 0–100 transaction reliability score based on verified activity.</p>
+            </div>
+            <div class="space-y-3 text-xs text-slate-300">
+                <div class="p-3 bg-slate-950 rounded-xl border border-slate-800/80 space-y-1.5">
+                    <span class="font-bold text-white block">Positive Activity Factors (+ Points)</span>
+                    <ul class="list-disc list-inside text-slate-400 space-y-1">
+                        <li><strong class="text-emerald-400">+2 points:</strong> Successfully completed Buy or Sell order settlements.</li>
+                        <li><strong class="text-emerald-400">Consistent trade history:</strong> Smooth peer-to-peer transaction volume.</li>
+                    </ul>
+                </div>
+                <div class="p-3 bg-slate-950 rounded-xl border border-slate-800/80 space-y-1.5">
+                    <span class="font-bold text-white block">Risk Events & Deductions (- Points)</span>
+                    <ul class="list-disc list-inside text-slate-400 space-y-1">
+                        <li><strong class="text-rose-400">-25 to -30 points:</strong> Substantiated dispute involving unverified payment proofs or false claims.</li>
+                        <li><strong class="text-amber-400">-10 points:</strong> Unjustified delays in confirming received peer transfers.</li>
+                    </ul>
+                </div>
+                <div class="p-3 bg-indigo-950/30 rounded-xl border border-indigo-500/20 text-indigo-300">
+                    <strong class="font-semibold block text-white">Threshold Safeguard:</strong>
+                    Accounts with a Health Score of 50 or below enter administrative risk review. Balances and tokens are strictly preserved and never erased.
+                </div>
+                <p class="text-[11px] text-slate-500 italic">Notice: Health Score is strictly an internal platform transaction-health indicator and is not an official CIBIL credit report.</p>
+            </div>
+            <div class="pt-2">
+                <button type="button" onclick="document.getElementById('healthScoreExplainerModal').classList.add('hidden')" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold py-2.5 rounded-xl text-xs transition">
+                    Close
+                </button>
             </div>
         </div>
     </div>

@@ -108,6 +108,10 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                     <svg class="w-4 h-4 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
                     <span>Fraud & AI Security</span>
                 </button>
+                <button onclick="switchAdminTab('risk')" id="adminNav-risk" class="admin-nav-item px-3.5 py-2 rounded-lg flex items-center gap-1.5 whitespace-nowrap text-slate-400 hover:text-white">
+                    <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+                    <span>Risk & Health</span>
+                </button>
                 <button onclick="switchAdminTab('rewards')" id="adminNav-rewards" class="admin-nav-item px-3.5 py-2 rounded-lg flex items-center gap-1.5 whitespace-nowrap text-slate-400 hover:text-white">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                     <span>Rewards & Fees</span>
@@ -444,38 +448,69 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
         </section>
 
         <!-- ========================================== -->
-        <!-- VIEW 2: USER MANAGEMENT -->
+        <!-- VIEW 2: USER MANAGEMENT (Requirement 1) -->
         <!-- ========================================== -->
         <section id="adminView-users" class="admin-view space-y-6 hidden">
-            <!-- Search & Filter Controls -->
+            <!-- Requirement 1.1: Category Tabs (All Users, Active Users, Suspended Users, Temporarily Blocked Users) -->
+            <div class="flex flex-wrap items-center gap-2 border-b border-slate-800 pb-3">
+                <button type="button" onclick="switchUserCategory('all')" id="userCatTab-all"
+                        class="user-cat-tab px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 bg-indigo-600 text-white shadow-md shadow-indigo-600/20">
+                    <span>All Users</span>
+                    <span id="userTabCount-all" class="px-1.5 py-0.5 rounded-full bg-white/20 text-[10px]">0</span>
+                </button>
+                <button type="button" onclick="switchUserCategory('active')" id="userCatTab-active"
+                        class="user-cat-tab px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 bg-slate-800 text-slate-400 hover:text-white">
+                    <span>Active Users</span>
+                    <span id="userTabCount-active" class="px-1.5 py-0.5 rounded-full bg-slate-900 text-emerald-400 text-[10px] border border-emerald-500/20">0</span>
+                </button>
+                <button type="button" onclick="switchUserCategory('suspended')" id="userCatTab-suspended"
+                        class="user-cat-tab px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 bg-slate-800 text-slate-400 hover:text-white">
+                    <span>Suspended Users</span>
+                    <span id="userTabCount-suspended" class="px-1.5 py-0.5 rounded-full bg-slate-900 text-rose-400 text-[10px] border border-rose-500/20">0</span>
+                </button>
+                <button type="button" onclick="switchUserCategory('temporarily_blocked')" id="userCatTab-temporarily_blocked"
+                        class="user-cat-tab px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 bg-slate-800 text-slate-400 hover:text-white">
+                    <span>Temporarily Blocked</span>
+                    <span id="userTabCount-temp_blocked" class="px-1.5 py-0.5 rounded-full bg-slate-900 text-amber-400 text-[10px] border border-amber-500/20">0</span>
+                </button>
+            </div>
+
+            <!-- Search, Filter & Pagination Size Controls (Requirement 1.2) -->
             <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
                 <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div>
-                        <h3 class="text-lg font-bold text-white">Registered User Accounts</h3>
-                        <p class="text-xs text-slate-400">Search by User ID, phone, email, or name. Never displays plaintext passwords or Selling TPINs.</p>
+                        <h3 class="text-lg font-bold text-white">Registered User Directory</h3>
+                        <p class="text-xs text-slate-400">Search by User ID, phone number, email, or account holder. All status changes are logged in the audit trail.</p>
                     </div>
                     <div class="flex items-center gap-2">
-                        <button onclick="loadAdminUsers()" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold border border-slate-700 transition">
-                            Refresh Table
+                        <span class="text-xs text-slate-400">Per page:</span>
+                        <select id="userPageSize" onchange="changeUserPageSize(this.value)" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500">
+                            <option value="20">20 users</option>
+                            <option value="40">40 users</option>
+                            <option value="100">100 users</option>
+                        </select>
+                        <button onclick="loadAdminUsers()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold border border-slate-700 transition">
+                            Refresh
                         </button>
                     </div>
                 </div>
 
                 <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
                     <div class="sm:col-span-2">
-                        <input type="text" id="userSearchInput" onkeyup="if(event.key === 'Enter') loadAdminUsers()"
-                               placeholder="Search by User ID, phone number, email, or name..."
+                        <input type="text" id="userSearchInput" onkeyup="if(event.key === 'Enter') { userPageOffset=0; loadAdminUsers(); }"
+                               placeholder="Search by User ID, phone, email, or name..."
                                class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500">
                     </div>
                     <div>
-                        <select id="userStatusFilter" onchange="loadAdminUsers()" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500">
-                            <option value="all">All Statuses (Active & Suspended)</option>
+                        <select id="userStatusFilter" onchange="switchUserCategory(this.value)" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500">
+                            <option value="all">All Categories</option>
                             <option value="active">Active Only</option>
                             <option value="suspended">Suspended Only</option>
+                            <option value="temporarily_blocked">Temporarily Blocked Only</option>
                         </select>
                     </div>
                     <div>
-                        <select id="userRoleFilter" onchange="loadAdminUsers()" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500">
+                        <select id="userRoleFilter" onchange="userPageOffset=0; loadAdminUsers()" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500">
                             <option value="all">All Roles</option>
                             <option value="user">Traders Only</option>
                             <option value="admin">Administrators Only</option>
@@ -493,55 +528,94 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                             <th class="p-3">Phone & Email</th>
                             <th class="p-3">Holder & UPI</th>
                             <th class="p-3">Balances</th>
-                            <th class="p-3">Referral Code</th>
-                            <th class="p-3">Status</th>
-                            <th class="p-3">Actions</th>
+                            <th class="p-3">Health Score</th>
+                            <th class="p-3">Account Status</th>
+                            <th class="p-3">Authorized Actions</th>
                         </tr>
                     </thead>
                     <tbody id="adminUsersTableBody" class="divide-y divide-slate-800/60"></tbody>
                 </table>
+
+                <!-- Pagination Footer Bar (Requirement 1.2) -->
+                <div class="p-4 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                    <span id="userPaginationInfo" class="text-slate-400 font-mono">Showing 0 users</span>
+                    <div class="flex items-center gap-2">
+                        <button id="userPrevBtn" onclick="changeUserPage('prev')" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-slate-800 text-slate-300 rounded-xl font-semibold border border-slate-700 transition">
+                            &larr; Previous
+                        </button>
+                        <span id="userPageIndicator" class="px-3 py-1.5 text-slate-400 font-mono">Page 1</span>
+                        <button id="userNextBtn" onclick="changeUserPage('next')" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-slate-800 text-slate-300 rounded-xl font-semibold border border-slate-700 transition">
+                            Next &rarr;
+                        </button>
+                    </div>
+                </div>
             </div>
         </section>
 
-        <!-- ========================================== -->
+        <!-- ==========================================
         <!-- VIEW 3: ORDER MANAGEMENT -->
         <!-- ========================================== -->
         <section id="adminView-orders" class="admin-view space-y-6 hidden">
+            <!-- Requirement 2: Three Distinct Order Sections (Active, Cancelled, Disputed) -->
+            <div class="flex flex-wrap items-center gap-2 border-b border-slate-800 pb-3">
+                <button type="button" onclick="switchOrderSection('active')" id="orderSecTab-active"
+                        class="order-sec-tab px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 bg-indigo-600 text-white shadow-md shadow-indigo-600/20">
+                    <span>Active Orders</span>
+                    <span id="orderSecCount-active" class="px-1.5 py-0.5 rounded-full bg-white/20 text-[10px]">0</span>
+                </button>
+                <button type="button" onclick="switchOrderSection('cancelled')" id="orderSecTab-cancelled"
+                        class="order-sec-tab px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 bg-slate-800 text-slate-400 hover:text-white">
+                    <span>Cancelled Orders</span>
+                    <span id="orderSecCount-cancelled" class="px-1.5 py-0.5 rounded-full bg-slate-900 text-rose-400 text-[10px] border border-rose-500/20">0</span>
+                </button>
+                <button type="button" onclick="switchOrderSection('disputed')" id="orderSecTab-disputed"
+                        class="order-sec-tab px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 bg-slate-800 text-slate-400 hover:text-white">
+                    <span>Disputed Orders</span>
+                    <span id="orderSecCount-disputed" class="px-1.5 py-0.5 rounded-full bg-slate-900 text-amber-400 text-[10px] border border-amber-500/20">0</span>
+                </button>
+            </div>
+
+            <!-- Search, Date Range & Pagination Size Controls (Requirement 2.4) -->
             <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
                 <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div>
-                        <h3 class="text-lg font-bold text-white">Buy & Sell Order Management</h3>
-                        <p class="text-xs text-slate-400">Track all parent orders, split micro-portions, payment deadlines, and cancellations</p>
+                        <h3 class="text-lg font-bold text-white" id="orderSectionHeading">Active Buy & Sell Orders</h3>
+                        <p class="text-xs text-slate-400" id="orderSectionSubtext">Track all available, reserved, and payment pending orders under the state machine.</p>
                     </div>
-                    <button onclick="loadAdminOrders()" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold border border-slate-700 transition">
-                        Refresh Orders
-                    </button>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs text-slate-400">Per page:</span>
+                        <select id="orderPageSize" onchange="changeOrderPageSize(this.value)" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500">
+                            <option value="20">20 orders</option>
+                            <option value="40">40 orders</option>
+                            <option value="100">100 orders</option>
+                        </select>
+                        <button onclick="loadAdminOrders()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold border border-slate-700 transition">
+                            Refresh
+                        </button>
+                    </div>
                 </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                    <div class="sm:col-span-2">
-                        <input type="text" id="orderSearchInput" onkeyup="if(event.key === 'Enter') loadAdminOrders()"
-                               placeholder="Search by Order ID, UTR number, or phone..."
-                               class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500">
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                    <div class="lg:col-span-2">
+                        <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Search ID / Buyer / Seller / UTR</label>
+                        <input type="text" id="orderSearchInput" onkeyup="if(event.key === 'Enter') { orderPageOffset=0; loadAdminOrders(); }"
+                               placeholder="Order ID, UTR, buyer/seller phone or name..."
+                               class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-indigo-500">
                     </div>
                     <div>
-                        <select id="orderTypeFilter" onchange="loadAdminOrders()" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500">
-                            <option value="child">Child Micro-Orders (Default)</option>
-                            <option value="parent">Parent Sell Listings</option>
-                        </select>
+                        <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Date From</label>
+                        <input type="date" id="orderDateFrom" onchange="orderPageOffset=0; loadAdminOrders()"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500">
                     </div>
                     <div>
-                        <select id="orderStatusFilter" onchange="loadAdminOrders()" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500">
-                            <option value="all">All Statuses</option>
-                            <option value="Available">Available</option>
-                            <option value="Reserved">Reserved</option>
-                            <option value="Payment Proof Submitted">Proof Submitted</option>
-                            <option value="Seller Confirmation Pending">Confirmation Pending</option>
-                            <option value="Seller Response Timeout">Response Timeout</option>
-                            <option value="Disputed">Disputed</option>
-                            <option value="Completed">Completed</option>
-                            <option value="Cancelled / Reversed">Cancelled / Reversed</option>
-                            <option value="Expired">Expired</option>
+                        <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Date To</label>
+                        <input type="date" id="orderDateTo" onchange="orderPageOffset=0; loadAdminOrders()"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Status Filter</label>
+                        <select id="orderStatusFilter" onchange="orderPageOffset=0; loadAdminOrders()" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500">
+                            <option value="all">All Section Statuses</option>
                         </select>
                     </div>
                 </div>
@@ -556,7 +630,7 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                             <th class="p-3">Seller</th>
                             <th class="p-3">Buyer / Micro-portions</th>
                             <th class="p-3">Amount</th>
-                            <th class="p-3">Status</th>
+                            <th class="p-3">Order Status</th>
                             <th class="p-3">UTR / Proof</th>
                             <th class="p-3">Created (UTC)</th>
                             <th class="p-3">Admin Actions</th>
@@ -564,10 +638,24 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                     </thead>
                     <tbody id="adminOrdersTableBody" class="divide-y divide-slate-800/60"></tbody>
                 </table>
+
+                <!-- Pagination Footer Bar (Requirement 2.4) -->
+                <div class="p-4 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                    <span id="orderPaginationInfo" class="text-slate-400 font-mono">Showing 0 orders</span>
+                    <div class="flex items-center gap-2">
+                        <button id="orderPrevBtn" onclick="changeOrderPage('prev')" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-slate-800 text-slate-300 rounded-xl font-semibold border border-slate-700 transition">
+                            &larr; Previous
+                        </button>
+                        <span id="orderPageIndicator" class="px-3 py-1.5 text-slate-400 font-mono">Page 1</span>
+                        <button id="orderNextBtn" onclick="changeOrderPage('next')" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-slate-800 text-slate-300 rounded-xl font-semibold border border-slate-700 transition">
+                            Next &rarr;
+                        </button>
+                    </div>
+                </div>
             </div>
         </section>
 
-        <!-- ========================================== -->
+        <!-- ==========================================
         <!-- VIEW 4: DISPUTE & APPEAL MANAGEMENT -->
         <!-- ========================================== -->
         <section id="adminView-disputes" class="admin-view space-y-6 hidden">
@@ -1011,6 +1099,117 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
         </section>
 
         <!-- ========================================== -->
+        <!-- VIEW: RISK MANAGEMENT & LOW HEALTH SCORE USERS (Requirement 7.3) -->
+        <!-- ========================================== -->
+        <section id="adminView-risk" class="admin-view space-y-6 hidden">
+            <!-- Summary Metric Cards -->
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div class="bg-slate-900 border border-rose-500/30 rounded-2xl p-5 shadow-sm">
+                    <span class="text-xs font-bold text-rose-400 uppercase tracking-wider block">Health Score &le; 50 (Critical)</span>
+                    <p class="text-2xl sm:text-3xl font-black text-rose-400 font-mono mt-1" id="riskCriticalCount">0</p>
+                    <span class="text-[11px] text-slate-500 mt-1 block">Requires mandatory compliance review</span>
+                </div>
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+                    <span class="text-xs font-bold text-amber-400 uppercase tracking-wider block">Pending Risk Review</span>
+                    <p class="text-2xl sm:text-3xl font-black text-amber-400 font-mono mt-1" id="riskPendingCount">0</p>
+                    <span class="text-[11px] text-slate-500 mt-1 block">Accounts flagged for operator adjudication</span>
+                </div>
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+                    <span class="text-xs font-bold text-indigo-400 uppercase tracking-wider block">Temporarily Blocked</span>
+                    <p class="text-2xl sm:text-3xl font-black text-indigo-400 font-mono mt-1" id="riskBlockedCount">0</p>
+                    <span class="text-[11px] text-slate-500 mt-1 block">Reversible restriction &bull; Balances preserved</span>
+                </div>
+            </div>
+
+            <!-- Risk Filter Controls -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                        <h3 class="text-lg font-bold text-white">Low Health Score Accounts & Risk Controls</h3>
+                        <p class="text-xs text-slate-400">Explainable transaction reliability monitoring (0–100 scale). Reversible risk interventions with mandatory audit logging.</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs text-slate-400">Per page:</span>
+                        <select id="riskPageSize" onchange="changeRiskPageSize(this.value)" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500">
+                            <option value="20">20 users</option>
+                            <option value="40">40 users</option>
+                            <option value="100">100 users</option>
+                        </select>
+                        <button onclick="loadAdminRiskUsers()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold border border-slate-700 transition">
+                            Refresh
+                        </button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                    <div>
+                        <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Score Range</label>
+                        <select id="riskRangeFilter" onchange="riskPageOffset=0; loadAdminRiskUsers()" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500">
+                            <option value="below_50">Critical: Score &le; 50 (Elevated Risk)</option>
+                            <option value="below_70">Monitored: Score &le; 70</option>
+                            <option value="all_low">All Score Under 100</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Account Status</label>
+                        <select id="riskStatusFilter" onchange="riskPageOffset=0; loadAdminRiskUsers()" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500">
+                            <option value="all">All Statuses</option>
+                            <option value="active">Active Only</option>
+                            <option value="temporarily_blocked">Temporarily Blocked Only</option>
+                            <option value="suspended">Suspended Only</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Review Status</label>
+                        <select id="riskReviewFilter" onchange="riskPageOffset=0; loadAdminRiskUsers()" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500">
+                            <option value="all">All Reviews</option>
+                            <option value="pending_review">Pending Review Only</option>
+                            <option value="reviewed">Reviewed Only</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Search User ID / Phone</label>
+                        <input type="text" id="riskSearchInput" onkeyup="if(event.key === 'Enter') { riskPageOffset=0; loadAdminRiskUsers(); }"
+                               placeholder="User ID, phone..."
+                               class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Risk Users Table -->
+            <div class="overflow-x-auto bg-slate-900 border border-slate-800 rounded-2xl">
+                <table class="w-full text-left">
+                    <thead class="bg-slate-950 text-slate-400 text-xs uppercase border-b border-slate-800">
+                        <tr>
+                            <th class="p-3">User</th>
+                            <th class="p-3">Health Score</th>
+                            <th class="p-3">Score Factors & Date</th>
+                            <th class="p-3">Trade & Dispute Stats</th>
+                            <th class="p-3">Account & Sell Status</th>
+                            <th class="p-3">Review Status</th>
+                            <th class="p-3">Administrative Controls</th>
+                        </tr>
+                    </thead>
+                    <tbody id="adminRiskTableBody" class="divide-y divide-slate-800/60"></tbody>
+                </table>
+
+                <!-- Pagination Footer Bar -->
+                <div class="p-4 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                    <span id="riskPaginationInfo" class="text-slate-400 font-mono">Showing 0 users</span>
+                    <div class="flex items-center gap-2">
+                        <button id="riskPrevBtn" onclick="changeRiskPage('prev')" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-slate-800 text-slate-300 rounded-xl font-semibold border border-slate-700 transition">
+                            &larr; Previous
+                        </button>
+                        <span id="riskPageIndicator" class="px-3 py-1.5 text-slate-400 font-mono">Page 1</span>
+                        <button id="riskNextBtn" onclick="changeRiskPage('next')" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-slate-800 text-slate-300 rounded-xl font-semibold border border-slate-700 transition">
+                            Next &rarr;
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ========================================== -->
         <!-- VIEW 11: AGENT MANAGEMENT SYSTEM -->
         <!-- ========================================== -->
         <section id="adminView-agents" class="admin-view hidden space-y-6">
@@ -1024,7 +1223,7 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                 <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
                     <span class="text-xs font-bold text-slate-400 uppercase tracking-wider block">Agent Downstream Vol</span>
                     <p class="text-2xl sm:text-3xl font-black text-indigo-400 font-mono mt-1" id="agentTotalVolume">₹0.00</p>
-                    <span class="text-[11px] text-slate-500 mt-1 block">Across eligible levels A-Z</span>
+                    <span class="text-[11px] text-slate-500 mt-1 block">Across eligible referral hierarchy</span>
                 </div>
                 <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
                     <span class="text-xs font-bold text-slate-400 uppercase tracking-wider block">Current Week Comm</span>
@@ -1483,7 +1682,7 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                         <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Root Referral Code / User ID *</label>
                         <input type="text" id="newAgentRootRef" required placeholder="e.g. USER001 or 4"
                                class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white font-mono uppercase focus:outline-none focus:border-amber-500">
-                        <span class="text-[10px] text-slate-500 block mt-1">Descendants of this root user (Levels A-Z) will earn commissions for this agent.</span>
+                        <span class="text-[10px] text-slate-500 block mt-1">Descendants of this root user across the referral hierarchy will earn commissions for this agent.</span>
                     </div>
                     <div>
                         <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Commission Rate (%) *</label>
@@ -1499,11 +1698,9 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                 <!-- Eligible Referral Levels Checkboxes -->
                 <div>
                     <div class="flex items-center justify-between mb-1.5">
-                        <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider">Eligible Referral Levels (A through Z)</label>
+                        <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider">Eligible Referral Depth Levels</label>
                         <div class="flex items-center gap-1.5 text-[11px]">
-                            <button type="button" onclick="selectAllAgentLevels(true)" class="text-amber-400 hover:underline">All A-Z</button>
-                            <span class="text-slate-600">&bull;</span>
-                            <button type="button" onclick="selectLevelsPreset('A,B,C,D,E')" class="text-amber-400 hover:underline">A-E Only</button>
+                            <button type="button" onclick="selectAllAgentLevels(true)" class="text-amber-400 hover:underline">All Levels</button>
                             <span class="text-slate-600">&bull;</span>
                             <button type="button" onclick="selectAllAgentLevels(false)" class="text-slate-400 hover:underline">Clear</button>
                         </div>
@@ -1666,7 +1863,7 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                     <div class="flex items-center justify-between mb-1.5">
                         <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider">Eligible Referral Levels</label>
                         <div class="flex items-center gap-1.5 text-[11px]">
-                            <button type="button" onclick="selectAllEditAgentLevels(true)" class="text-amber-400 hover:underline">All A-Z</button>
+                            <button type="button" onclick="selectAllEditAgentLevels(true)" class="text-amber-400 hover:underline">All Levels</button>
                             <span class="text-slate-600">&bull;</span>
                             <button type="button" onclick="selectAllEditAgentLevels(false)" class="text-slate-400 hover:underline">Clear</button>
                         </div>
@@ -1828,6 +2025,179 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                     Confirm Payout & Mark as Paid
                 </button>
             </form>
+        </div>
+    </div>
+
+
+    <!-- ========================================== -->
+    <!-- MODAL 11: SET USER ACCOUNT STATUS (Requirement 1.3) -->
+    <!-- ========================================== -->
+    <div id="setUserStatusModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 shadow-2xl relative space-y-4">
+            <button onclick="closeSetUserStatusModal()" class="absolute right-5 top-5 text-slate-500 hover:text-white transition">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+            <div>
+                <h3 class="text-base font-bold text-white flex items-center gap-2">
+                    <svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+                    <span>Update User Account Status</span>
+                </h3>
+                <p class="text-xs text-slate-400 mt-0.5">Target: <strong class="text-white" id="statusModalUserLabel">User #0</strong></p>
+            </div>
+            <form onsubmit="submitSetUserStatus(event)" class="space-y-4">
+                <input type="hidden" id="statusModalUserId">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">New Account Status *</label>
+                    <select id="statusModalNewStatus" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500">
+                        <option value="active">Active (Full Platform Access)</option>
+                        <option value="temporarily_blocked">Temporarily Blocked (Reversible Risk Review)</option>
+                        <option value="suspended">Suspended (Account Frozen)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Operational Reason (Mandatory for Audit Trail) *</label>
+                    <textarea id="statusModalReason" required rows="3" placeholder="Provide precise operational rationale for this status change..."
+                              class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-indigo-500"></textarea>
+                </div>
+                <div class="flex items-center justify-end gap-2 pt-1">
+                    <button type="button" onclick="closeSetUserStatusModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition">
+                        Cancel
+                    </button>
+                    <button type="submit" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl transition shadow-lg shadow-indigo-600/20">
+                        Apply & Record in Audit Log
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MODAL 12: CONFIGURE SELL RESTRICTIONS (Requirement 7.5) -->
+    <!-- ========================================== -->
+    <div id="sellRestrictionsModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 shadow-2xl relative space-y-4">
+            <button onclick="closeSellRestrictionsModal()" class="absolute right-5 top-5 text-slate-500 hover:text-white transition">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+            <div>
+                <h3 class="text-base font-bold text-white flex items-center gap-2">
+                    <svg class="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                    <span>Configure Backend Sell Controls</span>
+                </h3>
+                <p class="text-xs text-slate-400 mt-0.5">Target: <strong class="text-white" id="sellRestrModalUserLabel">User #0</strong></p>
+            </div>
+            <form onsubmit="submitSellRestrictions(event)" class="space-y-4">
+                <input type="hidden" id="sellRestrModalUserId">
+                <div class="p-3 bg-slate-950 rounded-xl border border-slate-800">
+                    <label class="flex items-center gap-2 cursor-pointer select-none">
+                        <input type="checkbox" id="sellRestrBlockedCheck" class="accent-rose-500 w-4 h-4">
+                        <span class="text-xs font-bold text-white">Block New Sell Orders Completely</span>
+                    </label>
+                    <p class="text-[11px] text-slate-500 mt-1 pl-6">Prevents user from placing any new sell orders via OrderEngine.</p>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Max Order Limit (₹) (Optional)</label>
+                    <input type="number" id="sellRestrLimitInput" step="100" min="0" placeholder="e.g. 5000 (0 for no limit)"
+                           class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500">
+                    <span class="text-[10px] text-slate-500 block mt-0.5">Maximum value allowed per single sell listing.</span>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Sell Cooldown Speed (Seconds)</label>
+                    <input type="number" id="sellRestrCooldownInput" min="0" placeholder="e.g. 300 (5 minutes cooldown)"
+                           class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500">
+                    <span class="text-[10px] text-slate-500 block mt-0.5">Enforces mandatory wait time between consecutive sell orders.</span>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Reason / Policy Note *</label>
+                    <input type="text" id="sellRestrReasonInput" required placeholder="Operational reason for sell restrictions"
+                           class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500">
+                </div>
+                <div class="flex items-center justify-end gap-2 pt-1">
+                    <button type="button" onclick="closeSellRestrictionsModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition">
+                        Cancel
+                    </button>
+                    <button type="submit" class="px-5 py-2 bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold text-xs rounded-xl transition shadow-lg shadow-amber-600/20">
+                        Apply Sell Controls
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MODAL 13: RISK REVIEW & INTERNAL NOTE (Requirement 7.5) -->
+    <!-- ========================================== -->
+    <div id="riskReviewModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 shadow-2xl relative space-y-4">
+            <button onclick="closeRiskReviewModal()" class="absolute right-5 top-5 text-slate-500 hover:text-white transition">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+            <div>
+                <h3 class="text-base font-bold text-white flex items-center gap-2">
+                    <svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                    <span>Record Risk Review Note</span>
+                </h3>
+                <p class="text-xs text-slate-400 mt-0.5">Target: <strong class="text-white" id="riskNoteModalUserLabel">User #0</strong></p>
+            </div>
+            <form onsubmit="submitRiskReview(event)" class="space-y-4">
+                <input type="hidden" id="riskNoteModalUserId">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Review Status *</label>
+                    <select id="riskNoteReviewStatus" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500">
+                        <option value="reviewed">Reviewed (Risk Handled / Cleared)</option>
+                        <option value="pending_review">Pending Review (Under Investigation)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Compliance Review Note *</label>
+                    <textarea id="riskNoteContent" required rows="3" placeholder="Document operator findings, evidence inspected, or rationale..."
+                              class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-indigo-500"></textarea>
+                </div>
+                <div class="flex items-center justify-end gap-2 pt-1">
+                    <button type="button" onclick="closeRiskReviewModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition">
+                        Cancel
+                    </button>
+                    <button type="submit" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl transition shadow-lg shadow-indigo-600/20">
+                        Save Note & Audit
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MODAL 14: HEALTH SCORE AUDIT HISTORY (Requirement 7.1) -->
+    <!-- ========================================== -->
+    <div id="healthScoreHistoryModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-2xl w-full p-6 shadow-2xl relative space-y-4 max-h-[90vh] flex flex-col">
+            <button onclick="closeHealthScoreHistoryModal()" class="absolute right-5 top-5 text-slate-500 hover:text-white transition">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+            <div>
+                <h3 class="text-base font-bold text-white flex items-center gap-2">
+                    <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                    <span>Health Score Audit Trail</span>
+                </h3>
+                <p class="text-xs text-slate-400 mt-0.5">Auditable historical log of all score adjustments for <strong class="text-white" id="histModalUserLabel">User #0</strong></p>
+            </div>
+            <div class="overflow-y-auto flex-1 bg-slate-950 rounded-2xl border border-slate-800 p-2">
+                <table class="w-full text-left text-xs font-mono">
+                    <thead class="text-slate-500 border-b border-slate-800 uppercase text-[10px]">
+                        <tr>
+                            <th class="p-2">Date (UTC)</th>
+                            <th class="p-2">Change</th>
+                            <th class="p-2">Old &rarr; New</th>
+                            <th class="p-2">Reason / Event</th>
+                        </tr>
+                    </thead>
+                    <tbody id="histModalTbody" class="divide-y divide-slate-800/60"></tbody>
+                </table>
+            </div>
+            <div class="flex justify-end pt-1">
+                <button type="button" onclick="closeHealthScoreHistoryModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition">
+                    Close
+                </button>
+            </div>
         </div>
     </div>
 

@@ -107,6 +107,22 @@ switch ($action) {
         }
         break;
 
+    case 'set_user_status':
+        // Requirement 1.3: Set user account status (active, suspended, temporarily_blocked)
+        $targetUserId = (int)($input['user_id'] ?? 0);
+        $newStatus = $input['status'] ?? '';
+        $reason = $input['reason'] ?? 'Admin status change';
+        if ($targetUserId <= 0) jsonError('Target User ID required.');
+        if (empty($newStatus)) jsonError('New status required.');
+
+        $res = AdminManager::setUserAccountStatus($targetUserId, $adminId, $newStatus, $reason);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
     case 'toggle_flag':
         // Requirement 2: Flag or unflag suspicious user
         $targetUserId = (int)($input['user_id'] ?? 0);
@@ -197,14 +213,17 @@ switch ($action) {
         break;
 
     case 'orders':
-        // Requirement 3: Control all buy and sell orders
+        // Requirement 2: Order Management with 3 distinct sections & server pagination
         $status = $_GET['status'] ?? 'all';
         $type = $_GET['type'] ?? 'child';
         $query = $_GET['query'] ?? '';
-        $limit = max(1, min(100, (int)($_GET['limit'] ?? 50)));
+        $limit = max(1, min(100, (int)($_GET['limit'] ?? 20)));
         $offset = max(0, (int)($_GET['offset'] ?? 0));
+        $section = $_GET['section'] ?? 'all';
+        $dateFrom = $_GET['date_from'] ?? '';
+        $dateTo = $_GET['date_to'] ?? '';
 
-        $res = AdminManager::getOrders($status, $type, $query, $limit, $offset);
+        $res = AdminManager::getOrders($status, $type, $query, $limit, $offset, $section, $dateFrom, $dateTo);
         jsonResponse(true, $res);
         break;
 
@@ -813,6 +832,73 @@ switch ($action) {
         $limit = !empty($_GET['limit']) ? (int)$_GET['limit'] : 50;
         $logs = AgentManager::getAuditLogs($targetAgentId, $limit);
         jsonResponse(true, ['logs' => $logs]);
+        break;
+
+    case 'low_health_users':
+        require_once __DIR__ . '/../src/HealthScoreService.php';
+        $filters = [
+            'range' => $_GET['range'] ?? 'below_50',
+            'status' => $_GET['status'] ?? 'all',
+            'review_status' => $_GET['review_status'] ?? 'all',
+            'query' => $_GET['query'] ?? ''
+        ];
+        $limit = max(1, min(100, (int)($_GET['limit'] ?? 20)));
+        $offset = max(0, (int)($_GET['offset'] ?? 0));
+        $res = HealthScoreService::getLowHealthScoreUsers($filters, $limit, $offset);
+        jsonResponse(true, $res);
+        break;
+
+    case 'admin_temp_block':
+        require_once __DIR__ . '/../src/HealthScoreService.php';
+        $targetUserId = (int)($input['user_id'] ?? 0);
+        $reason = $input['reason'] ?? 'Admin risk intervention';
+        if ($targetUserId <= 0) jsonError('Target User ID required.');
+        $res = HealthScoreService::adminTemporarilyBlock($targetUserId, $adminId, $reason);
+        if ($res['success']) jsonResponse(true, $res);
+        else jsonError($res['error']);
+        break;
+
+    case 'admin_restore_access':
+        require_once __DIR__ . '/../src/HealthScoreService.php';
+        $targetUserId = (int)($input['user_id'] ?? 0);
+        $reason = $input['reason'] ?? 'Risk resolved by admin review';
+        if ($targetUserId <= 0) jsonError('Target User ID required.');
+        $res = HealthScoreService::adminRestoreAccess($targetUserId, $adminId, $reason);
+        if ($res['success']) jsonResponse(true, $res);
+        else jsonError($res['error']);
+        break;
+
+    case 'admin_sell_restrictions':
+        require_once __DIR__ . '/../src/HealthScoreService.php';
+        $targetUserId = (int)($input['user_id'] ?? 0);
+        $sellRestricted = (bool)($input['sell_restricted'] ?? false);
+        $orderLimit = isset($input['order_limit']) && $input['order_limit'] !== '' ? (float)$input['order_limit'] : null;
+        $cooldownSeconds = (int)($input['cooldown_seconds'] ?? 0);
+        $reason = $input['reason'] ?? 'Sell control policy';
+        if ($targetUserId <= 0) jsonError('Target User ID required.');
+        $res = HealthScoreService::adminConfigureSellRestrictions($targetUserId, $sellRestricted, $orderLimit, $cooldownSeconds, $adminId, $reason);
+        if ($res['success']) jsonResponse(true, $res);
+        else jsonError($res['error']);
+        break;
+
+    case 'admin_risk_note':
+        require_once __DIR__ . '/../src/HealthScoreService.php';
+        $targetUserId = (int)($input['user_id'] ?? 0);
+        $reviewStatus = $input['review_status'] ?? 'reviewed';
+        $note = $input['note'] ?? '';
+        if ($targetUserId <= 0) jsonError('Target User ID required.');
+        if (empty(trim($note))) jsonError('Note content required.');
+        $res = HealthScoreService::adminAddRiskNote($targetUserId, $reviewStatus, $note, $adminId);
+        if ($res['success']) jsonResponse(true, $res);
+        else jsonError($res['error']);
+        break;
+
+    case 'user_health_history':
+        require_once __DIR__ . '/../src/HealthScoreService.php';
+        $targetUserId = (int)($_GET['user_id'] ?? $input['user_id'] ?? 0);
+        if ($targetUserId <= 0) jsonError('Target User ID required.');
+        $history = HealthScoreService::getUserHealthHistory($targetUserId, 50);
+        jsonResponse(true, ['history' => $history]);
         break;
 
     default:

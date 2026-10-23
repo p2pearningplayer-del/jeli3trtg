@@ -114,7 +114,7 @@ $isAgentImpersonating = !empty($_SESSION['is_agent_impersonating']);
             <svg class="w-5 h-5 text-amber-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
             <div>
                 <span class="font-semibold text-slate-200">Trader Privacy Protection Active:</span>
-                Downstream user mobile numbers and personal names are masked (e.g. 98****21) to protect customer confidentiality while enabling full purchase and commission verification across Levels A through Z.
+                Downstream user mobile numbers and personal names are masked (e.g. 98****21) to protect customer confidentiality while enabling full purchase and commission verification across the referral hierarchy.
             </div>
         </div>
 
@@ -124,10 +124,10 @@ $isAgentImpersonating = !empty($_SESSION['is_agent_impersonating']);
             <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 relative overflow-hidden group hover:border-slate-700 transition">
                 <div class="flex items-center justify-between mb-2">
                     <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Referred Users</span>
-                    <button onclick="toggleLevelBreakdownModal()" class="text-[11px] text-amber-400 hover:text-amber-300 font-mono">View A-Z &rarr;</button>
+                    <button onclick="toggleLevelBreakdownModal()" class="text-[11px] text-amber-400 hover:text-amber-300 font-mono">View Breakdown &rarr;</button>
                 </div>
                 <div class="text-2xl sm:text-3xl font-extrabold text-white font-mono" id="statTotalUsers"><?= number_format($stats['total_referred_users']) ?></div>
-                <div class="text-xs text-slate-500 mt-1">Downstream tree across 26 levels</div>
+                <div class="text-xs text-slate-500 mt-1">Downstream tree (26 referral depths)</div>
             </div>
 
             <!-- 2. Current Week Volume & Commission (Monday-Sunday UTC Highlight) -->
@@ -223,7 +223,7 @@ $isAgentImpersonating = !empty($_SESSION['is_agent_impersonating']);
             <button onclick="switchTab('hierarchy')" id="tabBtnHierarchy"
                     class="px-4 py-2 rounded-xl text-sm font-semibold text-slate-400 hover:text-white hover:bg-slate-900 transition flex items-center gap-2">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
-                <span>Referral Tree (Levels A-Z)</span>
+                <span>Referral Tree Structure</span>
             </button>
         </div>
 
@@ -237,12 +237,12 @@ $isAgentImpersonating = !empty($_SESSION['is_agent_impersonating']);
                            class="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder:text-slate-600 focus:outline-none focus:ring-1 focus:ring-amber-500">
                 </div>
                 <div class="w-36">
-                    <label class="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Referral Level</label>
+                    <label class="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Referral Depth</label>
                     <select id="filterLevel"
                             class="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-1 focus:ring-amber-500">
-                        <option value="">All Levels (A-Z)</option>
+                        <option value="">All Depths (1-26)</option>
                         <?php foreach (range('A', 'Z') as $l): ?>
-                            <option value="<?= $l ?>">Level <?= $l ?></option>
+                            <option value="<?= $l ?>">Depth <?= ord($l) - 64 ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>
@@ -353,7 +353,7 @@ $isAgentImpersonating = !empty($_SESSION['is_agent_impersonating']);
                 <div class="flex items-center justify-between mb-4">
                     <div>
                         <h2 class="text-lg font-bold text-white">Referral Hierarchy Depth Breakdown</h2>
-                        <p class="text-xs text-slate-400">Total referred users under Root User <span class="text-amber-400 font-mono"><?= htmlspecialchars($stats['root_referral_code'] ?? 'N/A') ?></span> mapped across Levels A through Z</p>
+                        <p class="text-xs text-slate-400">Total referred users under Root User <span class="text-amber-400 font-mono"><?= htmlspecialchars($stats['root_referral_code'] ?? 'N/A') ?></span> mapped across the referral network</p>
                     </div>
                     <span class="text-sm font-mono font-bold text-white bg-slate-800 px-3 py-1 rounded-xl">
                         Total Users: <?= number_format($stats['total_referred_users']) ?>
@@ -363,8 +363,7 @@ $isAgentImpersonating = !empty($_SESSION['is_agent_impersonating']);
                 <div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
                     <?php foreach ($stats['users_by_level'] as $lvl => $cnt): ?>
                         <div class="bg-slate-950 border <?= $cnt > 0 ? 'border-amber-500/40 bg-amber-950/10' : 'border-slate-800/70' ?> rounded-xl p-3 text-center">
-                            <span class="text-[10px] font-semibold text-slate-400 uppercase tracking-widest block">Level <?= $lvl ?></span>
-                            <span class="text-xs text-slate-500 font-mono">Depth <?= ord($lvl) - 64 ?></span>
+                            <span class="text-[10px] font-semibold text-slate-400 uppercase tracking-widest block">Depth <?= ord($lvl) - 64 ?></span>
                             <div class="text-lg font-mono font-bold <?= $cnt > 0 ? 'text-amber-400' : 'text-slate-600' ?> mt-1">
                                 <?= number_format($cnt) ?>
                             </div>
@@ -421,15 +420,14 @@ $isAgentImpersonating = !empty($_SESSION['is_agent_impersonating']);
             <button onclick="toggleLevelBreakdownModal()" class="absolute top-5 right-5 text-slate-500 hover:text-white transition">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
             </button>
-            <h3 class="text-lg font-bold text-white mb-1">Downstream User Tree (Levels A to Z)</h3>
+            <h3 class="text-lg font-bold text-white mb-1">Downstream User Tree Breakdown</h3>
             <p class="text-xs text-slate-400 mb-5">Number of registered users by referral depth level under Root User</p>
 
             <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 max-h-96 overflow-y-auto pr-1">
                 <?php foreach ($stats['users_by_level'] as $lvl => $cnt): ?>
                     <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 flex items-center justify-between">
                         <div>
-                            <span class="text-xs font-bold text-slate-200">Level <?= $lvl ?></span>
-                            <span class="text-[10px] text-slate-500 block">Depth <?= ord($lvl) - 64 ?></span>
+                            <span class="text-xs font-bold text-slate-200">Depth <?= ord($lvl) - 64 ?></span>
                         </div>
                         <span class="font-mono font-bold text-sm <?= $cnt > 0 ? 'text-amber-400' : 'text-slate-600' ?>"><?= number_format($cnt) ?></span>
                     </div>
@@ -512,10 +510,9 @@ $isAgentImpersonating = !empty($_SESSION['is_agent_impersonating']);
                             <td class="px-4 py-3 text-right text-slate-400">${Number(r.commission_rate || 0).toFixed(2)}%</td>
                             <td class="px-4 py-3 text-right font-bold text-amber-400">+₹${formatCurrency(r.commission_amount)}</td>
                             <td class="px-4 py-3 text-center">
-                                <span class="px-2 py-0.5 rounded bg-slate-800 text-amber-300 border border-slate-700 font-bold">
-                                    Level ${escapeHtml(r.referral_level || 'A')}
+                                <span class="px-2.5 py-1 rounded bg-slate-800 text-amber-300 border border-slate-700 font-bold font-mono text-xs">
+                                    Depth ${r.referral_depth || (r.referral_level ? (r.referral_level.charCodeAt(0) - 64) : 1)}
                                 </span>
-                                <span class="text-[10px] text-slate-500 block font-sans">Depth ${r.referral_depth || 1}</span>
                             </td>
                             <td class="px-4 py-3 text-slate-400 text-[11px]">${escapeHtml(r.completed_at || '')}</td>
                             <td class="px-4 py-3 text-center">

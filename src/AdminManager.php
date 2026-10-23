@@ -447,6 +447,7 @@ class AdminManager {
         $sql = "
             SELECT u.id, u.phone, u.email, u.role, u.admin_role, u.account_status, u.is_demo, u.is_flagged, u.flag_reason,
                    u.referral_code, u.referred_by_id, u.upi_id, u.account_holder_name, u.created_at,
+                   u.health_score, u.sell_restricted, u.risk_review_status,
                    w.available_balance, w.reserved_balance, w.total_rewards_earned, w.total_commissions_earned
             FROM users u
             LEFT JOIN wallets w ON u.id = w.user_id
@@ -465,8 +466,20 @@ class AdminManager {
         $stmt->execute();
         $users = $stmt->fetchAll();
 
+        $totalRegistered = (int)$pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
+        $countActive = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE account_status = 'active'")->fetchColumn();
+        $countSuspended = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE account_status = 'suspended'")->fetchColumn();
+        $countTempBlocked = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE account_status = 'temporarily_blocked'")->fetchColumn();
+
         return [
             'total' => $totalCount,
+            'total_registered' => $totalRegistered,
+            'category_counts' => [
+                'all' => $totalRegistered,
+                'active' => $countActive,
+                'suspended' => $countSuspended,
+                'temporarily_blocked' => $countTempBlocked
+            ],
             'users' => $users
         ];
     }
@@ -581,7 +594,16 @@ class AdminManager {
     /**
      * Query all orders (Parent and Child) with complete filtering (Requirement 3)
      */
-    public static function getOrders(string $status = 'all', string $type = 'child', string $query = '', int $limit = 50, int $offset = 0): array {
+    public static function getOrders(
+        string $status = 'all',
+        string $type = 'child',
+        string $query = '',
+        int $limit = 50,
+        int $offset = 0,
+        string $section = 'all',
+        string $dateFrom = '',
+        string $dateTo = ''
+    ): array {
         $pdo = Database::getConnection();
 
         if ($type === 'parent') {
@@ -598,7 +620,19 @@ class AdminManager {
                 $params[] = $q;
                 $params[] = $q;
             }
+            if (!empty(trim($dateFrom))) {
+                $where[] = "p.created_at >= ?";
+                $params[] = trim($dateFrom) . " 00:00:00";
+            }
+            if (!empty(trim($dateTo))) {
+                $where[] = "p.created_at <= ?";
+                $params[] = trim($dateTo) . " 23:59:59";
+            }
             $whereClause = implode(" AND ", $where);
+
+            $countStmt = $pdo->prepare("SELECT COUNT(*) FROM parent_sell_orders p JOIN users u ON p.seller_id = u.id WHERE {$whereClause}");
+            $countStmt->execute($params);
+            $totalCount = (int)$countStmt->fetchColumn();
 
             $stmt = $pdo->prepare("
                 SELECT p.*, u.phone as seller_phone, u.account_holder_name as seller_name,
@@ -616,26 +650,65 @@ class AdminManager {
             $stmt->bindValue($bindIdx++, $limit, PDO::PARAM_INT);
             $stmt->bindValue($bindIdx++, $offset, PDO::PARAM_INT);
             $stmt->execute();
-            return ['orders' => $stmt->fetchAll()];
+            return ['orders' => $stmt->fetchAll(), 'total' => $totalCount];
         }
 
         // Child orders
         $where = ["1=1"];
         $params = [];
+
+        // Requirement 2: Three distinct sections (active, cancelled, disputed)
+        if ($section === 'active') {
+            $where[] = "c.status IN ('Available', 'Reserved', 'Payment Proof Submitted', 'Seller Confirmation Pending', 'Seller Response Timeout')";
+        } elseif ($section === 'cancelled') {
+            $where[] = "c.status IN ('Cancelled / Reversed', 'Cancelled')";
+        } elseif ($section === 'disputed') {
+            $where[] = "(c.status IN ('Disputed', 'Appealed', 'In Dispute Review') OR (d.id IS NOT NULL AND d.status NOT IN ('resolved_buyer', 'resolved_seller', 'resolved', 'rejected')))";
+        }
+
         if ($status !== 'all') {
             $where[] = "c.status = ?";
             $params[] = $status;
         }
+
         if (!empty(trim($query))) {
             $q = '%' . trim($query) . '%';
-            $where[] = "(c.id = ? OR c.parent_order_id = ? OR p.utr_number LIKE ? OR u_seller.phone LIKE ? OR u_buyer.phone LIKE ?)";
+            $where[] = "(c.id = ? OR c.parent_order_id = ? OR p.utr_number LIKE ? OR u_seller.phone LIKE ? OR u_buyer.phone LIKE ? OR u_seller.account_holder_name LIKE ? OR u_buyer.account_holder_name LIKE ? OR CAST(c.seller_id AS CHAR) = ? OR CAST(c.buyer_id AS CHAR) = ?)";
             $params[] = trim($query);
             $params[] = trim($query);
             $params[] = $q;
             $params[] = $q;
             $params[] = $q;
+            $params[] = $q;
+            $params[] = $q;
+            $params[] = trim($query);
+            $params[] = trim($query);
         }
+
+        if (!empty(trim($dateFrom))) {
+            $where[] = "c.created_at >= ?";
+            $params[] = trim($dateFrom) . " 00:00:00";
+        }
+        if (!empty(trim($dateTo))) {
+            $where[] = "c.created_at <= ?";
+            $params[] = trim($dateTo) . " 23:59:59";
+        }
+
         $whereClause = implode(" AND ", $where);
+
+        $countSql = "
+            SELECT COUNT(*)
+            FROM child_orders c
+            LEFT JOIN parent_sell_orders ps ON c.parent_order_id = ps.id
+            JOIN users u_seller ON c.seller_id = u_seller.id
+            LEFT JOIN users u_buyer ON c.buyer_id = u_buyer.id
+            LEFT JOIN payment_proofs p ON c.id = p.child_order_id
+            LEFT JOIN disputes d ON c.id = d.child_order_id
+            WHERE {$whereClause}
+        ";
+        $countStmt = $pdo->prepare($countSql);
+        $countStmt->execute($params);
+        $totalCount = (int)$countStmt->fetchColumn();
 
         $stmt = $pdo->prepare("
             SELECT c.*, p.utr_number, p.screenshot_path,
@@ -681,7 +754,21 @@ class AdminManager {
         }
         unset($ord);
 
-        return ['orders' => $orders];
+        $countActive = (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE status IN ('Available', 'Reserved', 'Payment Proof Submitted', 'Seller Confirmation Pending', 'Seller Response Timeout')")->fetchColumn();
+        $countCancelled = (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE status IN ('Cancelled / Reversed', 'Cancelled')")->fetchColumn();
+        $countDisputed = (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE status IN ('Disputed', 'Appealed', 'In Dispute Review')")->fetchColumn();
+
+        return [
+            'orders' => $orders,
+            'total' => $totalCount,
+            'section' => $section,
+            'counts' => [
+                'active' => $countActive,
+                'cancelled' => $countCancelled,
+                'disputed' => $countDisputed,
+                'total' => $countActive + $countCancelled + $countDisputed
+            ]
+        ];
     }
 
     /**
@@ -1133,6 +1220,49 @@ class AdminManager {
     /**
      * Toggle user suspension (Requirement 2)
      */
+    /**
+     * Set User Account Status (Active, Suspended, Temporarily Blocked) with mandatory audit logging (Requirement 1.3)
+     */
+    public static function setUserAccountStatus(int $userId, int $adminId, string $status, string $reason): array {
+        $allowed = ['active', 'suspended', 'temporarily_blocked'];
+        if (!in_array($status, $allowed, true)) {
+            return ['success' => false, 'error' => "Invalid status '{$status}'. Allowed: active, suspended, temporarily_blocked."];
+        }
+
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare("SELECT account_status, phone FROM users WHERE id = ?");
+        $stmt->execute([$userId]);
+        $user = $stmt->fetch();
+
+        if (!$user) {
+            return ['success' => false, 'error' => 'User not found.'];
+        }
+
+        $oldStatus = $user['account_status'];
+        if ($oldStatus === $status) {
+            return ['success' => true, 'message' => "User already has status {$status}.", 'new_status' => $status];
+        }
+
+        $nowUtc = gmdate('Y-m-d H:i:s');
+        $upd = $pdo->prepare("UPDATE users SET account_status = ? WHERE id = ?");
+        $upd->execute([$status, $userId]);
+
+        self::logAudit(
+            $adminId,
+            'SET_USER_STATUS',
+            'users',
+            (string)$userId,
+            ['status' => $oldStatus],
+            ['status' => $status],
+            $reason
+        );
+
+        $notifMsg = "Your account status has been updated to {$status} by administration. Reason: {$reason}.";
+        Auth::createNotification($userId, 'Account Status Updated', $notifMsg, ($status === 'active' ? 'info' : 'warning'));
+
+        return ['success' => true, 'old_status' => $oldStatus, 'new_status' => $status];
+    }
+
     public static function toggleUserSuspension(int $userId, int $adminId, string $reason): array {
         $pdo = Database::getConnection();
         $stmt = $pdo->prepare("SELECT account_status FROM users WHERE id = ?");

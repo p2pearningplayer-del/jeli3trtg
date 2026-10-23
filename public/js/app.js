@@ -220,6 +220,25 @@ function updateProfilePreviews(user) {
             : "font-mono font-bold text-xs px-2.5 py-0.5 rounded-full bg-red-500/10 text-red-400 border border-red-500/20";
     }
 
+    // Home Dashboard Health Score Sync (Requirement 7.1)
+    const homeScoreVal = document.getElementById('homeHealthScoreVal');
+    const homeScoreBadge = document.getElementById('homeHealthScoreBadge');
+    const homeScoreNotice = document.getElementById('homeHealthScoreNotice');
+    if (homeScoreVal) homeScoreVal.innerText = healthScore;
+    if (homeScoreBadge) {
+        homeScoreBadge.innerText = isHealthy ? (healthScore >= 80 ? 'Excellent Standing' : 'Good Standing') : 'Action Required';
+        homeScoreBadge.className = isHealthy 
+            ? (healthScore >= 80 ? 'px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-500/20 text-amber-400 border border-amber-500/30')
+            : 'px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-rose-500/20 text-rose-400 border border-rose-500/30';
+    }
+    if (homeScoreNotice) {
+        if (!isHealthy || user.account_status === 'temporarily_blocked') {
+            homeScoreNotice.classList.remove('hidden');
+        } else {
+            homeScoreNotice.classList.add('hidden');
+        }
+    }
+
     const statusDisplay = document.getElementById('profileStatusDisplay');
     if (statusDisplay && user.account_status) {
         if (user.account_status === 'suspended') {
@@ -319,13 +338,8 @@ async function loadBuyPool(silent = false) {
         const grid = document.getElementById('buyPoolGrid');
         if (!grid) return;
 
-        // Hide user's own sell portions from their Buy feed (prevent self-trading display)
-        const visibleOrders = (data.orders || []).filter(order => {
-            if (currentUser && currentUser.id && order.seller_id) {
-                return parseInt(order.seller_id, 10) !== parseInt(currentUser.id, 10);
-            }
-            return true;
-        });
+        // Peer orders returned by backend are already filtered to exclude user's own listings
+        const visibleOrders = data.orders || [];
 
         if (!data.success || visibleOrders.length === 0) {
             grid.innerHTML = `
@@ -338,11 +352,14 @@ async function loadBuyPool(silent = false) {
             return;
         }
 
-        grid.innerHTML = visibleOrders.map(order => `
+        grid.innerHTML = visibleOrders.map(order => {
+            const pickArg = order.pick_token ? `'${escapeHtml(order.pick_token)}'` : (order.id || 0);
+            return `
             <div class="bg-slate-900 border border-slate-800 hover:border-slate-700/80 rounded-2xl p-5 flex flex-col justify-between transition-all duration-200 shadow-sm">
                 <div class="space-y-3">
                     <div class="flex items-center justify-between">
-                        <span class="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-slate-800 text-slate-400">Order ${formatOrderId(order.id)}</span>
+                        <!-- Requirement 8: Order ID is strictly hidden pre-pickup; revealed upon reservation -->
+                        <span class="text-[10px] font-mono uppercase px-2.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-semibold tracking-wider">Available Listing</span>
                         <span class="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
                             +${order.reward_rate}% Reward
                         </span>
@@ -374,11 +391,12 @@ async function loadBuyPool(silent = false) {
                     </div>
                 </div>
 
-                <button onclick="pickOrder(${order.id})" class="mt-4 w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 rounded-xl transition text-xs uppercase tracking-wider shadow-md shadow-indigo-600/20">
+                <button onclick="pickOrder(${pickArg})" class="mt-4 w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 rounded-xl transition text-xs uppercase tracking-wider shadow-md shadow-indigo-600/20 cursor-pointer">
                     Pick Order &bull; 10m Window
                 </button>
             </div>
-        `).join('');
+        `;
+        }).join('');
     } catch (e) {
         console.error('Failed to load buy pool:', e);
     }
@@ -398,17 +416,21 @@ function renderGuestBuyPool() {
     `;
 }
 
-async function pickOrder(orderId) {
+async function pickOrder(orderIdOrToken) {
     if (!currentUser) {
         openAuthModal('login');
         return;
     }
 
+    const payload = (typeof orderIdOrToken === 'string' && orderIdOrToken.length > 20)
+        ? { pick_token: orderIdOrToken }
+        : { order_id: parseInt(orderIdOrToken, 10) };
+
     try {
         const res = await fetch('/api/buy.php?action=pick', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ order_id: orderId })
+            body: JSON.stringify(payload)
         });
         const data = await res.json();
         if (data.success) {
@@ -2837,9 +2859,17 @@ function openAuthModal(mode = 'login') {
     modeInput.value = mode;
     document.getElementById('authError').classList.add('hidden');
 
+    const idLabel = document.getElementById('authIdentifierLabel');
+    const phoneInput = document.getElementById('authPhone');
+
     if (mode === 'register') {
         title.innerText = 'Create Account';
         sub.innerText = 'Join the Peer-to-Peer token exchange';
+        if (idLabel) idLabel.innerText = 'Mobile Phone Number';
+        if (phoneInput) {
+            phoneInput.placeholder = 'Enter 10-digit mobile number';
+            phoneInput.maxLength = 10;
+        }
         regFields.classList.remove('hidden');
         toggleText.innerText = 'Already have an account?';
         toggleBtn.innerText = 'Sign In';
@@ -2847,6 +2877,11 @@ function openAuthModal(mode = 'login') {
     } else {
         title.innerText = 'Sign In';
         sub.innerText = 'Access your P2P token wallet';
+        if (idLabel) idLabel.innerText = 'Phone, Email, or User ID';
+        if (phoneInput) {
+            phoneInput.placeholder = 'Enter mobile, email, or User ID';
+            phoneInput.removeAttribute('maxlength');
+        }
         regFields.classList.add('hidden');
         toggleText.innerText = "Don't have an account?";
         toggleBtn.innerText = 'Create Account';
@@ -3133,13 +3168,11 @@ async function handleProfileUpdate(e) {
     if (e && e.preventDefault) e.preventDefault();
     const holderInput = document.getElementById('profHolderName');
     const upiInput = document.getElementById('profUpiId');
-    const emailInput = document.getElementById('profEmail');
     const statusEl = document.getElementById('profUpdateStatus');
     const submitBtn = document.getElementById('profUpdateBtn');
 
     const holderName = holderInput ? holderInput.value.trim() : '';
     const upiId = upiInput ? upiInput.value.trim() : '';
-    const email = emailInput ? emailInput.value.trim() : '';
 
     if (!holderName) {
         if (statusEl) {
@@ -3165,33 +3198,19 @@ async function handleProfileUpdate(e) {
         return;
     }
 
-    if (email && (!email.includes('@') || !email.includes('.'))) {
-        if (statusEl) {
-            statusEl.innerText = 'Please provide a valid email address.';
-            statusEl.className = 'text-xs font-semibold text-red-400 block';
-            statusEl.classList.remove('hidden');
-        } else {
-            alert('Please provide a valid email address.');
-        }
-        if (emailInput) emailInput.focus();
-        return;
-    }
-
     if (submitBtn) {
         submitBtn.disabled = true;
         submitBtn.innerText = 'Saving Details...';
     }
     if (statusEl) {
-        statusEl.innerText = 'Saving payout details...';
+        statusEl.innerText = 'Saving banking settlement details...';
         statusEl.className = 'text-xs font-semibold text-slate-400 block';
         statusEl.classList.remove('hidden');
     }
 
     try {
+        // Enforce email immutability: Email is set during registration and cannot be modified via profile update
         const payload = { account_holder_name: holderName, upi_id: upiId };
-        if (emailInput) {
-            payload.email = email;
-        }
         const res = await fetch('/api/auth.php?action=update_profile', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -3200,11 +3219,11 @@ async function handleProfileUpdate(e) {
         const data = await res.json();
         if (data.success) {
             if (statusEl) {
-                statusEl.innerText = 'Banking and payout details updated successfully!';
+                statusEl.innerText = 'Banking details updated successfully!';
                 statusEl.className = 'text-xs font-semibold text-emerald-400 block';
                 statusEl.classList.remove('hidden');
             }
-            alert('Banking and payout details updated successfully!');
+            alert('Banking details updated successfully!');
             // Prefill sell page inputs
             const sellHolder = document.getElementById('sellAccountHolderName');
             const sellUpi = document.getElementById('sellUpiId');
@@ -3222,15 +3241,15 @@ async function handleProfileUpdate(e) {
         }
     } catch (e) {
         if (statusEl) {
-            statusEl.innerText = 'Network error updating profile. Please retry.';
+            statusEl.innerText = 'Network error saving banking details.';
             statusEl.className = 'text-xs font-semibold text-red-400 block';
             statusEl.classList.remove('hidden');
         }
-        alert('Network error updating profile.');
+        alert('Network error saving banking details.');
     } finally {
         if (submitBtn) {
             submitBtn.disabled = false;
-            submitBtn.innerText = 'Save Payout Details';
+            submitBtn.innerText = 'Save Banking Details';
         }
     }
 }

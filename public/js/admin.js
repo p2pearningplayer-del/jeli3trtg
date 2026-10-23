@@ -13,7 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(periodicAdminSync, 10000);
     window.addEventListener('hashchange', () => {
         const hashTab = window.location.hash.replace('#', '');
-        const validTabs = ['dashboard', 'users', 'orders', 'disputes', 'fraud', 'rewards', 'content', 'reports', 'audit', 'admins', 'agents'];
+        const validTabs = ['dashboard', 'users', 'orders', 'disputes', 'fraud', 'rewards', 'content', 'reports', 'audit', 'admins', 'agents', 'risk'];
         if (hashTab && validTabs.includes(hashTab) && hashTab !== currentAdminTab) {
             switchAdminTab(hashTab);
         }
@@ -25,7 +25,7 @@ async function initAdmin() {
     const tabParam = urlParams.get('tab');
     const hashTab = window.location.hash.replace('#', '');
     const savedTab = localStorage.getItem('adminActiveTab');
-    const validTabs = ['dashboard', 'users', 'orders', 'disputes', 'fraud', 'rewards', 'content', 'reports', 'audit', 'admins', 'agents'];
+    const validTabs = ['dashboard', 'users', 'orders', 'disputes', 'fraud', 'rewards', 'content', 'reports', 'audit', 'admins', 'agents', 'risk'];
 
     let initialTab = 'dashboard';
     if (tabParam && validTabs.includes(tabParam)) {
@@ -40,7 +40,7 @@ async function initAdmin() {
 }
 
 function switchAdminTab(tabId, filterOptions = null) {
-    const validTabs = ['dashboard', 'users', 'orders', 'disputes', 'fraud', 'rewards', 'content', 'reports', 'audit', 'admins', 'agents'];
+    const validTabs = ['dashboard', 'users', 'orders', 'disputes', 'fraud', 'rewards', 'content', 'reports', 'audit', 'admins', 'agents', 'risk'];
     if (!validTabs.includes(tabId)) {
         tabId = 'dashboard';
     }
@@ -112,6 +112,7 @@ function switchAdminTab(tabId, filterOptions = null) {
     if (tabId === 'audit') loadAdminAuditLogs();
     if (tabId === 'admins') loadAdminDirectory();
     if (tabId === 'agents') loadAdminAgents();
+    if (tabId === 'risk') loadAdminRiskUsers();
 }
 
 function periodicAdminSync() {
@@ -271,23 +272,89 @@ async function loadAdminDashboard(silent = false) {
 // TAB 2: USER MANAGEMENT (Requirement 2)
 // -------------------------------------------------------------
 
+let userPageLimit = 20;
+let userPageOffset = 0;
+let currentUserCategory = 'all';
+
+function switchUserCategory(cat) {
+    currentUserCategory = cat;
+    userPageOffset = 0;
+    document.querySelectorAll('.user-cat-tab').forEach(btn => {
+        btn.classList.remove('bg-indigo-600', 'text-white', 'shadow-md', 'shadow-indigo-600/20');
+        btn.classList.add('bg-slate-800', 'text-slate-400');
+    });
+    const activeBtn = document.getElementById(`userCatTab-${cat}`);
+    if (activeBtn) {
+        activeBtn.classList.remove('bg-slate-800', 'text-slate-400');
+        activeBtn.classList.add('bg-indigo-600', 'text-white', 'shadow-md', 'shadow-indigo-600/20');
+    }
+    const filterDropdown = document.getElementById('userStatusFilter');
+    if (filterDropdown) filterDropdown.value = cat;
+    loadAdminUsers();
+}
+
+function changeUserPageSize(size) {
+    userPageLimit = parseInt(size, 10) || 20;
+    userPageOffset = 0;
+    loadAdminUsers();
+}
+
+function changeUserPage(direction) {
+    if (direction === 'prev' && userPageOffset > 0) {
+        userPageOffset = Math.max(0, userPageOffset - userPageLimit);
+    } else if (direction === 'next') {
+        userPageOffset += userPageLimit;
+    }
+    loadAdminUsers();
+}
+
 async function loadAdminUsers() {
     const query = document.getElementById('userSearchInput')?.value || '';
-    const status = document.getElementById('userStatusFilter')?.value || 'all';
+    const status = currentUserCategory;
     const role = document.getElementById('userRoleFilter')?.value || 'all';
 
     try {
-        const res = await fetch(`/api/admin.php?action=users&query=${encodeURIComponent(query)}&status=${encodeURIComponent(status)}&role=${encodeURIComponent(role)}`);
+        const res = await fetch(`/api/admin.php?action=users&query=${encodeURIComponent(query)}&status=${encodeURIComponent(status)}&role=${encodeURIComponent(role)}&limit=${userPageLimit}&offset=${userPageOffset}`);
         const data = await res.json();
         const tbody = document.getElementById('adminUsersTableBody');
         if (!tbody) return;
 
+        // Sync category badge counts
+        if (data.category_counts) {
+            const cc = data.category_counts;
+            const setBadge = (id, count) => {
+                const el = document.getElementById(id);
+                if (el) el.innerText = count || 0;
+            };
+            setBadge('userTabCount-all', cc.all || data.total_registered || 0);
+            setBadge('userTabCount-active', cc.active || 0);
+            setBadge('userTabCount-suspended', cc.suspended || 0);
+            setBadge('userTabCount-temp_blocked', cc.temporarily_blocked || 0);
+        }
+
+        const total = data.total || 0;
+        const from = total > 0 ? (userPageOffset + 1) : 0;
+        const to = Math.min(total, userPageOffset + userPageLimit);
+        const infoEl = document.getElementById('userPaginationInfo');
+        if (infoEl) infoEl.innerText = `Showing ${from} to ${to} of ${total} matching users (Total registered: ${data.total_registered || total})`;
+
+        const prevBtn = document.getElementById('userPrevBtn');
+        const nextBtn = document.getElementById('userNextBtn');
+        const indEl = document.getElementById('userPageIndicator');
+        if (prevBtn) prevBtn.disabled = (userPageOffset === 0);
+        if (nextBtn) nextBtn.disabled = (userPageOffset + userPageLimit >= total);
+        if (indEl) indEl.innerText = `Page ${Math.floor(userPageOffset / userPageLimit) + 1} of ${Math.max(1, Math.ceil(total / userPageLimit))}`;
+
         if (!data.success || !data.users || data.users.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-slate-500 font-sans">No matching user accounts found.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-slate-500 font-sans">No matching user accounts found in this category.</td></tr>`;
             return;
         }
 
-        tbody.innerHTML = data.users.map(u => `
+        tbody.innerHTML = data.users.map(u => {
+            const hScore = (u.health_score !== undefined && u.health_score !== null) ? parseInt(u.health_score, 10) : 100;
+            const hColor = (hScore <= 50) ? 'text-rose-400 bg-rose-500/10 border-rose-500/20' : (hScore >= 80 ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' : 'text-amber-400 bg-amber-500/10 border-amber-500/20');
+            const stColor = (u.account_status === 'active') ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : ((u.account_status === 'temporarily_blocked') ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20');
+            return `
             <tr class="hover:bg-slate-900/80 transition text-xs font-mono">
                 <td class="p-3 text-slate-500 font-bold">
                     #${u.id}
@@ -306,32 +373,39 @@ async function loadAdminUsers() {
                     <span class="text-[10px] text-slate-500 block">Res: ₹${parseFloat(u.reserved_balance || 0).toFixed(2)}</span>
                 </td>
                 <td class="p-3">
-                    <span class="text-indigo-400 font-mono font-bold">${escapeHtml(u.referral_code)}</span>
-                    <span class="text-[10px] text-slate-500 block">Role: ${u.role}${u.admin_role ? ' (' + u.admin_role + ')' : ''}</span>
+                    <div class="flex items-center gap-1.5">
+                        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold border ${hColor}">
+                            ${hScore} / 100
+                        </span>
+                        <button type="button" onclick="openHealthScoreHistoryModal(${u.id}, '${escapeHtml(u.phone)}')" class="text-[10px] text-slate-500 hover:text-indigo-400 underline font-sans" title="View Score History">Audit</button>
+                    </div>
                 </td>
                 <td class="p-3">
-                    <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase ${u.account_status === 'active' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}">
-                        ${u.account_status}
+                    <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase ${stColor}">
+                        ${escapeHtml(u.account_status)}
                     </span>
+                    ${u.sell_restricted ? '<span class="text-[9px] block text-rose-400 font-sans uppercase mt-0.5 font-bold">Sell Restricted</span>' : ''}
                 </td>
                 <td class="p-3 font-sans">
                     <div class="flex items-center gap-1.5 flex-wrap">
-                        <button onclick="viewUserDossier(${u.id})" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-[11px] font-semibold transition" title="Inspect Full Dossier">
+                        <button onclick="viewUserDossier(${u.id})" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-[11px] font-semibold transition cursor-pointer" title="Inspect Full Dossier">
                             Dossier
                         </button>
-                        <button onclick="openAdjustmentModal(${u.id}, '${escapeHtml(u.phone)}')" class="px-2 py-1 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-400 border border-indigo-500/30 rounded text-[11px] font-semibold transition" title="Adjust Token Balance">
+                        <button onclick="openAdjustmentModal(${u.id}, '${escapeHtml(u.phone)}')" class="px-2 py-1 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-400 border border-indigo-500/30 rounded text-[11px] font-semibold transition cursor-pointer" title="Adjust Token Balance">
                             Adjust
                         </button>
-                        <button onclick="toggleUserStatus(${u.id}, '${u.account_status}')" class="px-2 py-1 ${u.account_status === 'active' ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30' : 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30'} rounded text-[11px] font-semibold transition">
-                            ${u.account_status === 'active' ? 'Suspend' : 'Activate'}
+                        <!-- Requirement 1.3: Authorized Status Controls (Active, Suspended, Temporarily Blocked) -->
+                        <button onclick="openSetUserStatusModal(${u.id}, '${escapeHtml(u.phone)}', '${u.account_status}')" class="px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded text-[11px] font-semibold transition cursor-pointer" title="Change Account Status">
+                            Status
                         </button>
-                        <button onclick="impersonateUser(${u.id})" class="px-2 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 border border-amber-500/30 rounded text-[11px] font-semibold transition" title="Read-Only Support Mode">
+                        <button onclick="impersonateUser(${u.id})" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[11px] font-semibold transition cursor-pointer" title="Read-Only Support Mode">
                             Support
                         </button>
                     </div>
                 </td>
             </tr>
-        `).join('');
+        `;
+        }).join('');
     } catch (e) {
         console.error('Failed to load users:', e);
     }
@@ -520,58 +594,165 @@ async function impersonateUser(userId) {
 }
 
 // -------------------------------------------------------------
-// TAB 3: ORDER MANAGEMENT (Requirement 3)
+// TAB 3: ORDER MANAGEMENT (Requirement 2: 3 Distinct Sections & Server Pagination)
 // -------------------------------------------------------------
+
+let currentOrderSection = 'active';
+let orderPageLimit = 20;
+let orderPageOffset = 0;
+
+function switchOrderSection(sec) {
+    currentOrderSection = sec;
+    orderPageOffset = 0;
+    document.querySelectorAll('.order-sec-tab').forEach(btn => {
+        btn.classList.remove('bg-indigo-600', 'text-white', 'shadow-md', 'shadow-indigo-600/20');
+        btn.classList.add('bg-slate-800', 'text-slate-400');
+    });
+    const activeBtn = document.getElementById(`orderSecTab-${sec}`);
+    if (activeBtn) {
+        activeBtn.classList.remove('bg-slate-800', 'text-slate-400');
+        activeBtn.classList.add('bg-indigo-600', 'text-white', 'shadow-md', 'shadow-indigo-600/20');
+    }
+
+    // Dynamic section headers & status filter options
+    const heading = document.getElementById('orderSectionHeading');
+    const subtext = document.getElementById('orderSectionSubtext');
+    const statusSel = document.getElementById('orderStatusFilter');
+
+    if (sec === 'active') {
+        if (heading) heading.innerText = 'Active Buy & Sell Orders';
+        if (subtext) subtext.innerText = 'Track available, reserved, and payment pending orders under the state machine.';
+        if (statusSel) {
+            statusSel.innerHTML = `
+                <option value="all">All Active Statuses</option>
+                <option value="Available">Available Only</option>
+                <option value="Reserved">Reserved Only</option>
+                <option value="Payment Proof Submitted">Proof Submitted Only</option>
+                <option value="Seller Confirmation Pending">Confirmation Pending Only</option>
+                <option value="Seller Response Timeout">Response Timeout Only</option>
+            `;
+        }
+    } else if (sec === 'cancelled') {
+        if (heading) heading.innerText = 'Cancelled Orders';
+        if (subtext) subtext.innerText = 'Orders cancelled by traders or administration (expired reservations not merged unless cancelled).';
+        if (statusSel) {
+            statusSel.innerHTML = `
+                <option value="all">All Cancelled Statuses</option>
+                <option value="Cancelled / Reversed">Cancelled / Reversed</option>
+                <option value="Cancelled">Cancelled</option>
+            `;
+        }
+    } else if (sec === 'disputed') {
+        if (heading) heading.innerText = 'Disputed & Appealed Orders';
+        if (subtext) subtext.innerText = 'Orders currently in active dispute review, appeal arbitration, or evidence validation.';
+        if (statusSel) {
+            statusSel.innerHTML = `
+                <option value="all">All Disputed Statuses</option>
+                <option value="Disputed">Disputed Only</option>
+                <option value="Appealed">Appealed Only</option>
+                <option value="In Dispute Review">In Dispute Review</option>
+            `;
+        }
+    }
+
+    loadAdminOrders();
+}
+
+function changeOrderPageSize(size) {
+    orderPageLimit = parseInt(size, 10) || 20;
+    orderPageOffset = 0;
+    loadAdminOrders();
+}
+
+function changeOrderPage(direction) {
+    if (direction === 'prev' && orderPageOffset > 0) {
+        orderPageOffset = Math.max(0, orderPageOffset - orderPageLimit);
+    } else if (direction === 'next') {
+        orderPageOffset += orderPageLimit;
+    }
+    loadAdminOrders();
+}
 
 async function loadAdminOrders() {
     const status = document.getElementById('orderStatusFilter')?.value || 'all';
-    const type = document.getElementById('orderTypeFilter')?.value || 'child';
     const query = document.getElementById('orderSearchInput')?.value || '';
+    const dateFrom = document.getElementById('orderDateFrom')?.value || '';
+    const dateTo = document.getElementById('orderDateTo')?.value || '';
+    const type = 'child';
 
     try {
-        const res = await fetch(`/api/admin.php?action=orders&status=${encodeURIComponent(status)}&type=${encodeURIComponent(type)}&query=${encodeURIComponent(query)}`);
+        const url = `/api/admin.php?action=orders&status=${encodeURIComponent(status)}&type=${encodeURIComponent(type)}&query=${encodeURIComponent(query)}&section=${encodeURIComponent(currentOrderSection)}&date_from=${encodeURIComponent(dateFrom)}&date_to=${encodeURIComponent(dateTo)}&limit=${orderPageLimit}&offset=${orderPageOffset}`;
+        const res = await fetch(url);
         const data = await res.json();
         const tbody = document.getElementById('adminOrdersTableBody');
         if (!tbody) return;
 
+        // Sync section counts
+        if (data.counts) {
+            const setBadge = (id, count) => {
+                const el = document.getElementById(id);
+                if (el) el.innerText = count || 0;
+            };
+            setBadge('orderSecCount-active', data.counts.active || 0);
+            setBadge('orderSecCount-cancelled', data.counts.cancelled || 0);
+            setBadge('orderSecCount-disputed', data.counts.disputed || 0);
+        }
+
+        const total = data.total || 0;
+        const from = total > 0 ? (orderPageOffset + 1) : 0;
+        const to = Math.min(total, orderPageOffset + orderPageLimit);
+        const infoEl = document.getElementById('orderPaginationInfo');
+        if (infoEl) infoEl.innerText = `Showing ${from} to ${to} of ${total} matching orders in ${currentOrderSection.toUpperCase()}`;
+
+        const prevBtn = document.getElementById('orderPrevBtn');
+        const nextBtn = document.getElementById('orderNextBtn');
+        const indEl = document.getElementById('orderPageIndicator');
+        if (prevBtn) prevBtn.disabled = (orderPageOffset === 0);
+        if (nextBtn) nextBtn.disabled = (orderPageOffset + orderPageLimit >= total);
+        if (indEl) indEl.innerText = `Page ${Math.floor(orderPageOffset / orderPageLimit) + 1} of ${Math.max(1, Math.ceil(total / orderPageLimit))}`;
+
         if (!data.success || !data.orders || data.orders.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="8" class="p-8 text-center text-slate-500 font-sans">No matching orders found.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="8" class="p-8 text-center text-slate-500 font-sans">No matching orders found in this section.</td></tr>`;
             return;
         }
 
         tbody.innerHTML = data.orders.map(o => {
-            const isChild = (type === 'child');
+            const isChild = true;
+            let stBadgeColor = 'bg-slate-800 text-slate-300';
+            if (o.status === 'Completed') stBadgeColor = 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
+            else if (o.status === 'Available') stBadgeColor = 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20';
+            else if (o.status === 'Reserved') stBadgeColor = 'bg-amber-500/10 text-amber-400 border border-amber-500/20';
+            else if (['Disputed', 'Appealed', 'In Dispute Review'].includes(o.status)) stBadgeColor = 'bg-rose-500/20 text-rose-400 border border-rose-500/30';
+            else if (o.status.includes('Cancel')) stBadgeColor = 'bg-red-500/10 text-red-400 border border-red-500/20';
+
             return `
                 <tr class="hover:bg-slate-900/80 transition text-xs font-mono">
                     <td class="p-3 text-slate-400 font-bold">
                         #${o.id}
-                        ${isChild ? `<span class="text-[10px] text-slate-500 block font-normal">Parent #${o.parent_order_id}</span>` : ''}
+                        ${o.parent_order_id ? `<span class="text-[10px] text-slate-500 block font-normal">Parent #${o.parent_order_id}</span>` : ''}
                     </td>
                     <td class="p-3">
                         <span class="text-white font-bold block">${escapeHtml(o.seller_phone || 'Seller')}</span>
-                        <span class="text-[10px] text-slate-500 font-sans block">${escapeHtml(o.seller_name || '')}</span>
+                        <span class="text-[10px] text-slate-400 font-sans block">${escapeHtml(o.seller_name || 'Peer Seller')}</span>
+                        <span class="text-[10px] text-slate-500 font-mono block">${escapeHtml(o.seller_order_upi_id || '-')}</span>
                     </td>
                     <td class="p-3">
-                        ${isChild ? (o.buyer_phone ? `
+                        ${o.buyer_phone ? `
                             <span class="text-white font-bold block">${escapeHtml(o.buyer_phone)}</span>
-                            <span class="text-[10px] text-slate-500 font-sans block">${escapeHtml(o.buyer_name || '')}</span>
-                        ` : '<span class="text-slate-600 italic">Unreserved</span>') : `
-                            <span class="text-slate-400">${o.child_count} micro-orders</span>
-                        `}
+                            <span class="text-[10px] text-slate-400 font-sans block">${escapeHtml(o.buyer_name || 'Peer Buyer')}</span>
+                        ` : '<span class="text-slate-600 italic">Unreserved</span>'}
                     </td>
                     <td class="p-3">
-                        <span class="text-emerald-400 font-bold text-sm">₹${parseFloat(isChild ? o.amount : o.original_amount).toLocaleString('en-IN')}</span>
-                        ${isChild ? `<span class="text-[10px] text-indigo-400 block">+${o.snapshotted_reward_rate}% Rew</span>` : `
-                            <span class="text-[10px] text-slate-500 block">Rem: ₹${parseFloat(o.remaining_amount).toLocaleString('en-IN')}</span>
-                        `}
+                        <span class="text-emerald-400 font-bold text-sm">₹${parseFloat(o.amount).toLocaleString('en-IN')}</span>
+                        <span class="text-[10px] text-indigo-400 block">+${o.snapshotted_reward_rate}% Rew (₹${parseFloat(o.snapshotted_reward_amount).toFixed(2)})</span>
                     </td>
                     <td class="p-3">
-                        <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase ${o.status === 'Completed' ? 'bg-emerald-500/10 text-emerald-400' : (o.status === 'Disputed' ? 'bg-red-500/20 text-red-400' : 'bg-slate-800 text-slate-300')}">
-                            ${o.status}
+                        <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase ${stBadgeColor}">
+                            ${escapeHtml(o.status)}
                         </span>
                     </td>
                     <td class="p-3">
-                        ${isChild && o.utr_number ? `
+                        ${o.utr_number ? `
                             <span class="text-white font-bold block">${escapeHtml(o.utr_number)}</span>
                             ${o.screenshot_path ? `<button type="button" onclick="openEvidenceLightbox('${escapeHtml(o.screenshot_path)}', 'Buyer Payment Proof - Order #${o.id}')" class="text-[10px] text-amber-400 hover:text-amber-300 font-bold underline font-sans block mt-0.5 cursor-pointer">Inspect Proof</button>` : ''}
                         ` : '<span class="text-slate-600">-</span>'}
@@ -580,15 +761,15 @@ async function loadAdminOrders() {
                         ${o.created_at}
                     </td>
                     <td class="p-3 font-sans">
-                        <div class="flex items-center gap-1.5">
-                            ${isChild && o.dispute_id ? `
+                        <div class="flex items-center gap-1.5 flex-wrap">
+                            ${o.dispute_id ? `
                                 <button onclick="openDisputeOrderDetailsModal(${o.dispute_id})" class="px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded text-[11px] font-semibold transition cursor-pointer" title="Inspect Disputed Seller Payment Details">
-                                    Dispute Details
+                                    Dispute
                                 </button>
                             ` : ''}
-                            ${isChild && !['Completed', 'Cancelled / Reversed'].includes(o.status) ? `
-                                <button onclick="cancelAdminOrder(${o.id})" class="px-2 py-1 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/30 rounded text-[11px] font-semibold transition" title="Cancel & Release Tokens to Seller">
-                                    Cancel & Return
+                            ${!['Completed', 'Cancelled / Reversed', 'Cancelled'].includes(o.status) ? `
+                                <button onclick="cancelAdminOrder(${o.id})" class="px-2 py-1 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/30 rounded text-[11px] font-semibold transition cursor-pointer" title="Cancel & Release Tokens to Seller">
+                                    Cancel
                                 </button>
                             ` : ''}
                         </div>
@@ -2074,7 +2255,7 @@ async function loadAdminAgents() {
                 <td class="p-3.5 text-right font-black text-amber-400">${Number(a.commission_rate || 0).toFixed(2)}%</td>
                 <td class="p-3.5 text-center">
                     <span class="px-2 py-0.5 rounded bg-slate-950 text-slate-300 border border-slate-800 text-[10px] font-bold" title="${escapeHtml(a.eligible_levels || '')}">
-                        ${(a.eligible_levels || '').split(',').length >= 26 ? 'All (A-Z)' : escapeHtml(a.eligible_levels || 'None')}
+                        ${(a.eligible_levels || '').split(',').length >= 26 ? 'All Levels (1-26)' : escapeHtml(a.eligible_levels || 'None')}
                     </span>
                 </td>
                 <td class="p-3.5 text-right text-white font-bold">${Number(a.total_referred_users || 0).toLocaleString()}</td>
@@ -2774,3 +2955,326 @@ async function submitRecordPayout(e) {
 
 
 
+
+
+// -------------------------------------------------------------
+// STATUS CONTROLS & RISK MANAGEMENT HANDLERS (Requirement 1.3 & 7.5)
+// -------------------------------------------------------------
+
+function openSetUserStatusModal(userId, phone, currentStatus) {
+    document.getElementById('statusModalUserId').value = userId;
+    document.getElementById('statusModalUserLabel').innerText = `User #${userId} (${phone})`;
+    document.getElementById('statusModalNewStatus').value = currentStatus || 'active';
+    document.getElementById('statusModalReason').value = '';
+    document.getElementById('setUserStatusModal').classList.remove('hidden');
+}
+
+function closeSetUserStatusModal() {
+    document.getElementById('setUserStatusModal').classList.add('hidden');
+}
+
+async function submitSetUserStatus(event) {
+    event.preventDefault();
+    const userId = parseInt(document.getElementById('statusModalUserId').value, 10);
+    const newStatus = document.getElementById('statusModalNewStatus').value;
+    const reason = document.getElementById('statusModalReason').value.trim();
+
+    if (!reason) {
+        alert('A mandatory operational reason is required for status changes.');
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/admin.php?action=set_user_status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: userId, status: newStatus, reason: reason })
+        });
+        const data = await res.json();
+        if (data.success) {
+            closeSetUserStatusModal();
+            alert(`User #${userId} status updated to ${newStatus}.`);
+            loadAdminUsers();
+            if (currentAdminTab === 'risk') loadAdminRiskUsers();
+        } else {
+            alert(data.error || 'Failed to update account status.');
+        }
+    } catch (e) {
+        alert('Network error while updating status.');
+    }
+}
+
+// Sell Controls Modal
+function openSellRestrictionsModal(userId, phone, isRestricted, orderLimit, cooldown) {
+    document.getElementById('sellRestrModalUserId').value = userId;
+    document.getElementById('sellRestrModalUserLabel').innerText = `User #${userId} (${phone})`;
+    document.getElementById('sellRestrBlockedCheck').checked = !!parseInt(isRestricted, 10);
+    document.getElementById('sellRestrLimitInput').value = orderLimit ? parseFloat(orderLimit) : '';
+    document.getElementById('sellRestrCooldownInput').value = cooldown ? parseInt(cooldown, 10) : '';
+    document.getElementById('sellRestrReasonInput').value = '';
+    document.getElementById('sellRestrictionsModal').classList.remove('hidden');
+}
+
+function closeSellRestrictionsModal() {
+    document.getElementById('sellRestrictionsModal').classList.add('hidden');
+}
+
+async function submitSellRestrictions(event) {
+    event.preventDefault();
+    const userId = parseInt(document.getElementById('sellRestrModalUserId').value, 10);
+    const isRestricted = document.getElementById('sellRestrBlockedCheck').checked;
+    const orderLimit = document.getElementById('sellRestrLimitInput').value.trim();
+    const cooldown = document.getElementById('sellRestrCooldownInput').value.trim();
+    const reason = document.getElementById('sellRestrReasonInput').value.trim();
+
+    if (!reason) {
+        alert('A mandatory reason is required for sell control changes.');
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/admin.php?action=admin_sell_restrictions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_id: userId,
+                sell_restricted: isRestricted,
+                order_limit: orderLimit ? parseFloat(orderLimit) : null,
+                cooldown_seconds: cooldown ? parseInt(cooldown, 10) : 0,
+                reason: reason
+            })
+        });
+        const data = await res.json();
+        if (data.success) {
+            closeSellRestrictionsModal();
+            alert(`Sell controls configured for User #${userId}.`);
+            if (currentAdminTab === 'risk') loadAdminRiskUsers();
+            loadAdminUsers();
+        } else {
+            alert(data.error || 'Failed to configure sell controls.');
+        }
+    } catch (e) {
+        alert('Network error.');
+    }
+}
+
+// Risk Review Modal
+function openRiskReviewModal(userId, phone, currentReviewStatus) {
+    document.getElementById('riskNoteModalUserId').value = userId;
+    document.getElementById('riskNoteModalUserLabel').innerText = `User #${userId} (${phone})`;
+    document.getElementById('riskNoteReviewStatus').value = currentReviewStatus || 'reviewed';
+    document.getElementById('riskNoteContent').value = '';
+    document.getElementById('riskReviewModal').classList.remove('hidden');
+}
+
+function closeRiskReviewModal() {
+    document.getElementById('riskReviewModal').classList.add('hidden');
+}
+
+async function submitRiskReview(event) {
+    event.preventDefault();
+    const userId = parseInt(document.getElementById('riskNoteModalUserId').value, 10);
+    const reviewStatus = document.getElementById('riskNoteReviewStatus').value;
+    const note = document.getElementById('riskNoteContent').value.trim();
+
+    if (!note) {
+        alert('Review note content is required.');
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/admin.php?action=admin_risk_note', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: userId, review_status: reviewStatus, note: note })
+        });
+        const data = await res.json();
+        if (data.success) {
+            closeRiskReviewModal();
+            alert(`Review note recorded for User #${userId}.`);
+            if (currentAdminTab === 'risk') loadAdminRiskUsers();
+        } else {
+            alert(data.error || 'Failed to record review note.');
+        }
+    } catch (e) {
+        alert('Network error.');
+    }
+}
+
+// Health Score History Modal
+async function openHealthScoreHistoryModal(userId, phone) {
+    document.getElementById('histModalUserLabel').innerText = `User #${userId} (${phone})`;
+    const tbody = document.getElementById('histModalTbody');
+    tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-slate-500">Loading score audit history...</td></tr>`;
+    document.getElementById('healthScoreHistoryModal').classList.remove('hidden');
+
+    try {
+        const res = await fetch(`/api/admin.php?action=user_health_history&user_id=${userId}`);
+        const data = await res.json();
+        if (!data.success || !data.history || data.history.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-slate-500">No score adjustment records on file (Score initialized at 100).</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = data.history.map(h => {
+            const deltaColor = h.delta > 0 ? 'text-emerald-400' : (h.delta < 0 ? 'text-rose-400' : 'text-slate-400');
+            const deltaSign = h.delta > 0 ? `+${h.delta}` : h.delta;
+            return `
+                <tr class="hover:bg-slate-900/60 transition">
+                    <td class="p-2 text-slate-400">${h.created_at}</td>
+                    <td class="p-2 font-bold ${deltaColor}">${deltaSign}</td>
+                    <td class="p-2 text-slate-300">${h.old_score} &rarr; <strong class="text-white">${h.new_score}</strong></td>
+                    <td class="p-2 text-slate-300 font-sans">
+                        <span class="block">${escapeHtml(h.reason)}</span>
+                        <span class="text-[10px] text-slate-500 font-mono">${escapeHtml(h.event_type || 'SYSTEM')}${h.admin_phone ? ' by ' + escapeHtml(h.admin_phone) : ''}</span>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-rose-400">Failed to load history.</td></tr>`;
+    }
+}
+
+function closeHealthScoreHistoryModal() {
+    document.getElementById('healthScoreHistoryModal').classList.add('hidden');
+}
+
+// -------------------------------------------------------------
+// TAB: RISK MANAGEMENT & LOW HEALTH SCORE USERS (Requirement 7.3)
+// -------------------------------------------------------------
+
+let riskPageLimit = 20;
+let riskPageOffset = 0;
+
+function changeRiskPageSize(size) {
+    riskPageLimit = parseInt(size, 10) || 20;
+    riskPageOffset = 0;
+    loadAdminRiskUsers();
+}
+
+function changeRiskPage(direction) {
+    if (direction === 'prev' && riskPageOffset > 0) {
+        riskPageOffset = Math.max(0, riskPageOffset - riskPageLimit);
+    } else if (direction === 'next') {
+        riskPageOffset += riskPageLimit;
+    }
+    loadAdminRiskUsers();
+}
+
+async function loadAdminRiskUsers() {
+    const range = document.getElementById('riskRangeFilter')?.value || 'below_50';
+    const status = document.getElementById('riskStatusFilter')?.value || 'all';
+    const reviewStatus = document.getElementById('riskReviewFilter')?.value || 'all';
+    const query = document.getElementById('riskSearchInput')?.value || '';
+
+    try {
+        const url = `/api/admin.php?action=low_health_users&range=${encodeURIComponent(range)}&status=${encodeURIComponent(status)}&review_status=${encodeURIComponent(reviewStatus)}&query=${encodeURIComponent(query)}&limit=${riskPageLimit}&offset=${riskPageOffset}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        const tbody = document.getElementById('adminRiskTableBody');
+        if (!tbody) return;
+
+        const total = data.total_count || 0;
+        const from = total > 0 ? (riskPageOffset + 1) : 0;
+        const to = Math.min(total, riskPageOffset + riskPageLimit);
+        const infoEl = document.getElementById('riskPaginationInfo');
+        if (infoEl) infoEl.innerText = `Showing ${from} to ${to} of ${total} matching users`;
+
+        const prevBtn = document.getElementById('riskPrevBtn');
+        const nextBtn = document.getElementById('riskNextBtn');
+        const indEl = document.getElementById('riskPageIndicator');
+        if (prevBtn) prevBtn.disabled = (riskPageOffset === 0);
+        if (nextBtn) nextBtn.disabled = (riskPageOffset + riskPageLimit >= total);
+        if (indEl) indEl.innerText = `Page ${Math.floor(riskPageOffset / riskPageLimit) + 1} of ${Math.max(1, Math.ceil(total / riskPageLimit))}`;
+
+        let critCount = 0;
+        let pendCount = 0;
+        let blockCount = 0;
+
+        (data.users || []).forEach(u => {
+            if (parseInt(u.health_score, 10) <= 50) critCount++;
+            if (u.risk_review_status === 'pending_review') pendCount++;
+            if (u.account_status === 'temporarily_blocked') blockCount++;
+        });
+
+        const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.innerText = v; };
+        setVal('riskCriticalCount', critCount);
+        setVal('riskPendingCount', pendCount);
+        setVal('riskBlockedCount', blockCount);
+
+        if (!data.success || !data.users || data.users.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-slate-500 font-sans">No matching low health score accounts found in this filter.</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = data.users.map(u => {
+            const hScore = parseInt(u.health_score, 10);
+            const prevScore = (u.previous_health_score !== null && u.previous_health_score !== undefined) ? u.previous_health_score : '-';
+            const hColor = hScore <= 50 ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20';
+            const stColor = (u.account_status === 'active') ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : ((u.account_status === 'temporarily_blocked') ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20');
+            const revColor = u.risk_review_status === 'reviewed' ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' : 'text-amber-400 bg-amber-500/10 border-amber-500/20';
+
+            return `
+                <tr class="hover:bg-slate-900/80 transition text-xs font-mono">
+                    <td class="p-3">
+                        <span class="text-white font-bold block">User #${u.id}</span>
+                        <span class="text-slate-400 font-sans block">${escapeHtml(u.phone)}</span>
+                        <span class="text-[10px] text-slate-500 font-sans block">${escapeHtml(u.account_holder_name || 'No name')}</span>
+                    </td>
+                    <td class="p-3">
+                        <div class="flex items-center gap-2">
+                            <span class="px-2 py-1 rounded-xl text-xs font-bold ${hColor}">
+                                ${hScore} / 100
+                            </span>
+                            <span class="text-[10px] text-slate-500 block">Prev: ${prevScore}</span>
+                        </div>
+                    </td>
+                    <td class="p-3 font-sans">
+                        <span class="text-slate-300 block text-[11px]">${escapeHtml(u.last_score_reason || 'No recent adjustment')}</span>
+                        <span class="text-[10px] text-slate-500 font-mono">${escapeHtml(u.last_score_date || u.health_score_updated_at || '-')}</span>
+                    </td>
+                    <td class="p-3">
+                        <span class="text-emerald-400 font-bold block">Done: ${u.completed_order_count || 0}</span>
+                        <span class="text-rose-400 block">Cancelled: ${u.cancelled_order_count || 0}</span>
+                        <span class="text-amber-400 block font-bold">Open Disputes: ${u.open_dispute_count || 0}</span>
+                    </td>
+                    <td class="p-3">
+                        <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase ${stColor}">
+                            ${escapeHtml(u.account_status)}
+                        </span>
+                        <div class="mt-1 space-y-0.5 text-[10px]">
+                            ${u.sell_restricted ? '<span class="text-rose-400 font-bold block uppercase">Sell Restricted</span>' : '<span class="text-emerald-400 block">Sell Enabled</span>'}
+                            ${u.sell_order_limit ? `<span class="text-slate-400 block">Limit: ₹${parseFloat(u.sell_order_limit).toFixed(0)}</span>` : ''}
+                            ${u.sell_cooldown_seconds ? `<span class="text-slate-400 block">Cooldown: ${u.sell_cooldown_seconds}s</span>` : ''}
+                        </div>
+                    </td>
+                    <td class="p-3">
+                        <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${revColor}">
+                            ${escapeHtml(u.risk_review_status || 'none')}
+                        </span>
+                        ${u.risk_notes ? `<span class="text-[10px] text-slate-400 font-sans block mt-1 line-clamp-2" title="${escapeHtml(u.risk_notes)}">${escapeHtml(u.risk_notes)}</span>` : ''}
+                    </td>
+                    <td class="p-3 font-sans">
+                        <div class="flex items-center gap-1.5 flex-wrap">
+                            <button onclick="openRiskReviewModal(${u.id}, '${escapeHtml(u.phone)}', '${u.risk_review_status}')" class="px-2 py-1 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-400 border border-indigo-500/30 rounded text-[11px] font-semibold transition cursor-pointer" title="Record Review Findings">
+                                Review Note
+                            </button>
+                            <button onclick="openSellRestrictionsModal(${u.id}, '${escapeHtml(u.phone)}', ${u.sell_restricted || 0}, ${u.sell_order_limit || 0}, ${u.sell_cooldown_seconds || 0})" class="px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded text-[11px] font-semibold transition cursor-pointer" title="Configure Sell Limit & Cooldown">
+                                Sell Controls
+                            </button>
+                            <button onclick="openSetUserStatusModal(${u.id}, '${escapeHtml(u.phone)}', '${u.account_status}')" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-[11px] font-semibold transition cursor-pointer" title="Change Account Status">
+                                Status
+                            </button>
+                            <button onclick="openHealthScoreHistoryModal(${u.id}, '${escapeHtml(u.phone)}')" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded text-[11px] transition cursor-pointer" title="View Full Audit Log">
+                                History
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    } catch (e) {
+        console.error('loadAdminRiskUsers error:', e);
+    }
+}

@@ -23,11 +23,11 @@ $input = getJsonInput();
 
 switch ($action) {
     case 'pool':
-        // Display available child portions to buyers (FR-006 & Part 13 Privacy)
-        // Seller details (UPI ID, Account Holder Name) are strictly hidden pre-pickup
+        // Display available child portions to buyers (Requirement 8 Privacy)
+        // Seller details AND Order IDs are strictly hidden pre-pickup from public browsable cards.
         $pdo = Database::getConnection();
         $stmt = $pdo->prepare("
-            SELECT c.id, c.parent_order_id, c.amount, c.snapshotted_reward_rate,
+            SELECT c.id, c.amount, c.snapshotted_reward_rate,
                    c.snapshotted_reward_amount, (c.amount + c.snapshotted_reward_amount) as total_credit,
                    c.created_at, c.seller_id
             FROM child_orders c
@@ -38,16 +38,24 @@ switch ($action) {
         $stmt->execute([(int)$user['id']]);
         $orders = $stmt->fetchAll();
 
-        foreach ($orders as &$ord) {
-            $ord['formatted_order_id'] = sprintf('#%04d', (int)$ord['id']);
-            $ord['amount'] = (float)$ord['amount'];
-            $ord['reward_amount'] = (float)$ord['snapshotted_reward_amount'];
-            $ord['total_credit'] = (float)$ord['total_credit'];
-            $ord['reward_rate'] = (float)$ord['snapshotted_reward_rate'];
-            $ord['seller_id'] = (int)$ord['seller_id'];
+        $poolList = [];
+        $secret = defined('JWT_SECRET') ? JWT_SECRET : 'jelipay_secure_token_secret_key';
+        foreach ($orders as $ord) {
+            $childId = (int)$ord['id'];
+            // Generate HMAC signed pickup token without leaking raw ID in plain UI
+            $tokenPayload = $childId . ':' . hash_hmac('sha256', (string)$childId, $secret);
+            $pickToken = base64_encode($tokenPayload);
+
+            $poolList[] = [
+                'pick_token' => $pickToken,
+                'amount' => (float)$ord['amount'],
+                'reward_rate' => (float)$ord['snapshotted_reward_rate'],
+                'reward_amount' => (float)$ord['snapshotted_reward_amount'],
+                'total_credit' => (float)$ord['total_credit']
+            ];
         }
 
-        jsonResponse(true, ['orders' => $orders]);
+        jsonResponse(true, ['orders' => $poolList]);
         break;
 
     case 'pick':
@@ -55,9 +63,28 @@ switch ($action) {
             jsonError('Order reservation is disabled in Admin Support Mode.', 403);
         }
 
-        $orderId = (int)($input['order_id'] ?? 0);
+        $orderId = 0;
+        $secret = defined('JWT_SECRET') ? JWT_SECRET : 'jelipay_secure_token_secret_key';
+
+        // 1. Resolve pick_token if provided
+        $pickToken = trim((string)($input['pick_token'] ?? ''));
+        if (!empty($pickToken)) {
+            $decoded = base64_decode($pickToken);
+            if ($decoded && strpos($decoded, ':') !== false) {
+                [$rawId, $sig] = explode(':', $decoded, 2);
+                if (hash_equals(hash_hmac('sha256', $rawId, $secret), $sig)) {
+                    $orderId = (int)$rawId;
+                }
+            }
+        }
+
+        // 2. Direct order_id fallback (for existing test suite & authorized direct picking)
+        if ($orderId <= 0 && isset($input['order_id'])) {
+            $orderId = (int)$input['order_id'];
+        }
+
         if ($orderId <= 0) {
-            jsonError('Invalid order ID.');
+            jsonError('Invalid order reservation request.');
         }
 
         $res = StateMachine::pickOrder($orderId, $user['id']);

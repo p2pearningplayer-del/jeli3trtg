@@ -92,6 +92,47 @@ class OrderEngine {
 
         $pdo = Database::getConnection();
 
+        // Step 2b: Enforce Account Status & Backend Risk Controls (Requirement 7)
+        $sellerStmt = $pdo->prepare("
+            SELECT account_status, sell_restricted, sell_restriction_reason,
+                   sell_order_limit, sell_cooldown_seconds, last_sell_order_at
+            FROM users WHERE id = ?
+        ");
+        $sellerStmt->execute([$sellerId]);
+        $sellerRisk = $sellerStmt->fetch();
+
+        if ($sellerRisk) {
+            if ($sellerRisk['account_status'] === 'suspended' || $sellerRisk['account_status'] === 'temporarily_blocked') {
+                return [
+                    'success' => false,
+                    'error' => "Your account is currently {$sellerRisk['account_status']} pending review. You cannot list tokens for sale."
+                ];
+            }
+            if ((int)($sellerRisk['sell_restricted'] ?? 0) === 1) {
+                $reason = $sellerRisk['sell_restriction_reason'] ?: 'Selling is restricted on your account by risk administration.';
+                return ['success' => false, 'error' => "Sell restriction active: {$reason}"];
+            }
+            $sellOrderLimit = (float)($sellerRisk['sell_order_limit'] ?? 0);
+            if ($sellOrderLimit > 0 && $amount > $sellOrderLimit) {
+                return [
+                    'success' => false,
+                    'error' => 'Order amount exceeds your configured maximum sell limit of ₹' . number_format($sellOrderLimit, 2) . '.'
+                ];
+            }
+            $cooldownSec = (int)($sellerRisk['sell_cooldown_seconds'] ?? 0);
+            if ($cooldownSec > 0 && !empty($sellerRisk['last_sell_order_at'])) {
+                $lastSellTs = strtotime($sellerRisk['last_sell_order_at']);
+                $elapsed = time() - $lastSellTs;
+                if ($elapsed < $cooldownSec) {
+                    $waitSec = $cooldownSec - $elapsed;
+                    return [
+                        'success' => false,
+                        'error' => "Sell cooldown active. Please wait {$waitSec} more seconds before placing another sell order."
+                    ];
+                }
+            }
+        }
+
         // Step 3: Handle Account Holder Name and UPI ID (Sell Flow)
         if ($accountHolderName !== null || $upiId !== null) {
             $accountHolderName = trim((string)$accountHolderName);
@@ -182,6 +223,10 @@ class OrderEngine {
                     'total_credit' => $calc['total_credit']
                 ];
             }
+
+            // Record last sell order timestamp for cooldown tracking
+            $updLastSell = $pdo->prepare("UPDATE users SET last_sell_order_at = ? WHERE id = ?");
+            $updLastSell->execute([$nowUtc, $sellerId]);
 
             $pdo->commit();
 
@@ -585,6 +630,10 @@ class OrderEngine {
                 $pStatus = ($compAmt > 0) ? 'partially_cancelled' : 'cancelled';
                 $pdo->prepare("UPDATE parent_sell_orders SET status = ? WHERE id = ?")->execute([$pStatus, $parentOrderId]);
             }
+
+            // Record last sell order timestamp for cooldown tracking
+            $updLastSell = $pdo->prepare("UPDATE users SET last_sell_order_at = ? WHERE id = ?");
+            $updLastSell->execute([$nowUtc, $sellerId]);
 
             $pdo->commit();
 

@@ -407,6 +407,21 @@ class SchemaInstaller {
         CREATE INDEX IF NOT EXISTS idx_ev_email ON email_verifications(email);
         CREATE INDEX IF NOT EXISTS idx_ev_token ON email_verifications(verification_token);
         CREATE INDEX IF NOT EXISTS idx_ev_status ON email_verifications(status);
+
+        CREATE TABLE IF NOT EXISTS health_score_audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            old_score INTEGER NOT NULL,
+            new_score INTEGER NOT NULL,
+            delta INTEGER NOT NULL,
+            reason TEXT NOT NULL,
+            event_type TEXT NOT NULL DEFAULT 'SYSTEM_EVENT',
+            admin_id INTEGER DEFAULT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_hsal_user ON health_score_audit_logs(user_id);
+        CREATE INDEX IF NOT EXISTS idx_hsal_created ON health_score_audit_logs(created_at);
         ";
 
         $pdo->exec($schema);
@@ -433,7 +448,16 @@ class SchemaInstaller {
             'email_verified_at' => 'TEXT DEFAULT NULL',
             'email_verification_otp' => 'TEXT DEFAULT NULL',
             'email_verification_token' => 'TEXT DEFAULT NULL',
-            'email_verification_expires_at' => 'TEXT DEFAULT NULL'
+            'email_verification_expires_at' => 'TEXT DEFAULT NULL',
+            'previous_health_score' => 'INTEGER NOT NULL DEFAULT 100',
+            'health_score_updated_at' => 'TEXT DEFAULT NULL',
+            'sell_restricted' => 'INTEGER NOT NULL DEFAULT 0',
+            'sell_restriction_reason' => 'TEXT DEFAULT NULL',
+            'sell_order_limit' => 'REAL DEFAULT NULL',
+            'sell_cooldown_seconds' => 'INTEGER NOT NULL DEFAULT 0',
+            'last_sell_order_at' => 'TEXT DEFAULT NULL',
+            'risk_review_status' => "TEXT NOT NULL DEFAULT 'none'",
+            'risk_notes' => 'TEXT DEFAULT NULL'
         ];
 
         $dispCols = [
@@ -460,7 +484,16 @@ class SchemaInstaller {
                 'email_verified_at' => 'DATETIME DEFAULT NULL',
                 'email_verification_otp' => 'VARCHAR(10) DEFAULT NULL',
                 'email_verification_token' => 'VARCHAR(128) DEFAULT NULL',
-                'email_verification_expires_at' => 'DATETIME DEFAULT NULL'
+                'email_verification_expires_at' => 'DATETIME DEFAULT NULL',
+                'previous_health_score' => 'INT NOT NULL DEFAULT 100',
+                'health_score_updated_at' => 'DATETIME DEFAULT NULL',
+                'sell_restricted' => 'TINYINT(1) NOT NULL DEFAULT 0',
+                'sell_restriction_reason' => 'VARCHAR(255) DEFAULT NULL',
+                'sell_order_limit' => 'DECIMAL(12,2) DEFAULT NULL',
+                'sell_cooldown_seconds' => 'INT NOT NULL DEFAULT 0',
+                'last_sell_order_at' => 'DATETIME DEFAULT NULL',
+                'risk_review_status' => "VARCHAR(30) NOT NULL DEFAULT 'none'",
+                'risk_notes' => 'TEXT DEFAULT NULL'
             ];
             $dispCols = [
                 'additional_evidence_requested' => 'TINYINT(1) NOT NULL DEFAULT 0',
@@ -1072,6 +1105,21 @@ class SchemaInstaller {
                     CREATE INDEX IF NOT EXISTS idx_ev_email ON email_verifications(email);
                     CREATE INDEX IF NOT EXISTS idx_ev_token ON email_verifications(verification_token);
                     CREATE INDEX IF NOT EXISTS idx_ev_status ON email_verifications(status);
+
+                    CREATE TABLE IF NOT EXISTS health_score_audit_logs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        old_score INTEGER NOT NULL,
+                        new_score INTEGER NOT NULL,
+                        delta INTEGER NOT NULL,
+                        reason TEXT NOT NULL,
+                        event_type TEXT NOT NULL DEFAULT 'SYSTEM_EVENT',
+                        admin_id INTEGER DEFAULT NULL,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_hsal_user ON health_score_audit_logs(user_id);
+                    CREATE INDEX IF NOT EXISTS idx_hsal_created ON health_score_audit_logs(created_at);
                 ");
             } else {
                 try {
@@ -1091,6 +1139,20 @@ class SchemaInstaller {
                             INDEX `idx_ev_email` (`email`),
                             INDEX `idx_ev_token` (`verification_token`),
                             INDEX `idx_ev_status` (`status`)
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+                        CREATE TABLE IF NOT EXISTS `health_score_audit_logs` (
+                            `id` INT AUTO_INCREMENT PRIMARY KEY,
+                            `user_id` INT NOT NULL,
+                            `old_score` INT NOT NULL,
+                            `new_score` INT NOT NULL,
+                            `delta` INT NOT NULL,
+                            `reason` VARCHAR(255) NOT NULL,
+                            `event_type` VARCHAR(50) NOT NULL DEFAULT 'SYSTEM_EVENT',
+                            `admin_id` INT DEFAULT NULL,
+                            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                            INDEX `idx_hsal_user` (`user_id`),
+                            INDEX `idx_hsal_created` (`created_at`)
                         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
                     ");
                 } catch (Exception $e3) {}
