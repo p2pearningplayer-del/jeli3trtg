@@ -30,7 +30,7 @@ switch ($action) {
                    u_seller.account_holder_name as seller_name, u_seller.phone as seller_phone
             FROM disputes d
             JOIN child_orders c ON d.child_order_id = c.id
-            LEFT JOIN payment_proofs p ON c.id = p.child_order_id
+            LEFT JOIN payment_proofs p ON p.id = (SELECT MAX(id) FROM payment_proofs WHERE child_order_id = c.id)
             LEFT JOIN users u_buyer ON c.buyer_id = u_buyer.id
             LEFT JOIN users u_seller ON c.seller_id = u_seller.id
             WHERE c.buyer_id = ? OR c.seller_id = ? OR d.raised_by_user_id = ?
@@ -86,6 +86,65 @@ switch ($action) {
         }
 
         jsonResponse(true, ['disputes' => $disputes]);
+        break;
+
+    case 'detail':
+    case 'get':
+        $disputeId = (int)($_GET['dispute_id'] ?? $input['dispute_id'] ?? 0);
+        $childOrderId = (int)($_GET['order_id'] ?? $input['order_id'] ?? 0);
+        if ($disputeId <= 0 && $childOrderId <= 0) {
+            jsonError('Dispute ID or Order ID required.');
+        }
+
+        $stmt = $pdo->prepare("
+            SELECT d.*, c.amount, c.seller_id, c.buyer_id, c.status as order_status,
+                   c.verification_deadline, c.payment_deadline,
+                   p.screenshot_path as buyer_screenshot, p.utr_number as buyer_utr,
+                   u_buyer.account_holder_name as buyer_name, u_buyer.phone as buyer_phone,
+                   u_seller.account_holder_name as seller_name, u_seller.phone as seller_phone
+            FROM disputes d
+            JOIN child_orders c ON d.child_order_id = c.id
+            LEFT JOIN payment_proofs p ON p.id = (SELECT MAX(id) FROM payment_proofs WHERE child_order_id = c.id)
+            LEFT JOIN users u_buyer ON c.buyer_id = u_buyer.id
+            LEFT JOIN users u_seller ON c.seller_id = u_seller.id
+            WHERE " . ($disputeId > 0 ? "d.id = ?" : "c.id = ?") . "
+            LIMIT 1
+        ");
+        $stmt->execute([$disputeId > 0 ? $disputeId : $childOrderId]);
+        $disp = $stmt->fetch();
+        if (!$disp) {
+            jsonError('Dispute not found.', 404);
+        }
+
+        $isAdmin = ($user['role'] === 'admin') || !empty($user['real_admin_id']);
+        $isParty = ((int)$user['id'] === (int)$disp['seller_id'] || (int)$user['id'] === (int)$disp['buyer_id'] || (int)$user['id'] === (int)$disp['raised_by_user_id']);
+        if (!$isAdmin && !$isParty) {
+            jsonError('Unauthorized. You are not a party to this dispute.', 403);
+        }
+
+        $disp['formatted_id'] = sprintf('#%04d', (int)$disp['id']);
+        $disp['formatted_order_id'] = sprintf('#%04d', (int)$disp['child_order_id']);
+        $disp['amount'] = (float)$disp['amount'];
+        $disp['user_role'] = ((int)$user['id'] === (int)$disp['seller_id']) ? 'seller' : 'buyer';
+        $disp['is_initiator'] = ((int)$user['id'] === (int)$disp['raised_by_user_id']);
+
+        if ($disp['user_role'] === 'seller') {
+            unset($disp['buyer_name'], $disp['buyer_phone']);
+        } else {
+            if (!empty($disp['buyer_name'])) $disp['buyer_name_masked'] = Validator::maskName($disp['buyer_name']);
+        }
+        if (!empty($disp['seller_name'])) $disp['seller_name_masked'] = Validator::maskName($disp['seller_name']);
+
+        $finalDisputeStates = ['resolved_buyer', 'resolved_seller', 'cancelled'];
+        $finalOrderStates = ['completed', 'cancelled', 'expired', 'cancelled / reversed'];
+        $isFinal = in_array(strtolower($disp['status'] ?? ''), $finalDisputeStates) ||
+                   in_array(strtolower($disp['order_status'] ?? ''), $finalOrderStates);
+        if (!$isAdmin && $isFinal) {
+            $disp['evidence_screenshot_path'] = null;
+            $disp['buyer_screenshot'] = null;
+        }
+
+        jsonResponse(true, ['dispute' => $disp]);
         break;
 
     case 'upload_evidence':

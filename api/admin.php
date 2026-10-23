@@ -339,6 +339,9 @@ switch ($action) {
 
     case 'arbitrate':
         // Requirement 4: Dispute Resolution (Force Settle / Cancel & Reverse)
+        if (!AdminManager::checkPermission($user, 'disputes_arbitrate')) {
+            jsonError('Access denied. Insufficient permissions to arbitrate disputes.', 403);
+        }
         $disputeId = (int)($input['dispute_id'] ?? 0);
         $decision = $input['decision'] ?? '';
         $resolutionNotes = $input['resolution_notes'] ?? '';
@@ -357,6 +360,9 @@ switch ($action) {
 
     case 'request_evidence':
         // Requirement 4: Request additional evidence from buyer/seller
+        if (!AdminManager::checkPermission($user, 'evidence_request') && !AdminManager::checkPermission($user, 'disputes_arbitrate')) {
+            jsonError('Access denied. Insufficient permissions to request dispute evidence.', 403);
+        }
         $disputeId = (int)($input['dispute_id'] ?? 0);
         $instructions = $input['instructions'] ?? '';
 
@@ -373,6 +379,9 @@ switch ($action) {
 
     case 'update_refund':
         // Requirement 4: Track external refund status
+        if (!AdminManager::checkPermission($user, 'refund_track') && !AdminManager::checkPermission($user, 'disputes_arbitrate')) {
+            jsonError('Access denied. Insufficient permissions to update refund status.', 403);
+        }
         $disputeId = (int)($input['dispute_id'] ?? 0);
         $status = $input['status'] ?? 'pending';
         $refundRef = $input['refund_reference'] ?? null;
