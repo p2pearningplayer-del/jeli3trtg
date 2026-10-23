@@ -377,7 +377,7 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
 
                 <!-- Hidden / Auxiliary backward compatibility elements -->
                 <div class="hidden">
-                    <span id="dashOrdersPendingConfirm">0</span>
+                    <span id="dashOrdersPendingConfirm" onclick="switchAdminTab('orders', { status: 'Payment Proof Submitted', type: 'child' })">0</span>
                     <span id="dashOrdersCompletedTotal">0</span>
                     <span id="dashOrdersCancelledTotal">0</span>
                     <span id="dashOrdersDisputedResolved">0</span>
@@ -659,34 +659,93 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
         <!-- VIEW 4: DISPUTE & APPEAL MANAGEMENT -->
         <!-- ========================================== -->
         <section id="adminView-disputes" class="admin-view space-y-6 hidden">
-            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                    <h3 class="text-lg font-bold text-white">Dispute & Appeal Arbitration Console</h3>
-                    <p class="text-xs text-slate-400">Review buyer UTR and screenshot proof against seller appeal statements. Tokens remain frozen until arbitration.</p>
-                </div>
-                <div class="flex flex-wrap items-center gap-2.5">
-                    <div class="relative">
-                        <input type="text" id="disputeSearchInput" onkeyup="if(event.key === 'Enter') loadAdminDisputes();"
-                               placeholder="Search Order ID, UTR, phone, trader..."
-                               class="bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 w-56 sm:w-64">
-                        <svg class="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+            <!-- Dispute Section Tabs (Requirement 2) -->
+            <div class="flex items-center gap-2 border-b border-slate-800 pb-3 overflow-x-auto">
+                <button type="button" onclick="switchDisputeSection('pending')" id="disputeSecTab-pending"
+                        class="px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 bg-amber-500/20 text-amber-400 border border-amber-500/40">
+                    <span>Pending Disputes</span>
+                    <span id="disputeSecCount-pending" class="px-1.5 py-0.5 rounded-full bg-slate-900 text-amber-400 text-[10px] border border-amber-500/20">0</span>
+                </button>
+                <button type="button" onclick="switchDisputeSection('evidence_required')" id="disputeSecTab-evidence_required"
+                        class="px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 text-slate-400 hover:text-white hover:bg-slate-800/60 border border-transparent">
+                    <span>Evidence Required</span>
+                    <span id="disputeSecCount-evidence_required" class="px-1.5 py-0.5 rounded-full bg-slate-900 text-slate-400 text-[10px] border border-slate-800">0</span>
+                </button>
+                <button type="button" onclick="switchDisputeSection('resolved')" id="disputeSecTab-resolved"
+                        class="px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 text-slate-400 hover:text-white hover:bg-slate-800/60 border border-transparent">
+                    <span>Resolved Disputes</span>
+                    <span id="disputeSecCount-resolved" class="px-1.5 py-0.5 rounded-full bg-slate-900 text-slate-400 text-[10px] border border-slate-800">0</span>
+                </button>
+            </div>
+
+            <!-- Header Controls Card -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                        <h3 class="text-lg font-bold text-white" id="disputeSectionHeading">Pending Disputes Console</h3>
+                        <p class="text-xs text-slate-400" id="disputeSectionSubtext">Disputes awaiting administrator arbitration or decision. Tokens remain frozen.</p>
                     </div>
-                    <select id="disputeStatusFilter" onchange="loadAdminDisputes()" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500">
-                        <option value="all">All Disputes</option>
-                        <option value="pending">Pending Only</option>
-                        <option value="under_review">Under Review</option>
-                        <option value="resolved_buyer">Resolved (Buyer Settled)</option>
-                        <option value="resolved_seller">Resolved (Seller Reversed)</option>
-                    </select>
-                    <button onclick="loadAdminDisputes()" class="px-3 py-2 text-xs font-semibold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl transition flex items-center gap-1.5" title="Search & Refresh">
-                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-                        <span>Search</span>
-                    </button>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs text-slate-400">Per page:</span>
+                        <select id="disputePageSize" onchange="changeDisputePageSize(this.value)" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500">
+                            <option value="20">20 records</option>
+                            <option value="40">40 records</option>
+                            <option value="100">100 records</option>
+                        </select>
+                        <button onclick="loadAdminDisputes()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold border border-slate-700 transition">
+                            Refresh
+                        </button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                    <div class="lg:col-span-3">
+                        <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Search Order ID / Parent Order ID / Buyer / Seller / UTR / Reference</label>
+                        <div class="relative">
+                            <input type="text" id="disputeSearchInput" onkeyup="if(event.key === 'Enter') { disputePageOffset=0; loadAdminDisputes(); }"
+                                   placeholder="Search Order ID, Parent Order ID, Buyer User ID, Seller User ID, UTR, phone, name..."
+                                   class="w-full bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500">
+                            <svg class="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Sub-status Filter</label>
+                        <select id="disputeStatusFilter" onchange="disputePageOffset=0; loadAdminDisputes()" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500">
+                            <option value="all">All Sub-Statuses</option>
+                            <option value="pending">Pending</option>
+                            <option value="under_review">Under Review</option>
+                            <option value="resolved_buyer">Resolved (Buyer Settled)</option>
+                            <option value="resolved_seller">Resolved (Seller Reversed)</option>
+                        </select>
+                    </div>
+                    <div class="flex items-end gap-2">
+                        <button onclick="disputePageOffset=0; loadAdminDisputes()" class="flex-1 px-4 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-500 rounded-xl transition flex items-center justify-center gap-1.5 shadow-sm">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                            <span>Search</span>
+                        </button>
+                        <button onclick="resetDisputeFilters()" class="px-3 py-2 text-xs font-semibold text-slate-400 hover:text-slate-200 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl transition" title="Clear search">
+                            Reset
+                        </button>
+                    </div>
                 </div>
             </div>
 
             <!-- Disputes Container -->
             <div id="adminDisputesContainer" class="space-y-4"></div>
+
+            <!-- Pagination Footer Bar (Requirement 3) -->
+            <div id="disputePaginationBar" class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                <span id="disputePaginationInfo" class="text-slate-400 font-mono">Showing 0 matching disputes</span>
+                <div class="flex items-center gap-2">
+                    <button id="disputePrevBtn" onclick="changeDisputePage('prev')" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-slate-800 text-slate-300 rounded-xl font-semibold border border-slate-700 transition">
+                        &larr; Previous
+                    </button>
+                    <span id="disputePageIndicator" class="px-3 py-1.5 text-slate-400 font-mono">Page 1</span>
+                    <button id="disputeNextBtn" onclick="changeDisputePage('next')" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-slate-800 text-slate-300 rounded-xl font-semibold border border-slate-700 transition">
+                        Next &rarr;
+                    </button>
+                </div>
+            </div>
         </section>
 
         <!-- ========================================== -->

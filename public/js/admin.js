@@ -92,6 +92,9 @@ function switchAdminTab(tabId, filterOptions = null) {
     }
 
     if (tabId === 'disputes' && filterOptions) {
+        if (filterOptions.section) {
+            currentDisputeSection = filterOptions.section;
+        }
         if (filterOptions.status && document.getElementById('disputeStatusFilter')) {
             document.getElementById('disputeStatusFilter').value = filterOptions.status;
         }
@@ -805,56 +808,134 @@ async function cancelAdminOrder(orderId) {
 }
 
 // -------------------------------------------------------------
-// TAB 4: DISPUTE ARBITRATION (Requirement 4)
+// TAB 4: DISPUTE ARBITRATION (Requirement 4 & Dispute Management Bugfix)
 // -------------------------------------------------------------
 
-async function loadAdminDisputes() {
-    const status = document.getElementById('disputeStatusFilter')?.value || 'all';
-    const query = document.getElementById('disputeSearchInput')?.value || '';
+let currentDisputeSection = 'pending';
+let disputePageOffset = 0;
+let disputePageLimit = 20;
+let disputeTotalRecords = 0;
 
-    try {
-        const res = await fetch(`/api/admin.php?action=disputes&status=${encodeURIComponent(status)}&query=${encodeURIComponent(query)}`);
-        const data = await res.json();
-        const list = document.getElementById('adminDisputesContainer');
-        if (!list) return;
+function switchDisputeSection(sec) {
+    if (!['pending', 'evidence_required', 'resolved'].includes(sec)) return;
+    currentDisputeSection = sec;
+    disputePageOffset = 0;
 
-        if (!data.success || !data.disputes || data.disputes.length === 0) {
-            list.innerHTML = `<div class="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center text-slate-500 font-sans">No matching disputes found.</div>`;
-            return;
+    // Update section tabs styling
+    ['pending', 'evidence_required', 'resolved'].forEach(s => {
+        const tab = document.getElementById(`disputeSecTab-${s}`);
+        const countBadge = document.getElementById(`disputeSecCount-${s}`);
+        if (!tab) return;
+        if (s === sec) {
+            tab.className = 'px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 bg-amber-500/20 text-amber-400 border border-amber-500/40';
+            if (countBadge) countBadge.className = 'px-1.5 py-0.5 rounded-full bg-slate-900 text-amber-400 text-[10px] border border-amber-500/20';
+        } else {
+            tab.className = 'px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 text-slate-400 hover:text-white hover:bg-slate-800/60 border border-transparent';
+            if (countBadge) countBadge.className = 'px-1.5 py-0.5 rounded-full bg-slate-900 text-slate-400 text-[10px] border border-slate-800';
         }
+    });
 
-        list.innerHTML = data.disputes.map(d => `
-            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-sm">
+    // Update heading and subtext
+    const heading = document.getElementById('disputeSectionHeading');
+    const subtext = document.getElementById('disputeSectionSubtext');
+    if (sec === 'pending') {
+        if (heading) heading.innerText = 'Pending Disputes Console';
+        if (subtext) subtext.innerText = 'Disputes awaiting administrator arbitration or decision. Tokens remain frozen.';
+    } else if (sec === 'evidence_required') {
+        if (heading) heading.innerText = 'Disputes Awaiting Evidence';
+        if (subtext) subtext.innerText = 'Cases where additional statements, screenshots, or bank proofs have been requested from traders.';
+    } else if (sec === 'resolved') {
+        if (heading) heading.innerText = 'Resolved Disputes Archive';
+        if (subtext) subtext.innerText = 'Complete audit history of settled, reversed, and finalized dispute decisions.';
+    }
+
+    loadAdminDisputes();
+}
+
+function changeDisputePageSize(val) {
+    disputePageLimit = parseInt(val) || 20;
+    disputePageOffset = 0;
+    loadAdminDisputes();
+}
+
+function changeDisputePage(direction) {
+    if (direction === 'prev' && disputePageOffset > 0) {
+        disputePageOffset = Math.max(0, disputePageOffset - disputePageLimit);
+        loadAdminDisputes();
+    } else if (direction === 'next' && (disputePageOffset + disputePageLimit) < disputeTotalRecords) {
+        disputePageOffset += disputePageLimit;
+        loadAdminDisputes();
+    }
+}
+
+function resetDisputeFilters() {
+    const searchInput = document.getElementById('disputeSearchInput');
+    if (searchInput) searchInput.value = '';
+    const statusSelect = document.getElementById('disputeStatusFilter');
+    if (statusSelect) statusSelect.value = 'all';
+    disputePageOffset = 0;
+    loadAdminDisputes();
+}
+
+function updateDisputePaginationControls() {
+    const info = document.getElementById('disputePaginationInfo');
+    const prevBtn = document.getElementById('disputePrevBtn');
+    const nextBtn = document.getElementById('disputeNextBtn');
+    const pageIndicator = document.getElementById('disputePageIndicator');
+
+    const start = disputeTotalRecords > 0 ? (disputePageOffset + 1) : 0;
+    const end = Math.min(disputePageOffset + disputePageLimit, disputeTotalRecords);
+    const currentPage = disputeTotalRecords > 0 ? (Math.floor(disputePageOffset / disputePageLimit) + 1) : 1;
+    const totalPages = Math.max(1, Math.ceil(disputeTotalRecords / disputePageLimit));
+
+    if (info) info.innerText = `Showing ${start} - ${end} of ${disputeTotalRecords} matching disputes`;
+    if (pageIndicator) pageIndicator.innerText = `Page ${currentPage} of ${totalPages}`;
+    if (prevBtn) prevBtn.disabled = (disputePageOffset <= 0);
+    if (nextBtn) nextBtn.disabled = ((disputePageOffset + disputePageLimit) >= disputeTotalRecords);
+}
+
+function renderDisputeCardHtml(d, section) {
+    const amountFormatted = parseFloat(d.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const buyerPhone = escapeHtml(d.buyer_phone || '');
+    const sellerPhone = escapeHtml(d.seller_phone || '');
+    const buyerName = escapeHtml(d.buyer_name || 'Buyer');
+    const sellerName = escapeHtml(d.seller_name || 'Seller');
+
+    // Section A: Pending Disputes
+    if (section === 'pending') {
+        return `
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-sm hover:border-slate-700 transition">
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-3 gap-2">
                     <div class="flex items-center gap-2 flex-wrap">
                         <span class="text-sm font-mono font-bold text-amber-400">Dispute #${d.id} &bull; Order #${d.child_order_id}</span>
-                        <span class="px-2.5 py-0.5 rounded text-xs uppercase font-bold ${d.status === 'resolved_buyer' ? 'bg-emerald-500/10 text-emerald-400' : (d.status === 'resolved_seller' ? 'bg-indigo-500/10 text-indigo-400' : 'bg-red-500/20 text-red-400')}">
-                            ${d.status}
+                        ${d.parent_order_id ? `<span class="text-xs font-mono text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded">Parent #${d.parent_order_id}</span>` : ''}
+                        <span class="px-2.5 py-0.5 rounded text-xs uppercase font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                            ${escapeHtml(d.status)}
                         </span>
-                        ${d.additional_evidence_requested ? '<span class="text-[10px] px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 font-bold uppercase">Evidence Requested</span>' : ''}
+                        <span class="text-[11px] text-slate-400 font-mono">Created: ${escapeHtml(d.created_at || 'N/A')}</span>
                         <button type="button" onclick="openDisputeOrderDetailsModal(${d.id})" class="px-2.5 py-1 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg transition flex items-center gap-1.5 cursor-pointer ml-1" title="Inspect Full Order Details">
                             <svg class="w-3.5 h-3.5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                            <span>Order Details</span>
+                            <span>View Details</span>
                         </button>
                     </div>
                     <div class="text-right">
-                        <span class="text-xl font-black text-white font-mono">₹${parseFloat(d.amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                        <span class="text-xs text-slate-500 block">Base Order Amount</span>
+                        <span class="text-xl font-black text-white font-mono">₹${amountFormatted}</span>
+                        <span class="text-xs text-slate-500 block">Order Amount</span>
                     </div>
                 </div>
 
                 ${renderSellerPaymentDetailsHtml(d)}
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                    <!-- Seller Statement -->
+                    <!-- Seller Statement & Proof Status -->
                     <div class="bg-slate-950 p-4 rounded-xl border border-slate-800/80 space-y-2">
                         <div class="flex items-center justify-between">
                             <span class="text-red-400 font-bold uppercase tracking-wider block">Seller Appeal Notice</span>
-                            <span class="text-[10px] text-slate-500 font-mono">${escapeHtml(d.seller_phone || '')}</span>
+                            <span class="text-[10px] text-slate-500 font-mono">User #${d.seller_id} (${sellerPhone})</span>
                         </div>
-                        <p class="text-slate-300 italic">"${escapeHtml(d.reason)}"</p>
+                        <p class="text-slate-300 italic">"${escapeHtml(d.reason || 'No statement provided')}"</p>
                         <div class="text-[11px] text-slate-400">
-                            Seller: <strong class="text-white">${escapeHtml(d.seller_name || 'Seller')}</strong>
+                            Seller: <strong class="text-white">${sellerName}</strong>
                         </div>
                         ${d.evidence_screenshot_path ? `
                             <button type="button" onclick="openEvidenceLightbox('${escapeHtml(d.evidence_screenshot_path)}', 'Seller Evidence Document - Dispute #${d.id}')" class="inline-flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 underline font-semibold mt-1 cursor-pointer">
@@ -864,22 +945,22 @@ async function loadAdminDisputes() {
                         ` : '<span class="text-[11px] text-slate-600 block">No seller file attached</span>'}
                     </div>
 
-                    <!-- Buyer Payment Proof -->
+                    <!-- Buyer Payment Proof Status -->
                     <div class="bg-slate-950 p-4 rounded-xl border border-slate-800/80 space-y-2">
                         <div class="flex items-center justify-between">
                             <span class="text-emerald-400 font-bold uppercase tracking-wider block">Buyer Payment Submission</span>
-                            <span class="text-[10px] text-slate-500 font-mono">${escapeHtml(d.buyer_phone || '')}</span>
+                            <span class="text-[10px] text-slate-500 font-mono">User #${d.buyer_id} (${buyerPhone})</span>
                         </div>
                         <div class="text-slate-300 font-mono">UTR: <strong class="text-white">${escapeHtml(d.utr_number || 'N/A')}</strong></div>
                         <div class="text-[11px] text-slate-400">
-                            Buyer: <strong class="text-white">${escapeHtml(d.buyer_name || 'Buyer')}</strong>
+                            Buyer: <strong class="text-white">${buyerName}</strong>
                         </div>
                         ${d.buyer_screenshot ? `
                             <button type="button" onclick="openEvidenceLightbox('${escapeHtml(d.buyer_screenshot)}', 'Buyer Payment Screenshot - Dispute #${d.id} (Order #${d.child_order_id})')" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs font-bold transition shadow-sm cursor-pointer mt-1">
                                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
                                 <span>Inspect Buyer Payment Screenshot</span>
                             </button>
-                        ` : '<span class="text-[11px] text-slate-600 block">No buyer screenshot</span>'}
+                        ` : '<span class="text-[11px] text-slate-600 block">No buyer screenshot attached</span>'}
                     </div>
                 </div>
 
@@ -887,7 +968,7 @@ async function loadAdminDisputes() {
                 <div class="bg-slate-950/60 p-3 rounded-xl border border-slate-800 flex items-center justify-between text-xs font-mono">
                     <div>
                         <span class="text-slate-500">Refund Status:</span>
-                        <span class="text-amber-400 font-bold ml-1">${escapeHtml(d.refund_status.toUpperCase())}</span>
+                        <span class="text-amber-400 font-bold ml-1">${escapeHtml((d.refund_status || 'NONE').toUpperCase())}</span>
                         ${d.refund_reference ? `<span class="text-slate-400 ml-2">Ref: ${escapeHtml(d.refund_reference)}</span>` : ''}
                     </div>
                     <button onclick="promptRefundStatus(${d.id})" class="text-[10px] text-indigo-400 hover:text-indigo-300 underline font-sans">
@@ -895,29 +976,213 @@ async function loadAdminDisputes() {
                     </button>
                 </div>
 
-                ${d.status === 'pending' || d.status === 'under_review' ? `
-                    <div class="space-y-2 pt-2 border-t border-slate-800">
-                        <input type="text" id="dispNotes_${d.id}" placeholder="Enter mandatory resolution rationale for immutable audit trail..."
-                               class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500">
-                        <div class="flex items-center gap-2 justify-end">
-                            <button onclick="requestMoreEvidence(${d.id})" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold transition">
-                                Request More Evidence
-                            </button>
-                            <button onclick="arbitrateDispute(${d.id}, 'force_settle')" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition shadow-md shadow-emerald-600/20">
-                                Force Settle (Buyer)
-                            </button>
-                            <button onclick="arbitrateDispute(${d.id}, 'cancel_reverse')" class="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition shadow-md shadow-red-600/20">
-                                Cancel & Return (Seller)
-                            </button>
+                <!-- Administrative Arbitration Controls -->
+                <div class="space-y-2 pt-2 border-t border-slate-800">
+                    <input type="text" id="dispNotes_${d.id}" placeholder="Enter mandatory resolution rationale for immutable audit trail..."
+                           class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500">
+                    <div class="flex items-center gap-2 justify-end flex-wrap">
+                        <button onclick="requestMoreEvidence(${d.id})" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-xl text-xs font-bold transition">
+                            Request More Evidence
+                        </button>
+                        <button onclick="arbitrateDispute(${d.id}, 'force_settle')" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition shadow-md shadow-emerald-600/20">
+                            Force Settle (Buyer)
+                        </button>
+                        <button onclick="arbitrateDispute(${d.id}, 'cancel_reverse')" class="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition shadow-md shadow-red-600/20">
+                            Cancel & Return (Seller)
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    // Section B: Evidence Required
+    if (section === 'evidence_required') {
+        const evidenceNote = escapeHtml(d.resolution_notes || 'Specific statement or bank proof requested by administrator');
+        const reqTime = escapeHtml(d.updated_at || d.created_at || 'Pending');
+        const deadline = d.verification_deadline ? escapeHtml(d.verification_deadline) : 'Active SLA (24h Window)';
+
+        return `
+            <div class="bg-slate-900 border border-blue-500/30 rounded-2xl p-6 space-y-4 shadow-sm hover:border-blue-500/50 transition">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-3 gap-2">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <span class="text-sm font-mono font-bold text-blue-400">Dispute #${d.id} &bull; Order #${d.child_order_id}</span>
+                        ${d.parent_order_id ? `<span class="text-xs font-mono text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded">Parent #${d.parent_order_id}</span>` : ''}
+                        <span class="px-2.5 py-0.5 rounded text-xs uppercase font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                            Evidence Required
+                        </span>
+                        <button type="button" onclick="openDisputeOrderDetailsModal(${d.id})" class="px-2.5 py-1 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg transition flex items-center gap-1.5 cursor-pointer ml-1" title="Inspect Full Order Details">
+                            <svg class="w-3.5 h-3.5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            <span>View Details</span>
+                        </button>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-xl font-black text-white font-mono">₹${amountFormatted}</span>
+                        <span class="text-xs text-slate-500 block">Order Amount</span>
+                    </div>
+                </div>
+
+                <!-- Evidence Request Summary Banner -->
+                <div class="bg-blue-950/40 border border-blue-500/30 rounded-xl p-4 text-xs space-y-2">
+                    <div class="flex items-center justify-between">
+                        <span class="text-blue-300 font-bold uppercase tracking-wider flex items-center gap-1.5">
+                            <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                            Evidence Requested From: Buyer & Seller
+                        </span>
+                        <span class="text-slate-400 font-mono text-[11px]">Requested At: ${reqTime}</span>
+                    </div>
+                    <div class="text-slate-200 bg-slate-900/80 p-3 rounded-lg border border-slate-800 font-mono">
+                        <span class="text-slate-400 font-sans block text-[10px] uppercase font-bold">Evidence Instructions</span>
+                        "${evidenceNote}"
+                    </div>
+                    <div class="flex items-center justify-between text-[11px] text-slate-400 pt-1">
+                        <span>Response Deadline: <strong class="text-amber-400 font-mono">${deadline}</strong></span>
+                        <span>Current Status: <strong class="text-blue-400">${escapeHtml(d.status)}</strong></span>
+                    </div>
+                </div>
+
+                ${renderSellerPaymentDetailsHtml(d)}
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                    <div class="bg-slate-950 p-4 rounded-xl border border-slate-800/80 space-y-1">
+                        <span class="text-slate-400 uppercase font-bold block text-[10px]">Seller Information</span>
+                        <div class="font-mono text-white">User #${d.seller_id}: ${sellerName}</div>
+                        <div class="text-slate-400">${sellerPhone}</div>
+                        ${d.evidence_screenshot_path ? `
+                            <button type="button" onclick="openEvidenceLightbox('${escapeHtml(d.evidence_screenshot_path)}', 'Seller Evidence Document - Dispute #${d.id}')" class="text-indigo-400 hover:text-indigo-300 underline font-semibold text-xs mt-1 block">Inspect Seller Evidence</button>
+                        ` : '<span class="text-slate-600 block text-[11px] mt-1">No seller evidence uploaded yet</span>'}
+                    </div>
+
+                    <div class="bg-slate-950 p-4 rounded-xl border border-slate-800/80 space-y-1">
+                        <span class="text-slate-400 uppercase font-bold block text-[10px]">Buyer Information</span>
+                        <div class="font-mono text-white">User #${d.buyer_id}: ${buyerName}</div>
+                        <div class="text-slate-400">${buyerPhone}</div>
+                        <div class="text-slate-400 font-mono">UTR: ${escapeHtml(d.utr_number || 'N/A')}</div>
+                        ${d.buyer_screenshot ? `
+                            <button type="button" onclick="openEvidenceLightbox('${escapeHtml(d.buyer_screenshot)}', 'Buyer Payment Proof - Dispute #${d.id}')" class="text-amber-400 hover:text-amber-300 underline font-semibold text-xs mt-1 block">Inspect Buyer Screenshot</button>
+                        ` : '<span class="text-slate-600 block text-[11px] mt-1">No buyer screenshot uploaded yet</span>'}
+                    </div>
+                </div>
+
+                <!-- Admin Action Controls if ready to arbitrate or re-request -->
+                <div class="space-y-2 pt-2 border-t border-slate-800">
+                    <input type="text" id="dispNotes_${d.id}" placeholder="Enter updated instructions or mandatory resolution notes for audit..."
+                           class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500">
+                    <div class="flex items-center gap-2 justify-end flex-wrap">
+                        <button onclick="requestMoreEvidence(${d.id})" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-xl text-xs font-bold transition">
+                            Update Evidence Request
+                        </button>
+                        <button onclick="arbitrateDispute(${d.id}, 'force_settle')" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition shadow-md shadow-emerald-600/20">
+                            Force Settle (Buyer)
+                        </button>
+                        <button onclick="arbitrateDispute(${d.id}, 'cancel_reverse')" class="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition shadow-md shadow-red-600/20">
+                            Cancel & Return (Seller)
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    // Section C: Resolved Disputes
+    if (section === 'resolved') {
+        const isBuyerWon = (d.status === 'resolved_buyer');
+        const decisionText = isBuyerWon ? 'Force Settled (Buyer Released)' : (d.status === 'resolved_seller' ? 'Cancelled & Reversed (Seller Recredited)' : escapeHtml(d.status));
+        const decisionBadgeClass = isBuyerWon ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30';
+        const resolverAdmin = escapeHtml(d.resolved_by_name || d.resolved_by_phone || (d.resolved_by_admin_id ? 'Admin #' + d.resolved_by_admin_id : 'System Administrator'));
+        const resolutionDate = escapeHtml(d.resolved_at || 'Archived');
+        const resolutionNotes = escapeHtml(d.resolution_notes || 'Resolved via arbitration');
+
+        return `
+            <div class="bg-slate-900 border border-slate-800/80 rounded-2xl p-6 space-y-4 shadow-sm hover:border-slate-700 transition">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-3 gap-2">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <span class="text-sm font-mono font-bold text-slate-300">Dispute #${d.id} &bull; Order #${d.child_order_id}</span>
+                        ${d.parent_order_id ? `<span class="text-xs font-mono text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded">Parent #${d.parent_order_id}</span>` : ''}
+                        <span class="px-2.5 py-0.5 rounded text-xs uppercase font-bold ${decisionBadgeClass}">
+                            ${decisionText}
+                        </span>
+                        <button type="button" onclick="openDisputeOrderDetailsModal(${d.id})" class="px-2.5 py-1 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg transition flex items-center gap-1.5 cursor-pointer ml-1" title="Inspect Full Order History">
+                            <svg class="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            <span>View History</span>
+                        </button>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-xl font-black text-white font-mono">₹${amountFormatted}</span>
+                        <span class="text-xs text-slate-500 block">Settled Order Amount</span>
+                    </div>
+                </div>
+
+                <!-- Resolution Metadata Card -->
+                <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 text-xs space-y-2">
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 border-b border-slate-800/80 pb-2.5">
+                        <div>
+                            <span class="text-[10px] text-slate-500 uppercase font-bold block">Final Decision</span>
+                            <span class="font-bold text-white">${decisionText}</span>
+                        </div>
+                        <div>
+                            <span class="text-[10px] text-slate-500 uppercase font-bold block">Resolution Date</span>
+                            <span class="font-mono text-slate-300">${resolutionDate}</span>
+                        </div>
+                        <div>
+                            <span class="text-[10px] text-slate-500 uppercase font-bold block">Resolved By</span>
+                            <span class="font-semibold text-amber-400">${resolverAdmin}</span>
                         </div>
                     </div>
-                ` : `
-                    <div class="text-xs text-slate-400 bg-slate-950 p-3 rounded-xl font-mono border border-slate-800/60">
-                        Resolved: <span class="text-slate-200">${escapeHtml(d.resolution_notes || 'Resolved by arbitration')}</span>
+                    <div>
+                        <span class="text-[10px] text-slate-500 uppercase font-bold block mb-1">Resolution Reason / Audit Notes</span>
+                        <p class="text-slate-300 bg-slate-900/90 p-3 rounded-lg border border-slate-800 font-mono text-[11px]">
+                            "${resolutionNotes}"
+                        </p>
                     </div>
-                `}
+                </div>
+
+                ${renderSellerPaymentDetailsHtml(d)}
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                    <div class="bg-slate-950 p-3 rounded-xl border border-slate-800/80 text-slate-400">
+                        Buyer: <strong class="text-white">User #${d.buyer_id} (${buyerName})</strong> &bull; ${buyerPhone}
+                        ${d.utr_number ? `<div class="font-mono text-[11px] text-slate-300 mt-1">UTR: ${escapeHtml(d.utr_number)}</div>` : ''}
+                    </div>
+                    <div class="bg-slate-950 p-3 rounded-xl border border-slate-800/80 text-slate-400">
+                        Seller: <strong class="text-white">User #${d.seller_id} (${sellerName})</strong> &bull; ${sellerPhone}
+                    </div>
+                </div>
             </div>
-        `).join('');
+        `;
+    }
+
+    return '';
+}
+
+async function loadAdminDisputes() {
+    const status = document.getElementById('disputeStatusFilter')?.value || 'all';
+    const query = document.getElementById('disputeSearchInput')?.value || '';
+    const section = currentDisputeSection || 'pending';
+    const page = Math.floor(disputePageOffset / disputePageLimit) + 1;
+
+    try {
+        const res = await fetch(`/api/admin.php?action=disputes&section=${encodeURIComponent(section)}&status=${encodeURIComponent(status)}&query=${encodeURIComponent(query)}&limit=${disputePageLimit}&page=${page}`);
+        const data = await res.json();
+        const list = document.getElementById('adminDisputesContainer');
+        if (!list) return;
+
+        if (data.counts) {
+            setBadge('disputeSecCount-pending', data.counts.pending || 0);
+            setBadge('disputeSecCount-evidence_required', data.counts.evidence_required || 0);
+            setBadge('disputeSecCount-resolved', data.counts.resolved || 0);
+        }
+
+        disputeTotalRecords = data.total || 0;
+        updateDisputePaginationControls();
+
+        if (!data.success || !data.disputes || data.disputes.length === 0) {
+            const cleanSecTitle = section === 'pending' ? 'Pending Disputes' : (section === 'evidence_required' ? 'Evidence Required' : 'Resolved Disputes');
+            list.innerHTML = `<div class="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center text-slate-500 font-sans">No matching disputes found in ${cleanSecTitle}.</div>`;
+            return;
+        }
+
+        list.innerHTML = data.disputes.map(d => renderDisputeCardHtml(d, section)).join('');
     } catch (e) {
         console.error('Failed to load disputes:', e);
     }
@@ -1191,10 +1456,20 @@ async function openDisputeOrderDetailsModal(disputeId) {
                 </div>
             </div>
 
-            ${d.resolution_notes ? `
-                <div class="bg-slate-950 p-3.5 rounded-xl border border-slate-800 text-xs font-mono text-slate-300">
-                    <span class="text-slate-500 font-sans block text-[10px] uppercase font-bold">Resolution Log</span>
-                    ${escapeHtml(d.resolution_notes)}
+            ${(d.resolution_notes || d.resolved_at) ? `
+                <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 text-xs space-y-1.5 font-mono text-slate-300">
+                    <div class="flex items-center justify-between text-[10px] text-slate-400 uppercase font-bold font-sans">
+                        <span>Resolution Arbitration History</span>
+                        <span>Resolved: ${escapeHtml(d.resolved_at || 'Archived')}</span>
+                    </div>
+                    ${(d.resolved_by_name || d.resolved_by_phone) ? `
+                        <div class="text-[11px] text-amber-400">
+                            Arbitrated By: ${escapeHtml(d.resolved_by_name || '')} (${escapeHtml(d.resolved_by_phone || '')})
+                        </div>
+                    ` : ''}
+                    <div class="text-slate-200 bg-slate-900/80 p-3 rounded-lg border border-slate-800 font-mono text-[11px] mt-1">
+                        ${escapeHtml(d.resolution_notes || 'Resolved')}
+                    </div>
                 </div>
             ` : ''}
         `;
@@ -1213,6 +1488,11 @@ function closeDisputeOrderDetailsModal() {
 window.renderSellerPaymentDetailsHtml = renderSellerPaymentDetailsHtml;
 window.openDisputeOrderDetailsModal = openDisputeOrderDetailsModal;
 window.closeDisputeOrderDetailsModal = closeDisputeOrderDetailsModal;
+window.switchDisputeSection = switchDisputeSection;
+window.changeDisputePageSize = changeDisputePageSize;
+window.changeDisputePage = changeDisputePage;
+window.resetDisputeFilters = resetDisputeFilters;
+window.loadAdminDisputes = loadAdminDisputes;
 
 // -------------------------------------------------------------
 // TAB 5 & 6: REWARDS, CONTENT & GLOBAL CONFIGURATIONS

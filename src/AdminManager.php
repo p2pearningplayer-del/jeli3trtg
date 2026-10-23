@@ -831,6 +831,213 @@ class AdminManager {
     }
 
     /**
+     * Retrieve paginated disputes partitioned into three sections (Pending, Evidence Required, Resolved)
+     * with comprehensive multi-field search across Order ID, Parent Order ID, Buyer ID, Seller ID, and UTR.
+     */
+    public static function getDisputes(
+        string $section = 'pending',
+        string $status = 'all',
+        string $query = '',
+        int $limit = 20,
+        int $offset = 0
+    ): array {
+        $pdo = Database::getConnection();
+
+        // 1. Auto-heal any child orders with status 'Disputed' missing a disputes record
+        try {
+            $orphans = $pdo->query("
+                SELECT c.id, c.buyer_id, c.seller_id, c.created_at
+                FROM child_orders c
+                LEFT JOIN disputes d ON c.id = d.child_order_id
+                WHERE LOWER(c.status) IN ('disputed', 'under admin review') AND d.id IS NULL
+            ")->fetchAll();
+            if (!empty($orphans)) {
+                $insOrphan = $pdo->prepare("
+                    INSERT INTO disputes (child_order_id, raised_by_user_id, raised_by_role, reason, status, created_at)
+                    VALUES (?, ?, 'system', 'Arbitration case automatically tracked for disputed order', 'pending', ?)
+                ");
+                $nowUtc = gmdate('Y-m-d H:i:s');
+                foreach ($orphans as $orphan) {
+                    $raisedUserId = !empty($orphan['buyer_id']) ? (int)$orphan['buyer_id'] : (!empty($orphan['seller_id']) ? (int)$orphan['seller_id'] : 1);
+                    $insOrphan->execute([(int)$orphan['id'], $raisedUserId, $orphan['created_at'] ?: $nowUtc]);
+                }
+            }
+        } catch (Exception $e) {
+            // Non-blocking auto-heal fallback
+        }
+
+        // 2. Base SQL components
+        $baseJoin = "
+            FROM disputes d
+            JOIN child_orders c ON d.child_order_id = c.id
+            LEFT JOIN parent_sell_orders ps ON c.parent_order_id = ps.id
+            LEFT JOIN users u_seller ON c.seller_id = u_seller.id
+            LEFT JOIN users u_buyer ON c.buyer_id = u_buyer.id
+            LEFT JOIN users u_admin ON d.resolved_by_admin_id = u_admin.id
+            LEFT JOIN payment_proofs p ON p.id = (SELECT MAX(id) FROM payment_proofs WHERE child_order_id = c.id)
+        ";
+
+        // Classification predicates (Mutually Exclusive)
+        $resolvedStatuses = "'resolved_buyer', 'resolved_seller', 'resolved', 'cancelled', 'rejected'";
+        $pendingClause = "(d.status NOT IN ({$resolvedStatuses}) AND (d.additional_evidence_requested = 0 OR d.additional_evidence_requested IS NULL) AND LOWER(d.status) NOT IN ('awaiting_evidence', 'evidence_required') AND d.resolved_at IS NULL)";
+        $evidenceClause = "(d.status NOT IN ({$resolvedStatuses}) AND (d.additional_evidence_requested = 1 OR LOWER(d.status) IN ('awaiting_evidence', 'evidence_required')) AND d.resolved_at IS NULL)";
+        $resolvedClause = "(d.status IN ({$resolvedStatuses}) OR d.resolved_at IS NOT NULL)";
+
+        // 3. Search criteria
+        $searchClause = "";
+        $searchParams = [];
+
+        $cleanQuery = trim($query);
+        if ($cleanQuery !== '') {
+            $searchClauses = [];
+            $extractedDigits = preg_replace('/\D/', '', $cleanQuery);
+            if ($extractedDigits !== '') {
+                $numId = (int)$extractedDigits;
+                $searchClauses[] = "(
+                    d.id = :num_id
+                    OR c.id = :num_id
+                    OR c.parent_order_id = :num_id
+                    OR c.buyer_id = :num_id
+                    OR c.seller_id = :num_id
+                    OR d.raised_by_user_id = :num_id
+                )";
+                $searchParams[':num_id'] = $numId;
+            }
+
+            $textConditions = [
+                "LOWER(p.utr_number) LIKE :qlike",
+                "LOWER(d.refund_reference) LIKE :qlike",
+                "u_seller.phone LIKE :qlike",
+                "LOWER(u_seller.account_holder_name) LIKE :qlike",
+                "LOWER(u_seller.email) LIKE :qlike",
+                "u_buyer.phone LIKE :qlike",
+                "LOWER(u_buyer.account_holder_name) LIKE :qlike",
+                "LOWER(u_buyer.email) LIKE :qlike",
+                "LOWER(d.reason) LIKE :qlike",
+                "LOWER(d.resolution_notes) LIKE :qlike",
+                "LOWER(c.snapshotted_upi_id) LIKE :qlike",
+                "LOWER(ps.snapshotted_upi_id) LIKE :qlike"
+            ];
+            $searchParams[':qlike'] = '%' . strtolower($cleanQuery) . '%';
+
+            // Also check for stripped 'UTR' prefix if admin typed e.g. UTR12345
+            $strippedUtr = preg_replace('/^utr[:\s_-]*/i', '', $cleanQuery);
+            if ($strippedUtr !== '' && $strippedUtr !== $cleanQuery) {
+                $textConditions[] = "LOWER(p.utr_number) LIKE :qutr_stripped";
+                $searchParams[':qutr_stripped'] = '%' . strtolower($strippedUtr) . '%';
+            }
+
+            $searchClauses[] = "(" . implode(" OR ", $textConditions) . ")";
+            $searchClause = " AND (" . implode(" OR ", $searchClauses) . ")";
+        }
+
+        // 4. Compute Counts for all 3 tabs (reflecting active search query)
+        $countPendingSql = "SELECT COUNT(DISTINCT d.id) " . $baseJoin . " WHERE " . $pendingClause . $searchClause;
+        $stmtCP = $pdo->prepare($countPendingSql);
+        foreach ($searchParams as $k => $v) $stmtCP->bindValue($k, $v);
+        $stmtCP->execute();
+        $pendingCount = (int)$stmtCP->fetchColumn();
+
+        $countEvidenceSql = "SELECT COUNT(DISTINCT d.id) " . $baseJoin . " WHERE " . $evidenceClause . $searchClause;
+        $stmtCE = $pdo->prepare($countEvidenceSql);
+        foreach ($searchParams as $k => $v) $stmtCE->bindValue($k, $v);
+        $stmtCE->execute();
+        $evidenceCount = (int)$stmtCE->fetchColumn();
+
+        $countResolvedSql = "SELECT COUNT(DISTINCT d.id) " . $baseJoin . " WHERE " . $resolvedClause . $searchClause;
+        $stmtCR = $pdo->prepare($countResolvedSql);
+        foreach ($searchParams as $k => $v) $stmtCR->bindValue($k, $v);
+        $stmtCR->execute();
+        $resolvedCount = (int)$stmtCR->fetchColumn();
+
+        $totalAll = $pendingCount + $evidenceCount + $resolvedCount;
+
+        // 5. Select active section condition
+        $activeSectionClause = $pendingClause;
+        if ($section === 'evidence_required') {
+            $activeSectionClause = $evidenceClause;
+        } elseif ($section === 'resolved') {
+            $activeSectionClause = $resolvedClause;
+        } elseif ($section === 'all') {
+            $activeSectionClause = "1=1";
+        }
+
+        $subStatusClause = "";
+        $queryParams = $searchParams;
+        if ($status !== 'all' && !empty($status)) {
+            $subStatusClause = " AND d.status = :sub_status";
+            $queryParams[':sub_status'] = $status;
+        }
+
+        // Total matching current active section
+        $countActiveSql = "SELECT COUNT(DISTINCT d.id) " . $baseJoin . " WHERE " . $activeSectionClause . $subStatusClause . $searchClause;
+        $stmtActive = $pdo->prepare($countActiveSql);
+        foreach ($queryParams as $k => $v) $stmtActive->bindValue($k, $v);
+        $stmtActive->execute();
+        $totalMatching = (int)$stmtActive->fetchColumn();
+
+        // 6. Fetch records
+        $selectCols = "
+            d.*, c.amount, c.snapshotted_reward_amount, c.seller_id, c.buyer_id, c.status as order_status,
+            c.parent_order_id, c.created_at as order_created_at, c.proof_submitted_at, c.verification_deadline,
+            c.snapshotted_upi_id, c.snapshotted_account_holder,
+            ps.snapshotted_upi_id as parent_snapshotted_upi_id, ps.snapshotted_account_holder as parent_snapshotted_account_holder,
+            u_seller.phone as seller_phone, u_seller.account_holder_name as seller_name,
+            u_buyer.phone as buyer_phone, u_buyer.account_holder_name as buyer_name,
+            u_admin.phone as resolved_by_phone, u_admin.account_holder_name as resolved_by_name, u_admin.admin_role as resolved_by_role,
+            p.utr_number, p.screenshot_path as buyer_screenshot, p.notes as buyer_notes,
+            p.created_at as proof_created_at
+        ";
+
+        $fetchSql = "SELECT " . $selectCols . $baseJoin .
+                    " WHERE " . $activeSectionClause . $subStatusClause . $searchClause .
+                    " ORDER BY d.id DESC LIMIT " . (int)$limit . " OFFSET " . (int)$offset;
+
+        $stmtFetch = $pdo->prepare($fetchSql);
+        foreach ($queryParams as $k => $v) $stmtFetch->bindValue($k, $v);
+        $stmtFetch->execute();
+        $disputes = $stmtFetch->fetchAll();
+
+        // 7. Format records
+        foreach ($disputes as &$d) {
+            $childUpi = trim((string)($d['snapshotted_upi_id'] ?? ''));
+            $parentUpi = trim((string)($d['parent_snapshotted_upi_id'] ?? ''));
+            $resolvedUpi = ($childUpi !== '') ? $childUpi : $parentUpi;
+
+            if ($resolvedUpi !== '') {
+                $d['seller_order_upi_id'] = $resolvedUpi;
+                $d['has_historical_upi'] = true;
+            } else {
+                $d['seller_order_upi_id'] = 'Historical UPI Details Unavailable';
+                $d['has_historical_upi'] = false;
+            }
+
+            $childHolder = trim((string)($d['snapshotted_account_holder'] ?? ''));
+            $parentHolder = trim((string)($d['parent_snapshotted_account_holder'] ?? ''));
+            $resolvedHolder = ($childHolder !== '') ? $childHolder : $parentHolder;
+            $d['seller_order_account_holder'] = ($resolvedHolder !== '') ? $resolvedHolder : ($d['seller_name'] ?: 'Unavailable');
+
+            $d['payment_method'] = 'UPI';
+            $d['proof_submission_timestamp'] = $d['proof_submitted_at'] ?? $d['proof_created_at'] ?? null;
+        }
+        unset($d);
+
+        return [
+            'disputes' => $disputes,
+            'total' => $totalMatching,
+            'limit' => $limit,
+            'offset' => $offset,
+            'page' => ($limit > 0 ? (int)floor($offset / $limit) + 1 : 1),
+            'counts' => [
+                'pending' => $pendingCount,
+                'evidence_required' => $evidenceCount,
+                'resolved' => $resolvedCount,
+                'total' => $totalAll
+            ]
+        ];
+    }
+
+    /**
      * Arbitrate Dispute / Appeal (Requirement 4)
      * Decisions: 'force_settle' (favor buyer) or 'cancel_reverse' (favor seller).
      */
