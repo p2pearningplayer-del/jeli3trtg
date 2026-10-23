@@ -39,6 +39,19 @@ async function initAdmin() {
     switchAdminTab(initialTab);
 }
 
+function setBadge(id, count) {
+    const el = document.getElementById(id);
+    if (el) el.innerText = count !== undefined && count !== null ? count : 0;
+}
+
+function setTxt(id, val) {
+    const el = document.getElementById(id);
+    if (el) el.innerText = val !== undefined && val !== null ? val : '';
+}
+
+window.setBadge = setBadge;
+window.setTxt = setTxt;
+
 function switchAdminTab(tabId, filterOptions = null) {
     const validTabs = ['dashboard', 'users', 'orders', 'disputes', 'fraud', 'rewards', 'content', 'reports', 'audit', 'admins', 'agents', 'risk'];
     if (!validTabs.includes(tabId)) {
