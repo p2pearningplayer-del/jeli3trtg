@@ -30,7 +30,7 @@ switch ($action) {
                    u_seller.account_holder_name as seller_name, u_seller.phone as seller_phone
             FROM disputes d
             JOIN child_orders c ON d.child_order_id = c.id
-            LEFT JOIN payment_proofs p ON p.id = (SELECT MAX(id) FROM payment_proofs WHERE child_order_id = c.id)
+            LEFT JOIN payment_proofs p ON c.id = p.child_order_id
             LEFT JOIN users u_buyer ON c.buyer_id = u_buyer.id
             LEFT JOIN users u_seller ON c.seller_id = u_seller.id
             WHERE c.buyer_id = ? OR c.seller_id = ? OR d.raised_by_user_id = ?
@@ -104,7 +104,7 @@ switch ($action) {
                    u_seller.account_holder_name as seller_name, u_seller.phone as seller_phone
             FROM disputes d
             JOIN child_orders c ON d.child_order_id = c.id
-            LEFT JOIN payment_proofs p ON p.id = (SELECT MAX(id) FROM payment_proofs WHERE child_order_id = c.id)
+            LEFT JOIN payment_proofs p ON c.id = p.child_order_id
             LEFT JOIN users u_buyer ON c.buyer_id = u_buyer.id
             LEFT JOIN users u_seller ON c.seller_id = u_seller.id
             WHERE " . ($disputeId > 0 ? "d.id = ?" : "c.id = ?") . "

@@ -506,6 +506,18 @@ class SchemaInstaller {
             } catch (Exception $e) {
                 // Column modify handled
             }
+
+            try {
+                $pdo->exec("ALTER TABLE disputes MODIFY COLUMN `status` VARCHAR(50) NOT NULL DEFAULT 'pending'");
+            } catch (Exception $e) {
+                // Column modify handled
+            }
+
+            try {
+                $pdo->exec("ALTER TABLE disputes MODIFY COLUMN `raised_by_role` VARCHAR(20) NOT NULL DEFAULT 'seller'");
+            } catch (Exception $e) {
+                // Column modify handled
+            }
         }
 
         foreach ($userCols as $col => $type) {
@@ -513,7 +525,16 @@ class SchemaInstaller {
                 if ($driver === 'sqlite') {
                     $pdo->exec("ALTER TABLE users ADD COLUMN {$col} {$type}");
                 } else {
-                    $pdo->exec("ALTER TABLE users ADD COLUMN IF NOT EXISTS `{$col}` {$type}");
+                    $chk = $pdo->query("SHOW COLUMNS FROM `users` LIKE '{$col}'")->fetch();
+                    if (!$chk) {
+                        try {
+                            $pdo->exec("ALTER TABLE `users` ADD COLUMN `{$col}` {$type}");
+                        } catch (Exception $e) {
+                            try {
+                                $pdo->exec("ALTER TABLE `users` ADD COLUMN IF NOT EXISTS `{$col}` {$type}");
+                            } catch (Exception $e2) {}
+                        }
+                    }
                 }
             } catch (Exception $e) {
                 // Column likely already exists
@@ -525,7 +546,16 @@ class SchemaInstaller {
                 if ($driver === 'sqlite') {
                     $pdo->exec("ALTER TABLE disputes ADD COLUMN {$col} {$type}");
                 } else {
-                    $pdo->exec("ALTER TABLE disputes ADD COLUMN IF NOT EXISTS `{$col}` {$type}");
+                    $chk = $pdo->query("SHOW COLUMNS FROM `disputes` LIKE '{$col}'")->fetch();
+                    if (!$chk) {
+                        try {
+                            $pdo->exec("ALTER TABLE `disputes` ADD COLUMN `{$col}` {$type}");
+                        } catch (Exception $e) {
+                            try {
+                                $pdo->exec("ALTER TABLE `disputes` ADD COLUMN IF NOT EXISTS `{$col}` {$type}");
+                            } catch (Exception $e2) {}
+                        }
+                    }
                 }
             } catch (Exception $e) {
                 // Column likely already exists

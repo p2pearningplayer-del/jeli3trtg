@@ -92,14 +92,15 @@ function switchAdminTab(tabId, filterOptions = null) {
     }
 
     if (tabId === 'disputes' && filterOptions) {
-        if (filterOptions.section) {
-            currentDisputeSection = filterOptions.section;
-        }
         if (filterOptions.status && document.getElementById('disputeStatusFilter')) {
             document.getElementById('disputeStatusFilter').value = filterOptions.status;
         }
         if (filterOptions.query !== undefined && document.getElementById('disputeSearchInput')) {
             document.getElementById('disputeSearchInput').value = filterOptions.query;
+        }
+        if (filterOptions.section) {
+            switchDisputeSection(filterOptions.section);
+            return;
         }
     }
 
@@ -1176,7 +1177,20 @@ async function loadAdminDisputes() {
         disputeTotalRecords = data.total || 0;
         updateDisputePaginationControls();
 
-        if (!data.success || !data.disputes || data.disputes.length === 0) {
+        if (!data.success) {
+            list.innerHTML = `
+                <div class="bg-rose-950/40 border border-rose-500/40 rounded-2xl p-6 text-center text-rose-300 font-sans space-y-2">
+                    <p class="font-bold text-sm text-rose-200">Unable to Load Disputes</p>
+                    <p class="text-xs text-rose-300/80">${escapeHtml(data.error || 'Server returned an unsuccessful response.')}</p>
+                    <button onclick="loadAdminDisputes()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold transition mt-2">
+                        Retry
+                    </button>
+                </div>
+            `;
+            return;
+        }
+
+        if (!data.disputes || data.disputes.length === 0) {
             const cleanSecTitle = section === 'pending' ? 'Pending Disputes' : (section === 'evidence_required' ? 'Evidence Required' : 'Resolved Disputes');
             list.innerHTML = `<div class="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center text-slate-500 font-sans">No matching disputes found in ${cleanSecTitle}.</div>`;
             return;
@@ -1185,6 +1199,18 @@ async function loadAdminDisputes() {
         list.innerHTML = data.disputes.map(d => renderDisputeCardHtml(d, section)).join('');
     } catch (e) {
         console.error('Failed to load disputes:', e);
+        const list = document.getElementById('adminDisputesContainer');
+        if (list) {
+            list.innerHTML = `
+                <div class="bg-rose-950/40 border border-rose-500/40 rounded-2xl p-6 text-center text-rose-300 font-sans space-y-2">
+                    <p class="font-bold text-sm text-rose-200">Communication Error Loading Disputes</p>
+                    <p class="text-xs text-rose-300/80">${escapeHtml(e.message || 'Network or server communication failure.')}</p>
+                    <button onclick="loadAdminDisputes()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold transition mt-2">
+                        Retry
+                    </button>
+                </div>
+            `;
+        }
     }
 }
 

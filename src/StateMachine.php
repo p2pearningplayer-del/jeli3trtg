@@ -413,6 +413,27 @@ class StateMachine {
         $order = $orderStmt->fetch();
 
         if (!$order) {
+            // Check if this ID is a parent sell order ID
+            $pStmt = $pdo->prepare("SELECT * FROM parent_sell_orders WHERE id = ?");
+            $pStmt->execute([$childOrderId]);
+            $parent = $pStmt->fetch();
+            if ($parent) {
+                // Find a child order under this parent order that is awaiting seller confirmation / proof submitted
+                $cStmt = $pdo->prepare("
+                    SELECT * FROM child_orders 
+                    WHERE parent_order_id = ? AND seller_id = ?
+                      AND status IN ('Payment Proof Submitted', 'Seller Confirmation Pending', 'Seller Response Timeout', 'Disputed')
+                    ORDER BY id ASC LIMIT 1
+                ");
+                $cStmt->execute([$childOrderId, $sellerId]);
+                $order = $cStmt->fetch();
+                if ($order) {
+                    $childOrderId = (int)$order['id'];
+                }
+            }
+        }
+
+        if (!$order) {
             return ['success' => false, 'error' => 'Order not found.'];
         }
 

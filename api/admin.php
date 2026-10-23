@@ -259,8 +259,12 @@ switch ($action) {
         }
         $offset = max(0, ($page - 1) * $limit);
 
-        $res = AdminManager::getDisputes($section, $statusFilter, $query, $limit, $offset);
-        jsonResponse(true, $res);
+        try {
+            $res = AdminManager::getDisputes($section, $statusFilter, $query, $limit, $offset);
+            jsonResponse(true, $res);
+        } catch (Throwable $e) {
+            jsonError('Failed to load disputes: ' . $e->getMessage(), 500);
+        }
         break;
 
     case 'get_dispute':
@@ -275,66 +279,90 @@ switch ($action) {
             jsonError('Dispute ID or Order ID required.');
         }
 
-        $pdo = Database::getConnection();
-        $sql = "
-            SELECT d.*, c.amount, c.snapshotted_reward_amount, c.seller_id, c.buyer_id, c.status as order_status,
-                   c.parent_order_id, c.created_at as order_created_at, c.proof_submitted_at,
-                   c.snapshotted_upi_id, c.snapshotted_account_holder,
-                   ps.snapshotted_upi_id as parent_snapshotted_upi_id, ps.snapshotted_account_holder as parent_snapshotted_account_holder,
-                   u_seller.phone as seller_phone, u_seller.account_holder_name as seller_name,
-                   u_buyer.phone as buyer_phone, u_buyer.account_holder_name as buyer_name,
-                   u_admin.phone as resolved_by_phone, u_admin.account_holder_name as resolved_by_name, u_admin.admin_role as resolved_by_role,
-                   p.utr_number, p.screenshot_path as buyer_screenshot, p.notes as buyer_notes,
-                   p.created_at as proof_created_at
-            FROM disputes d
-            JOIN child_orders c ON d.child_order_id = c.id
-            LEFT JOIN parent_sell_orders ps ON c.parent_order_id = ps.id
-            LEFT JOIN users u_seller ON c.seller_id = u_seller.id
-            LEFT JOIN users u_buyer ON c.buyer_id = u_buyer.id
-            LEFT JOIN users u_admin ON d.resolved_by_admin_id = u_admin.id
-            LEFT JOIN payment_proofs p ON p.id = (SELECT MAX(id) FROM payment_proofs WHERE child_order_id = c.id)
-            WHERE " . ($disputeId > 0 ? "d.id = ?" : "c.id = ?") . "
-            LIMIT 1
-        ";
-        $stmt = $pdo->prepare($sql);
-        $stmt->execute([$disputeId > 0 ? $disputeId : $childOrderId]);
-        $disp = $stmt->fetch();
+        try {
+            $pdo = Database::getConnection();
+            $sql = "
+                SELECT d.*,
+                       COALESCE(c.amount, ps.original_amount, 0) as amount,
+                       COALESCE(c.snapshotted_reward_amount, 0) as snapshotted_reward_amount,
+                       COALESCE(c.seller_id, ps.seller_id) as seller_id,
+                       c.buyer_id,
+                       COALESCE(c.status, ps.status, d.status) as order_status,
+                       COALESCE(c.parent_order_id, ps.id) as parent_order_id,
+                       COALESCE(c.created_at, ps.created_at, d.created_at) as order_created_at,
+                       c.proof_submitted_at,
+                       c.verification_deadline,
+                       COALESCE(c.snapshotted_upi_id, ps.snapshotted_upi_id) as snapshotted_upi_id,
+                       COALESCE(c.snapshotted_account_holder, ps.snapshotted_account_holder) as snapshotted_account_holder,
+                       ps.snapshotted_upi_id as parent_snapshotted_upi_id,
+                       ps.snapshotted_account_holder as parent_snapshotted_account_holder,
+                       u_seller.phone as seller_phone,
+                       u_seller.account_holder_name as seller_name,
+                       u_buyer.phone as buyer_phone,
+                       u_buyer.account_holder_name as buyer_name,
+                       u_admin.phone as resolved_by_phone,
+                       u_admin.account_holder_name as resolved_by_name,
+                       u_admin.admin_role as resolved_by_role,
+                       p.utr_number,
+                       p.screenshot_path as buyer_screenshot,
+                       p.notes as buyer_notes,
+                       p.created_at as proof_created_at
+                FROM disputes d
+                LEFT JOIN child_orders c ON d.child_order_id = c.id
+                LEFT JOIN parent_sell_orders ps ON (c.parent_order_id = ps.id OR (c.id IS NULL AND d.child_order_id = ps.id))
+                LEFT JOIN users u_seller ON (c.seller_id = u_seller.id OR (c.id IS NULL AND ps.seller_id = u_seller.id))
+                LEFT JOIN users u_buyer ON c.buyer_id = u_buyer.id
+                LEFT JOIN users u_admin ON d.resolved_by_admin_id = u_admin.id
+                LEFT JOIN payment_proofs p ON c.id = p.child_order_id
+                WHERE " . ($disputeId > 0 ? "d.id = ?" : "(d.child_order_id = ? OR c.id = ?)") . "
+                LIMIT 1
+            ";
+            $stmt = $pdo->prepare($sql);
+            if ($disputeId > 0) {
+                $stmt->execute([$disputeId]);
+            } else {
+                $stmt->execute([$childOrderId, $childOrderId]);
+            }
+            $disp = $stmt->fetch();
 
-        if (!$disp) {
-            jsonError('Dispute / Appeal order record not found.', 404);
+            if (!$disp) {
+                jsonError('Dispute / Appeal order record not found.', 404);
+            }
+
+            $childUpi = trim((string)($disp['snapshotted_upi_id'] ?? ''));
+            $parentUpi = trim((string)($disp['parent_snapshotted_upi_id'] ?? ''));
+            $resolvedUpi = ($childUpi !== '') ? $childUpi : $parentUpi;
+
+            if ($resolvedUpi !== '') {
+                $disp['seller_order_upi_id'] = $resolvedUpi;
+                $disp['has_historical_upi'] = true;
+            } else {
+                $disp['seller_order_upi_id'] = 'Historical UPI Details Unavailable';
+                $disp['has_historical_upi'] = false;
+            }
+
+            $childHolder = trim((string)($disp['snapshotted_account_holder'] ?? ''));
+            $parentHolder = trim((string)($disp['parent_snapshotted_account_holder'] ?? ''));
+            $resolvedHolder = ($childHolder !== '') ? $childHolder : $parentHolder;
+            $disp['seller_order_account_holder'] = ($resolvedHolder !== '') ? $resolvedHolder : ($disp['seller_name'] ?: 'Unavailable');
+
+            $disp['payment_method'] = 'UPI';
+            $disp['proof_submission_timestamp'] = $disp['proof_submitted_at'] ?? $disp['proof_created_at'] ?? null;
+
+            AdminManager::logAudit(
+                (int)$adminId,
+                'VIEW_DISPUTE_PAYMENT_DETAILS',
+                'disputes',
+                (string)$disp['id'],
+                null,
+                ['child_order_id' => $disp['child_order_id'], 'seller_upi_id' => $disp['seller_order_upi_id']],
+                'Admin viewed seller payment details for dispute'
+            );
+
+            jsonResponse(true, ['dispute' => $disp]);
+        } catch (Throwable $e) {
+            jsonError('Failed to load dispute details: ' . $e->getMessage(), 500);
         }
-
-        $childUpi = trim((string)($disp['snapshotted_upi_id'] ?? ''));
-        $parentUpi = trim((string)($disp['parent_snapshotted_upi_id'] ?? ''));
-        $resolvedUpi = ($childUpi !== '') ? $childUpi : $parentUpi;
-
-        if ($resolvedUpi !== '') {
-            $disp['seller_order_upi_id'] = $resolvedUpi;
-            $disp['has_historical_upi'] = true;
-        } else {
-            $disp['seller_order_upi_id'] = 'Historical UPI Details Unavailable';
-            $disp['has_historical_upi'] = false;
-        }
-
-        $childHolder = trim((string)($disp['snapshotted_account_holder'] ?? ''));
-        $parentHolder = trim((string)($disp['parent_snapshotted_account_holder'] ?? ''));
-        $resolvedHolder = ($childHolder !== '') ? $childHolder : $parentHolder;
-        $disp['seller_order_account_holder'] = ($resolvedHolder !== '') ? $resolvedHolder : ($disp['seller_name'] ?: 'Unavailable');
-
-        $disp['payment_method'] = 'UPI';
-        $disp['proof_submission_timestamp'] = $disp['proof_submitted_at'] ?? $disp['proof_created_at'] ?? null;
-
-        AdminManager::logAudit(
-            (int)$adminId,
-            'VIEW_DISPUTE_PAYMENT_DETAILS',
-            'disputes',
-            (string)$disp['id'],
-            null,
-            ['child_order_id' => $disp['child_order_id'], 'seller_upi_id' => $disp['seller_order_upi_id']],
-            'Admin viewed seller payment details for dispute'
-        );
-
-        jsonResponse(true, ['dispute' => $disp]);
         break;
 
     case 'arbitrate':

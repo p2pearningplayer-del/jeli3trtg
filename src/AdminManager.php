@@ -849,39 +849,65 @@ class AdminManager {
                 SELECT c.id, c.buyer_id, c.seller_id, c.created_at
                 FROM child_orders c
                 LEFT JOIN disputes d ON c.id = d.child_order_id
-                WHERE LOWER(c.status) IN ('disputed', 'under admin review') AND d.id IS NULL
+                WHERE LOWER(c.status) IN ('disputed', 'under admin review', 'in dispute review', 'appealed') AND d.id IS NULL
             ")->fetchAll();
             if (!empty($orphans)) {
                 $insOrphan = $pdo->prepare("
                     INSERT INTO disputes (child_order_id, raised_by_user_id, raised_by_role, reason, status, created_at)
-                    VALUES (?, ?, 'system', 'Arbitration case automatically tracked for disputed order', 'pending', ?)
+                    VALUES (?, ?, ?, 'Arbitration case automatically tracked for disputed order', 'pending', ?)
                 ");
                 $nowUtc = gmdate('Y-m-d H:i:s');
                 foreach ($orphans as $orphan) {
                     $raisedUserId = !empty($orphan['buyer_id']) ? (int)$orphan['buyer_id'] : (!empty($orphan['seller_id']) ? (int)$orphan['seller_id'] : 1);
-                    $insOrphan->execute([(int)$orphan['id'], $raisedUserId, $orphan['created_at'] ?: $nowUtc]);
+                    $role = !empty($orphan['buyer_id']) ? 'buyer' : (!empty($orphan['seller_id']) ? 'seller' : 'admin');
+                    $insOrphan->execute([(int)$orphan['id'], $raisedUserId, $role, $orphan['created_at'] ?: $nowUtc]);
                 }
             }
         } catch (Exception $e) {
             // Non-blocking auto-heal fallback
         }
 
-        // 2. Base SQL components
+        // Also auto-heal parent sell orders marked disputed without dispute record
+        try {
+            $parentOrphans = $pdo->query("
+                SELECT ps.id, ps.seller_id, ps.created_at
+                FROM parent_sell_orders ps
+                LEFT JOIN disputes d ON ps.id = d.child_order_id
+                WHERE LOWER(ps.status) IN ('disputed', 'under admin review', 'in dispute review', 'appealed') AND d.id IS NULL
+            ")->fetchAll();
+            if (!empty($parentOrphans)) {
+                $insPOrphan = $pdo->prepare("
+                    INSERT INTO disputes (child_order_id, raised_by_user_id, raised_by_role, reason, status, created_at)
+                    VALUES (?, ?, 'seller', 'Arbitration case tracked for parent sell order', 'pending', ?)
+                ");
+                $nowUtc = gmdate('Y-m-d H:i:s');
+                foreach ($parentOrphans as $porphan) {
+                    $insPOrphan->execute([(int)$porphan['id'], (int)($porphan['seller_id'] ?: 1), $porphan['created_at'] ?: $nowUtc]);
+                }
+            }
+        } catch (Exception $e) {
+            // Non-blocking auto-heal fallback
+        }
+
+        // 2. Base SQL components supporting both split/child orders and parent sell orders
         $baseJoin = "
             FROM disputes d
-            JOIN child_orders c ON d.child_order_id = c.id
-            LEFT JOIN parent_sell_orders ps ON c.parent_order_id = ps.id
-            LEFT JOIN users u_seller ON c.seller_id = u_seller.id
+            LEFT JOIN child_orders c ON d.child_order_id = c.id
+            LEFT JOIN parent_sell_orders ps ON (c.parent_order_id = ps.id OR (c.id IS NULL AND d.child_order_id = ps.id))
+            LEFT JOIN users u_seller ON (c.seller_id = u_seller.id OR (c.id IS NULL AND ps.seller_id = u_seller.id))
             LEFT JOIN users u_buyer ON c.buyer_id = u_buyer.id
             LEFT JOIN users u_admin ON d.resolved_by_admin_id = u_admin.id
-            LEFT JOIN payment_proofs p ON p.id = (SELECT MAX(id) FROM payment_proofs WHERE child_order_id = c.id)
+            LEFT JOIN payment_proofs p ON c.id = p.child_order_id
         ";
 
-        // Classification predicates (Mutually Exclusive)
+        // Classification predicates (Mutually Exclusive and 100% Exhaustive across all DB statuses)
         $resolvedStatuses = "'resolved_buyer', 'resolved_seller', 'resolved', 'cancelled', 'rejected'";
-        $pendingClause = "(d.status NOT IN ({$resolvedStatuses}) AND (d.additional_evidence_requested = 0 OR d.additional_evidence_requested IS NULL) AND LOWER(d.status) NOT IN ('awaiting_evidence', 'evidence_required') AND d.resolved_at IS NULL)";
-        $evidenceClause = "(d.status NOT IN ({$resolvedStatuses}) AND (d.additional_evidence_requested = 1 OR LOWER(d.status) IN ('awaiting_evidence', 'evidence_required')) AND d.resolved_at IS NULL)";
-        $resolvedClause = "(d.status IN ({$resolvedStatuses}) OR d.resolved_at IS NOT NULL)";
+        $isResolvedDate = "(d.resolved_at IS NOT NULL AND d.resolved_at != '' AND d.resolved_at != '0000-00-00 00:00:00')";
+        $isNotResolvedDate = "(d.resolved_at IS NULL OR d.resolved_at = '' OR d.resolved_at = '0000-00-00 00:00:00')";
+
+        $resolvedClause = "(LOWER(d.status) IN ({$resolvedStatuses}) OR {$isResolvedDate})";
+        $evidenceClause = "({$isNotResolvedDate} AND LOWER(d.status) NOT IN ({$resolvedStatuses}) AND (d.additional_evidence_requested = 1 OR LOWER(d.status) IN ('awaiting_evidence', 'evidence_required')))";
+        $pendingClause = "({$isNotResolvedDate} AND LOWER(d.status) NOT IN ({$resolvedStatuses}) AND (d.additional_evidence_requested = 0 OR d.additional_evidence_requested IS NULL) AND LOWER(d.status) NOT IN ('awaiting_evidence', 'evidence_required'))";
 
         // 3. Search criteria
         $searchClause = "";
@@ -897,8 +923,10 @@ class AdminManager {
                     d.id = :num_id
                     OR c.id = :num_id
                     OR c.parent_order_id = :num_id
+                    OR ps.id = :num_id
                     OR c.buyer_id = :num_id
                     OR c.seller_id = :num_id
+                    OR ps.seller_id = :num_id
                     OR d.raised_by_user_id = :num_id
                 )";
                 $searchParams[':num_id'] = $numId;
@@ -965,8 +993,8 @@ class AdminManager {
         $subStatusClause = "";
         $queryParams = $searchParams;
         if ($status !== 'all' && !empty($status)) {
-            $subStatusClause = " AND d.status = :sub_status";
-            $queryParams[':sub_status'] = $status;
+            $subStatusClause = " AND LOWER(d.status) = :sub_status";
+            $queryParams[':sub_status'] = strtolower($status);
         }
 
         // Total matching current active section
@@ -978,14 +1006,30 @@ class AdminManager {
 
         // 6. Fetch records
         $selectCols = "
-            d.*, c.amount, c.snapshotted_reward_amount, c.seller_id, c.buyer_id, c.status as order_status,
-            c.parent_order_id, c.created_at as order_created_at, c.proof_submitted_at, c.verification_deadline,
-            c.snapshotted_upi_id, c.snapshotted_account_holder,
-            ps.snapshotted_upi_id as parent_snapshotted_upi_id, ps.snapshotted_account_holder as parent_snapshotted_account_holder,
-            u_seller.phone as seller_phone, u_seller.account_holder_name as seller_name,
-            u_buyer.phone as buyer_phone, u_buyer.account_holder_name as buyer_name,
-            u_admin.phone as resolved_by_phone, u_admin.account_holder_name as resolved_by_name, u_admin.admin_role as resolved_by_role,
-            p.utr_number, p.screenshot_path as buyer_screenshot, p.notes as buyer_notes,
+            d.*,
+            COALESCE(c.amount, ps.original_amount, 0) as amount,
+            COALESCE(c.snapshotted_reward_amount, 0) as snapshotted_reward_amount,
+            COALESCE(c.seller_id, ps.seller_id) as seller_id,
+            c.buyer_id,
+            COALESCE(c.status, ps.status, d.status) as order_status,
+            COALESCE(c.parent_order_id, ps.id) as parent_order_id,
+            COALESCE(c.created_at, ps.created_at, d.created_at) as order_created_at,
+            c.proof_submitted_at,
+            c.verification_deadline,
+            COALESCE(c.snapshotted_upi_id, ps.snapshotted_upi_id) as snapshotted_upi_id,
+            COALESCE(c.snapshotted_account_holder, ps.snapshotted_account_holder) as snapshotted_account_holder,
+            ps.snapshotted_upi_id as parent_snapshotted_upi_id,
+            ps.snapshotted_account_holder as parent_snapshotted_account_holder,
+            u_seller.phone as seller_phone,
+            u_seller.account_holder_name as seller_name,
+            u_buyer.phone as buyer_phone,
+            u_buyer.account_holder_name as buyer_name,
+            u_admin.phone as resolved_by_phone,
+            u_admin.account_holder_name as resolved_by_name,
+            u_admin.admin_role as resolved_by_role,
+            p.utr_number,
+            p.screenshot_path as buyer_screenshot,
+            p.notes as buyer_notes,
             p.created_at as proof_created_at
         ";
 
@@ -1032,7 +1076,8 @@ class AdminManager {
                 'pending' => $pendingCount,
                 'evidence_required' => $evidenceCount,
                 'resolved' => $resolvedCount,
-                'total' => $totalAll
+                'total' => $totalAll,
+                'total_all' => $totalAll
             ]
         ];
     }
@@ -1049,9 +1094,16 @@ class AdminManager {
         $pdo = Database::getConnection();
 
         $dispStmt = $pdo->prepare("
-            SELECT d.*, c.amount, c.snapshotted_reward_amount, c.seller_id, c.buyer_id, c.parent_order_id, c.status as order_status
+            SELECT d.*,
+                   COALESCE(c.amount, ps.original_amount, 0) as amount,
+                   COALESCE(c.snapshotted_reward_amount, 0) as snapshotted_reward_amount,
+                   COALESCE(c.seller_id, ps.seller_id) as seller_id,
+                   c.buyer_id,
+                   COALESCE(c.parent_order_id, ps.id) as parent_order_id,
+                   COALESCE(c.status, ps.status) as order_status
             FROM disputes d
-            JOIN child_orders c ON d.child_order_id = c.id
+            LEFT JOIN child_orders c ON d.child_order_id = c.id
+            LEFT JOIN parent_sell_orders ps ON (c.parent_order_id = ps.id OR (c.id IS NULL AND d.child_order_id = ps.id))
             WHERE d.id = ?
         ");
         $dispStmt->execute([$disputeId]);
@@ -1067,7 +1119,7 @@ class AdminManager {
 
         $childId = (int)$dispute['child_order_id'];
         $sellerId = (int)$dispute['seller_id'];
-        $buyerId = (int)$dispute['buyer_id'];
+        $buyerId = (int)($dispute['buyer_id'] ?? 0);
         $amount = (float)$dispute['amount'];
         $rewardAmount = (float)$dispute['snapshotted_reward_amount'];
         $resolvedAt = gmdate('Y-m-d H:i:s');
@@ -1082,18 +1134,22 @@ class AdminManager {
                 // Settle seller reserved tokens
                 Wallet::settleSellOrder($sellerId, $amount, (string)$childId);
 
-                // Credit buyer tokens + 9% reward
-                Wallet::creditBuyer($buyerId, $amount, $rewardAmount, (string)$childId);
+                // Credit buyer tokens + reward (if buyer assigned)
+                if ($buyerId > 0) {
+                    Wallet::creditBuyer($buyerId, $amount, $rewardAmount, (string)$childId);
 
-                // Distribute referral commissions
-                ReferralEngine::distributeCommissions($buyerId, $amount, (string)$childId);
+                    // Distribute referral commissions
+                    ReferralEngine::distributeCommissions($buyerId, $amount, (string)$childId);
 
-                // Snapshot Agent Commissions for eligible referral hierarchy levels A-Z
-                AgentManager::onOrderCompleted($childId, $buyerId, $amount, $resolvedAt);
+                    // Snapshot Agent Commissions for eligible referral hierarchy levels A-Z
+                    AgentManager::onOrderCompleted($childId, $buyerId, $amount, $resolvedAt);
+                }
 
                 // Update parent order
-                $updParent = $pdo->prepare("UPDATE parent_sell_orders SET completed_amount = completed_amount + ?, reserved_amount = reserved_amount - ? WHERE id = ?");
-                $updParent->execute([$amount, $amount, $dispute['parent_order_id']]);
+                if (!empty($dispute['parent_order_id'])) {
+                    $updParent = $pdo->prepare("UPDATE parent_sell_orders SET completed_amount = completed_amount + ?, reserved_amount = reserved_amount - ? WHERE id = ?");
+                    $updParent->execute([$amount, $amount, $dispute['parent_order_id']]);
+                }
 
                 // Update dispute status
                 $updDisp = $pdo->prepare("
@@ -1173,6 +1229,12 @@ class AdminManager {
         $childStmt = $pdo->prepare("SELECT id, buyer_id, seller_id, amount FROM child_orders WHERE id = ?");
         $childStmt->execute([$disp['child_order_id']]);
         $child = $childStmt->fetch();
+
+        if (!$child) {
+            $pStmt = $pdo->prepare("SELECT id, NULL as buyer_id, seller_id, original_amount as amount FROM parent_sell_orders WHERE id = ?");
+            $pStmt->execute([$disp['child_order_id']]);
+            $child = $pStmt->fetch();
+        }
 
         $upd = $pdo->prepare("
             UPDATE disputes
