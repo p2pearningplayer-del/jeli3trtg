@@ -90,6 +90,70 @@ switch ($action) {
         }
         break;
 
+    case 'forgot_password':
+        $identifier = $input['email'] ?? $input['identifier'] ?? $input['phone'] ?? '';
+        if (empty($identifier)) {
+            jsonError('Please provide your registered email address.');
+        }
+
+        $res = Auth::requestPasswordReset($identifier);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
+    case 'verify_reset_otp':
+        $email = $input['email'] ?? '';
+        $otp = $input['otp'] ?? '';
+
+        if (empty($email) || empty($otp)) {
+            jsonError('Email and 6-digit reset code are required.');
+        }
+
+        $res = Auth::verifyPasswordResetOtp($email, $otp);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
+    case 'verify_reset_token':
+        $email = $input['email'] ?? $_GET['email'] ?? '';
+        $token = $input['token'] ?? $_GET['token'] ?? $_GET['reset_token'] ?? '';
+
+        if (empty($email) || empty($token)) {
+            jsonError('Email and reset token are required.');
+        }
+
+        $res = Auth::verifyPasswordResetToken($email, $token);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
+    case 'reset_password':
+        $email = $input['email'] ?? '';
+        $codeOrToken = $input['otp'] ?? $input['token'] ?? $input['reset_token'] ?? '';
+        $newPassword = $input['new_password'] ?? $input['password'] ?? '';
+        $confirmPassword = $input['confirm_password'] ?? null;
+
+        if (empty($email) || empty($codeOrToken) || empty($newPassword)) {
+            jsonError('Email, reset code or token, and new password are required.');
+        }
+
+        $res = Auth::resetPassword($email, $codeOrToken, $newPassword, $confirmPassword);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
     case 'login':
         $identifier = $input['identifier'] ?? $input['phone'] ?? '';
         $password = $input['password'] ?? '';

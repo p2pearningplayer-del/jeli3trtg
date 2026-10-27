@@ -34,6 +34,25 @@ if (!empty($_GET['verify_email_token']) && !empty($_GET['email'])) {
     }
 }
 
+// Handle 1-click Password Reset Link
+$passwordResetNotice = null;
+$resetTokenValid = false;
+$resetTokenEmail = '';
+$resetTokenVal = '';
+if (!empty($_GET['reset_token']) && !empty($_GET['email'])) {
+    $resetCheck = Auth::verifyPasswordResetToken($_GET['email'], $_GET['reset_token']);
+    if ($resetCheck['success']) {
+        $resetTokenValid = true;
+        $resetTokenEmail = htmlspecialchars($_GET['email'], ENT_QUOTES, 'UTF-8');
+        $resetTokenVal = htmlspecialchars($_GET['reset_token'], ENT_QUOTES, 'UTF-8');
+    } else {
+        $passwordResetNotice = [
+            'type' => 'error',
+            'message' => $resetCheck['error'] ?? 'Invalid or expired password reset link. Please request a new code.'
+        ];
+    }
+}
+
 $currentUser = Auth::getCurrentUser();
 $isImpersonating = !empty($_SESSION['is_impersonating']);
 $refFromQuery = htmlspecialchars($_GET['ref'] ?? '');
@@ -315,6 +334,16 @@ endif;
             <div class="flex items-center gap-2">
                 <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="<?= $emailVerificationNotice['type'] === 'success' ? 'M5 13l4 4L19 7' : 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z' ?>"/></svg>
                 <span><?= htmlspecialchars($emailVerificationNotice['message']) ?></span>
+            </div>
+            <button onclick="this.parentElement.remove()" class="text-slate-400 hover:text-white text-lg font-bold">&times;</button>
+        </div>
+        <?php endif; ?>
+
+        <?php if (!empty($passwordResetNotice)): ?>
+        <div class="mb-6 p-4 rounded-2xl border <?= $passwordResetNotice['type'] === 'success' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-red-500/10 border-red-500/30 text-red-300' ?> flex items-center justify-between gap-3 text-sm font-semibold shadow-lg">
+            <div class="flex items-center gap-2">
+                <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="<?= $passwordResetNotice['type'] === 'success' ? 'M5 13l4 4L19 7' : 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z' ?>"/></svg>
+                <span><?= htmlspecialchars($passwordResetNotice['message']) ?></span>
             </div>
             <button onclick="this.parentElement.remove()" class="text-slate-400 hover:text-white text-lg font-bold">&times;</button>
         </div>
@@ -1345,7 +1374,12 @@ endif;
                 </div>
 
                 <div>
-                    <label class="text-xs font-semibold text-slate-300 block mb-1">Password</label>
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="text-xs font-semibold text-slate-300 block">Password</label>
+                        <button type="button" id="forgotPasswordTrigger" onclick="showForgotPasswordStep()" class="text-xs text-indigo-400 hover:text-indigo-300 font-semibold transition">
+                            Forgot Password?
+                        </button>
+                    </div>
                     <input type="password" id="authPassword" required placeholder="••••••••" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:border-indigo-500 focus:outline-none">
                 </div>
 
@@ -1400,6 +1434,87 @@ endif;
                     </button>
                     <button type="button" onclick="backToRegisterStep()" class="text-slate-400 hover:text-white">
                         Back / Change Email
+                    </button>
+                </div>
+            </div>
+
+            <!-- 1B. Forgot Password Step 1: Request Reset Code -->
+            <div id="forgotPasswordStep" class="space-y-4 hidden">
+                <div class="text-center">
+                    <div class="w-12 h-12 bg-indigo-600/20 border border-indigo-500/30 rounded-2xl flex items-center justify-center mx-auto text-indigo-400 mb-2">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
+                    </div>
+                    <h3 class="text-xl font-bold text-white">Reset Password</h3>
+                    <p class="text-xs text-slate-400 mt-1">
+                        Enter your registered email address to receive a secure recovery code
+                    </p>
+                </div>
+
+                <form id="forgotPasswordForm" onsubmit="handleForgotPasswordSubmit(event)" class="space-y-4">
+                    <div>
+                        <label class="text-xs font-semibold text-slate-300 block mb-1">Registered Email Address</label>
+                        <input type="email" id="forgotEmailInput" required placeholder="yourname@gmail.com" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:border-indigo-500 focus:outline-none">
+                    </div>
+
+                    <div id="forgotPasswordError" class="text-xs text-red-400 font-semibold hidden"></div>
+                    <div id="forgotPasswordSuccess" class="text-xs text-emerald-400 font-semibold hidden"></div>
+
+                    <button type="submit" id="forgotSubmitBtn" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-indigo-600/30 transition text-sm">
+                        Send Recovery Code
+                    </button>
+                </form>
+
+                <div class="text-center text-xs pt-1">
+                    <button type="button" onclick="backToLoginStep()" class="text-slate-400 hover:text-white transition">
+                        &larr; Back to Sign In
+                    </button>
+                </div>
+            </div>
+
+            <!-- 1C. Forgot Password Step 2: Enter OTP & New Password -->
+            <div id="resetPasswordStep" class="space-y-4 hidden">
+                <div class="text-center">
+                    <div class="w-12 h-12 bg-emerald-600/20 border border-emerald-500/30 rounded-2xl flex items-center justify-center mx-auto text-emerald-400 mb-2">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                    </div>
+                    <h3 class="text-xl font-bold text-white">Create New Password</h3>
+                    <p class="text-xs text-slate-400 mt-1">
+                        Recovery code sent to <strong id="resetTargetEmail" class="text-white font-mono">user@example.com</strong>
+                    </p>
+                </div>
+
+                <form id="resetPasswordForm" onsubmit="handleResetPasswordSubmit(event)" class="space-y-3">
+                    <input type="hidden" id="resetPasswordToken" value="">
+
+                    <div id="resetOtpGroup">
+                        <label class="text-xs font-semibold text-slate-300 block mb-1 text-center">6-Digit Reset Code (from Email)</label>
+                        <input type="text" id="resetOtpInput" maxlength="6" pattern="[0-9]{6}" placeholder="123456" class="w-full text-center tracking-[8px] font-mono font-bold text-xl bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:border-indigo-500 focus:outline-none">
+                    </div>
+
+                    <div>
+                        <label class="text-xs font-semibold text-slate-300 block mb-1">New Password</label>
+                        <input type="password" id="resetNewPassword" required minlength="6" placeholder="At least 6 characters" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:border-indigo-500 focus:outline-none">
+                    </div>
+
+                    <div>
+                        <label class="text-xs font-semibold text-slate-300 block mb-1">Confirm New Password</label>
+                        <input type="password" id="resetConfirmPassword" required minlength="6" placeholder="Re-enter new password" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:border-indigo-500 focus:outline-none">
+                    </div>
+
+                    <div id="resetPasswordError" class="text-xs text-red-400 font-semibold hidden"></div>
+                    <div id="resetPasswordSuccess" class="text-xs text-emerald-400 font-semibold hidden"></div>
+
+                    <button type="submit" id="resetSubmitBtn" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-emerald-600/30 transition text-sm">
+                        Update Password &amp; Sign In
+                    </button>
+                </form>
+
+                <div class="flex items-center justify-between text-xs pt-1">
+                    <button type="button" onclick="resendResetOtp()" id="resendResetOtpBtn" class="text-indigo-400 hover:text-indigo-300 font-semibold">
+                        Resend Code
+                    </button>
+                    <button type="button" onclick="backToLoginStep()" class="text-slate-400 hover:text-white">
+                        Back to Sign In
                     </button>
                 </div>
             </div>
@@ -2199,6 +2314,15 @@ endif;
             </div>
         </div>
     </div>
+
+    <?php if ($resetTokenValid): ?>
+    <script>
+        window.INITIAL_PASSWORD_RESET = {
+            email: <?= json_encode($resetTokenEmail) ?>,
+            token: <?= json_encode($resetTokenVal) ?>
+        };
+    </script>
+    <?php endif; ?>
 
     <!-- JavaScript Controller with Cache Busting -->
     <script src="/public/js/app.js?v=<?= file_exists(__DIR__ . '/public/js/app.js') ? filemtime(__DIR__ . '/public/js/app.js') : time() ?>"></script>

@@ -65,6 +65,14 @@ async function initApp() {
     await fetchSession();
     const urlParams = new URLSearchParams(window.location.search);
     if (!currentUser) {
+        if (window.INITIAL_PASSWORD_RESET && window.INITIAL_PASSWORD_RESET.token) {
+            openResetWithToken(window.INITIAL_PASSWORD_RESET.email, window.INITIAL_PASSWORD_RESET.token);
+            return;
+        }
+        if (urlParams.get('reset_token') && urlParams.get('email')) {
+            openResetWithToken(urlParams.get('email'), urlParams.get('reset_token'));
+            return;
+        }
         // Direct to Registration / Create Account page by default when referral link (?ref=...) or ?action=register is clicked
         if (urlParams.get('action') === 'register' || urlParams.get('ref')) {
             openAuthModal('register');
@@ -2849,11 +2857,16 @@ function openAuthModal(mode = 'login') {
     const submitBtn = document.getElementById('authSubmitBtn');
     const authForm = document.getElementById('authForm');
     const emailVerifyStep = document.getElementById('emailVerifyStep');
+    const forgotStep = document.getElementById('forgotPasswordStep');
+    const resetStep = document.getElementById('resetPasswordStep');
+    const forgotTrigger = document.getElementById('forgotPasswordTrigger');
     const authToggleContainer = document.getElementById('authToggleContainer');
 
     // Reset step visibility
     if (authForm) authForm.classList.remove('hidden');
     if (emailVerifyStep) emailVerifyStep.classList.add('hidden');
+    if (forgotStep) forgotStep.classList.add('hidden');
+    if (resetStep) resetStep.classList.add('hidden');
     if (authToggleContainer) authToggleContainer.classList.remove('hidden');
 
     modeInput.value = mode;
@@ -2871,6 +2884,7 @@ function openAuthModal(mode = 'login') {
             phoneInput.maxLength = 10;
         }
         regFields.classList.remove('hidden');
+        if (forgotTrigger) forgotTrigger.classList.add('hidden');
         toggleText.innerText = 'Already have an account?';
         toggleBtn.innerText = 'Sign In';
         submitBtn.innerText = 'Create Account';
@@ -2883,6 +2897,7 @@ function openAuthModal(mode = 'login') {
             phoneInput.removeAttribute('maxlength');
         }
         regFields.classList.add('hidden');
+        if (forgotTrigger) forgotTrigger.classList.remove('hidden');
         toggleText.innerText = "Don't have an account?";
         toggleBtn.innerText = 'Create Account';
         submitBtn.innerText = 'Continue';
@@ -3141,6 +3156,370 @@ function startResendCooldown(seconds) {
         if (remaining <= 0) {
             clearInterval(resendOtpCooldownTimer);
             resendOtpCooldownTimer = null;
+            resendBtn.disabled = false;
+            resendBtn.innerText = 'Resend Code';
+        } else {
+            resendBtn.innerText = `Resend Code (${remaining}s)`;
+        }
+    }, 1000);
+}
+
+// -------------------------------------------------------------
+// FORGOT & RESET PASSWORD HANDLERS
+// -------------------------------------------------------------
+
+let pendingResetEmail = '';
+let resendResetOtpCooldownTimer = null;
+
+function showForgotPasswordStep() {
+    const authForm = document.getElementById('authForm');
+    const emailVerifyStep = document.getElementById('emailVerifyStep');
+    const forgotStep = document.getElementById('forgotPasswordStep');
+    const resetStep = document.getElementById('resetPasswordStep');
+    const authToggleContainer = document.getElementById('authToggleContainer');
+    const title = document.getElementById('authModalTitle');
+    const sub = document.getElementById('authModalSubtitle');
+    const errEl = document.getElementById('forgotPasswordError');
+    const succEl = document.getElementById('forgotPasswordSuccess');
+    const emailInput = document.getElementById('forgotEmailInput');
+    const phoneInput = document.getElementById('authPhone');
+    const authEmailInput = document.getElementById('authEmail');
+
+    if (authForm) authForm.classList.add('hidden');
+    if (emailVerifyStep) emailVerifyStep.classList.add('hidden');
+    if (resetStep) resetStep.classList.add('hidden');
+    if (authToggleContainer) authToggleContainer.classList.add('hidden');
+    if (forgotStep) forgotStep.classList.remove('hidden');
+
+    if (title) title.innerText = 'Reset Password';
+    if (sub) sub.innerText = 'Recover access to your account';
+    if (errEl) { errEl.classList.add('hidden'); errEl.innerText = ''; }
+    if (succEl) { succEl.classList.add('hidden'); succEl.innerText = ''; }
+
+    // Prefill email if already entered
+    if (emailInput) {
+        if (authEmailInput && filterValidEmail(authEmailInput.value.trim())) {
+            emailInput.value = authEmailInput.value.trim();
+        } else if (phoneInput && filterValidEmail(phoneInput.value.trim())) {
+            emailInput.value = phoneInput.value.trim();
+        }
+        setTimeout(() => emailInput.focus(), 150);
+    }
+}
+
+function backToLoginStep() {
+    openAuthModal('login');
+}
+
+async function handleForgotPasswordSubmit(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    const emailInput = document.getElementById('forgotEmailInput');
+    const email = emailInput ? emailInput.value.trim() : '';
+    const errEl = document.getElementById('forgotPasswordError');
+    const succEl = document.getElementById('forgotPasswordSuccess');
+    const submitBtn = document.getElementById('forgotSubmitBtn');
+
+    if (!email || !filterValidEmail(email)) {
+        if (errEl) {
+            errEl.innerText = 'Please enter a valid registered email address.';
+            errEl.classList.remove('hidden');
+        }
+        if (emailInput) emailInput.focus();
+        return;
+    }
+
+    if (errEl) errEl.classList.add('hidden');
+    if (succEl) succEl.classList.add('hidden');
+
+    const origBtnText = submitBtn ? submitBtn.innerText : 'Send Recovery Code';
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerText = 'Sending Recovery Code...';
+    }
+
+    try {
+        const res = await fetch('/api/auth.php?action=forgot_password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email })
+        });
+        const data = await res.json();
+        if (data.success) {
+            pendingResetEmail = data.email || email;
+            showResetPasswordStep(pendingResetEmail, data.message);
+        } else {
+            if (errEl) {
+                errEl.innerText = data.error || 'Failed to initiate password reset.';
+                errEl.classList.remove('hidden');
+            }
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.innerText = origBtnText;
+            }
+        }
+    } catch (err) {
+        if (errEl) {
+            errEl.innerText = 'Network error while requesting password reset.';
+            errEl.classList.remove('hidden');
+        }
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.innerText = origBtnText;
+        }
+    }
+}
+
+function showResetPasswordStep(email, noticeMessage = null) {
+    pendingResetEmail = email;
+    const authForm = document.getElementById('authForm');
+    const emailVerifyStep = document.getElementById('emailVerifyStep');
+    const forgotStep = document.getElementById('forgotPasswordStep');
+    const resetStep = document.getElementById('resetPasswordStep');
+    const authToggleContainer = document.getElementById('authToggleContainer');
+    const title = document.getElementById('authModalTitle');
+    const sub = document.getElementById('authModalSubtitle');
+    const targetEl = document.getElementById('resetTargetEmail');
+    const errEl = document.getElementById('resetPasswordError');
+    const succEl = document.getElementById('resetPasswordSuccess');
+    const otpInput = document.getElementById('resetOtpInput');
+    const submitBtn = document.getElementById('resetSubmitBtn');
+    const otpGroup = document.getElementById('resetOtpGroup');
+
+    if (authForm) authForm.classList.add('hidden');
+    if (emailVerifyStep) emailVerifyStep.classList.add('hidden');
+    if (forgotStep) forgotStep.classList.add('hidden');
+    if (authToggleContainer) authToggleContainer.classList.add('hidden');
+    if (resetStep) resetStep.classList.remove('hidden');
+    if (otpGroup) otpGroup.classList.remove('hidden');
+
+    if (title) title.innerText = 'Set New Password';
+    if (sub) sub.innerText = 'Enter recovery code & choose a new password';
+    if (targetEl) targetEl.innerText = email;
+    if (errEl) { errEl.classList.add('hidden'); errEl.innerText = ''; }
+    if (succEl) {
+        if (noticeMessage) {
+            succEl.innerText = noticeMessage;
+            succEl.classList.remove('hidden');
+        } else {
+            succEl.classList.add('hidden');
+            succEl.innerText = '';
+        }
+    }
+    if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.innerText = 'Update Password & Sign In';
+    }
+
+    startResendResetCooldown(60);
+
+    if (otpInput) {
+        otpInput.value = '';
+        setTimeout(() => otpInput.focus(), 150);
+    }
+}
+
+function openResetWithToken(email, token) {
+    const modal = document.getElementById('authModal');
+    if (modal) modal.classList.remove('hidden');
+
+    pendingResetEmail = email;
+    const tokenInput = document.getElementById('resetPasswordToken');
+    if (tokenInput) tokenInput.value = token;
+
+    const otpGroup = document.getElementById('resetOtpGroup');
+    if (otpGroup) otpGroup.classList.add('hidden');
+
+    const authForm = document.getElementById('authForm');
+    const emailVerifyStep = document.getElementById('emailVerifyStep');
+    const forgotStep = document.getElementById('forgotPasswordStep');
+    const resetStep = document.getElementById('resetPasswordStep');
+    const authToggleContainer = document.getElementById('authToggleContainer');
+    const title = document.getElementById('authModalTitle');
+    const sub = document.getElementById('authModalSubtitle');
+    const targetEl = document.getElementById('resetTargetEmail');
+    const errEl = document.getElementById('resetPasswordError');
+    const succEl = document.getElementById('resetPasswordSuccess');
+
+    if (authForm) authForm.classList.add('hidden');
+    if (emailVerifyStep) emailVerifyStep.classList.add('hidden');
+    if (forgotStep) forgotStep.classList.add('hidden');
+    if (authToggleContainer) authToggleContainer.classList.add('hidden');
+    if (resetStep) resetStep.classList.remove('hidden');
+
+    if (title) title.innerText = 'Set New Password';
+    if (sub) sub.innerText = '1-Click token verified. Choose your new password';
+    if (targetEl) targetEl.innerText = email;
+    if (errEl) { errEl.classList.add('hidden'); errEl.innerText = ''; }
+    if (succEl) {
+        succEl.innerText = 'Identity verified via secure email link!';
+        succEl.classList.remove('hidden');
+    }
+
+    const newPassInput = document.getElementById('resetNewPassword');
+    if (newPassInput) setTimeout(() => newPassInput.focus(), 150);
+}
+
+async function handleResetPasswordSubmit(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    const email = pendingResetEmail || (document.getElementById('resetTargetEmail') ? document.getElementById('resetTargetEmail').innerText.trim() : '');
+    const token = document.getElementById('resetPasswordToken') ? document.getElementById('resetPasswordToken').value.trim() : '';
+    const otpInput = document.getElementById('resetOtpInput');
+    const otp = otpInput ? otpInput.value.trim() : '';
+    const newPassword = document.getElementById('resetNewPassword') ? document.getElementById('resetNewPassword').value : '';
+    const confirmPassword = document.getElementById('resetConfirmPassword') ? document.getElementById('resetConfirmPassword').value : '';
+    const errEl = document.getElementById('resetPasswordError');
+    const succEl = document.getElementById('resetPasswordSuccess');
+    const submitBtn = document.getElementById('resetSubmitBtn');
+
+    if (!email) {
+        if (errEl) {
+            errEl.innerText = 'Email reference missing. Please restart password reset.';
+            errEl.classList.remove('hidden');
+        }
+        return;
+    }
+
+    if (!token && (!otp || !/^\d{6}$/.test(otp))) {
+        if (errEl) {
+            errEl.innerText = 'Please enter the 6-digit recovery code from your email.';
+            errEl.classList.remove('hidden');
+        }
+        if (otpInput) otpInput.focus();
+        return;
+    }
+
+    if (!newPassword || newPassword.length < 6) {
+        if (errEl) {
+            errEl.innerText = 'Password must be at least 6 characters.';
+            errEl.classList.remove('hidden');
+        }
+        document.getElementById('resetNewPassword').focus();
+        return;
+    }
+
+    if (newPassword !== confirmPassword) {
+        if (errEl) {
+            errEl.innerText = 'Passwords do not match. Please re-enter.';
+            errEl.classList.remove('hidden');
+        }
+        document.getElementById('resetConfirmPassword').focus();
+        return;
+    }
+
+    if (errEl) errEl.classList.add('hidden');
+    if (succEl) succEl.classList.add('hidden');
+
+    const origBtnText = submitBtn ? submitBtn.innerText : 'Update Password & Sign In';
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerText = 'Updating Password & Signing In...';
+    }
+
+    try {
+        const payload = {
+            email,
+            otp: otp || undefined,
+            token: token || undefined,
+            new_password: newPassword,
+            confirm_password: confirmPassword
+        };
+        const res = await fetch('/api/auth.php?action=reset_password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.success) {
+            if (succEl) {
+                succEl.innerText = 'Password updated successfully! Logging you in...';
+                succEl.classList.remove('hidden');
+            }
+            setTimeout(() => {
+                window.location.reload();
+            }, 800);
+        } else {
+            if (errEl) {
+                errEl.innerText = data.error || 'Failed to update password. Please check your code and try again.';
+                errEl.classList.remove('hidden');
+            }
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.innerText = origBtnText;
+            }
+        }
+    } catch (err) {
+        if (errEl) {
+            errEl.innerText = 'Network error while resetting password.';
+            errEl.classList.remove('hidden');
+        }
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.innerText = origBtnText;
+        }
+    }
+}
+
+async function resendResetOtp() {
+    const email = pendingResetEmail || (document.getElementById('resetTargetEmail') ? document.getElementById('resetTargetEmail').innerText.trim() : '');
+    const errEl = document.getElementById('resetPasswordError');
+    const succEl = document.getElementById('resetPasswordSuccess');
+    const resendBtn = document.getElementById('resendResetOtpBtn');
+
+    if (!email) {
+        if (errEl) {
+            errEl.innerText = 'Email reference missing. Please restart password reset.';
+            errEl.classList.remove('hidden');
+        }
+        return;
+    }
+
+    if (errEl) errEl.classList.add('hidden');
+    if (succEl) succEl.classList.add('hidden');
+    if (resendBtn) resendBtn.disabled = true;
+
+    try {
+        const res = await fetch('/api/auth.php?action=forgot_password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email })
+        });
+        const data = await res.json();
+        if (data.success) {
+            if (succEl) {
+                succEl.innerText = 'A fresh 6-digit recovery code has been sent to your email!';
+                succEl.classList.remove('hidden');
+            }
+            startResendResetCooldown(60);
+        } else {
+            if (errEl) {
+                errEl.innerText = data.error || 'Could not resend reset code. Please try again later.';
+                errEl.classList.remove('hidden');
+            }
+            if (resendBtn) resendBtn.disabled = false;
+        }
+    } catch (e) {
+        if (errEl) {
+            errEl.innerText = 'Network error while requesting new code.';
+            errEl.classList.remove('hidden');
+        }
+        if (resendBtn) resendBtn.disabled = false;
+    }
+}
+
+function startResendResetCooldown(seconds) {
+    const resendBtn = document.getElementById('resendResetOtpBtn');
+    if (!resendBtn) return;
+    if (resendResetOtpCooldownTimer) clearInterval(resendResetOtpCooldownTimer);
+
+    let remaining = seconds;
+    resendBtn.disabled = true;
+    resendBtn.innerText = `Resend Code (${remaining}s)`;
+
+    resendResetOtpCooldownTimer = setInterval(() => {
+        remaining -= 1;
+        if (remaining <= 0) {
+            clearInterval(resendResetOtpCooldownTimer);
+            resendResetOtpCooldownTimer = null;
             resendBtn.disabled = false;
             resendBtn.innerText = 'Resend Code';
         } else {

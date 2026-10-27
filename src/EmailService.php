@@ -281,6 +281,86 @@ HTML;
     }
 
     /**
+     * Send password reset code (OTP) and 1-click password reset link to user
+     */
+    public static function sendPasswordResetEmail(string $toEmail, string $otp, string $token, ?string $userName = null): array {
+        $appUrl = defined('APP_URL') ? APP_URL : 'https://jelipay.in';
+        $resetLink = $appUrl . '/?reset_token=' . urlencode($token) . '&email=' . urlencode($toEmail);
+        $displayName = !empty($userName) ? htmlspecialchars(trim($userName)) : 'Valued Trader';
+
+        $subject = "Reset Your JeliPay Password: {$otp}";
+
+        $htmlBody = <<<HTML
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JeliPay Password Reset</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #0b0f19; margin: 0; padding: 0; color: #f1f5f9; }
+        .wrapper { max-width: 580px; margin: 30px auto; background-color: #0f172a; border: 1px solid #1e293b; border-radius: 20px; overflow: hidden; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4); }
+        .header { background: linear-gradient(135deg, #1e1b4b, #312e81); padding: 32px 30px; text-align: center; border-bottom: 1px solid #3730a3; }
+        .header h1 { margin: 0; font-size: 26px; font-weight: 900; color: #ffffff; letter-spacing: -0.5px; }
+        .header p { margin: 6px 0 0; color: #c7d2fe; font-size: 13px; font-weight: 500; }
+        .content { padding: 36px 30px; }
+        .greeting { font-size: 16px; color: #cbd5e1; margin-bottom: 20px; }
+        .otp-container { background-color: #020617; border: 2px dashed #4f46e5; border-radius: 16px; padding: 24px 20px; text-align: center; margin: 26px 0; }
+        .otp-label { font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: #94a3b8; font-weight: bold; margin-bottom: 8px; }
+        .otp-code { font-family: 'SF Mono', Consolas, Monaco, monospace; font-size: 38px; font-weight: 900; color: #818cf8; letter-spacing: 10px; margin: 0; }
+        .otp-expiry { font-size: 12px; color: #fbbf24; margin-top: 10px; font-weight: 600; }
+        .divider { border-top: 1px solid #1e293b; margin: 26px 0; text-align: center; position: relative; }
+        .divider-text { position: relative; top: -11px; background-color: #0f172a; padding: 0 12px; font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; }
+        .btn-container { text-align: center; margin: 24px 0; }
+        .btn { display: inline-block; background: linear-gradient(135deg, #4f46e5, #4338ca); color: #ffffff !important; text-decoration: none; font-size: 14px; font-weight: 800; padding: 14px 34px; border-radius: 12px; box-shadow: 0 8px 20px rgba(79, 70, 229, 0.4); text-transform: uppercase; letter-spacing: 1px; }
+        .security-box { background-color: #1e293b; border-left: 4px solid #ef4444; border-radius: 8px; padding: 14px 16px; font-size: 12px; color: #94a3b8; line-height: 1.5; margin-top: 24px; }
+        .footer { background-color: #090d16; padding: 20px 30px; text-align: center; font-size: 11px; color: #64748b; border-top: 1px solid #1e293b; }
+        .footer a { color: #818cf8; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <div class="wrapper">
+        <div class="header">
+            <h1>JeliPay Token Platform</h1>
+            <p>Account Security &amp; Password Recovery</p>
+        </div>
+        <div class="content">
+            <div class="greeting">Hello <strong>{$displayName}</strong>,</div>
+            <p style="color: #94a3b8; font-size: 14px; line-height: 1.6; margin: 0 0 16px;">
+                We received a request to reset the password for your JeliPay account. Please use the 6-digit recovery code below or click the button to set a new password.
+            </p>
+
+            <div class="otp-container">
+                <div class="otp-label">Password Reset Code</div>
+                <div class="otp-code">{$otp}</div>
+                <div class="otp-expiry">&#9201; Valid for 15 minutes</div>
+            </div>
+
+            <div class="divider">
+                <span class="divider-text">OR RESET WITH ONE CLICK</span>
+            </div>
+
+            <div class="btn-container">
+                <a href="{$resetLink}" class="btn" target="_blank">Reset Account Password</a>
+            </div>
+
+            <div class="security-box">
+                &#128274; <strong>Security Alert:</strong> If you did not request a password reset, you can safely ignore this email. Your password remains unchanged. Never share your recovery code with anyone.
+            </div>
+        </div>
+        <div class="footer">
+            &copy; 2026 JeliPay P2P Exchange. All rights reserved.<br>
+            Official Communications: <a href="mailto:team@jelipay.in">team@jelipay.in</a> &bull; <a href="https://jelipay.in">https://jelipay.in</a>
+        </div>
+    </div>
+</body>
+</html>
+HTML;
+
+        return self::sendSmtpEmail($toEmail, $subject, $htmlBody);
+    }
+
+    /**
      * Create verification record in DB and send OTP to user
      */
     public static function initiateVerification(int $userId, string $email, ?string $userName = null): array {

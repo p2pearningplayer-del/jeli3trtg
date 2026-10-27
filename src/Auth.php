@@ -343,6 +343,324 @@ class Auth {
     }
 
     /**
+     * Request Password Reset OTP & Token
+     */
+    public static function requestPasswordReset(string $identifier): array {
+        $clean = trim($identifier);
+        if (empty($clean)) {
+            return ['success' => false, 'error' => 'Please provide your registered email address.'];
+        }
+
+        $pdo = Database::getConnection();
+        $cleanEmail = strtolower($clean);
+        $cleanPhone = Validator::cleanPhone($clean);
+
+        // Find user by email, phone, or id
+        if (filter_var($cleanEmail, FILTER_VALIDATE_EMAIL)) {
+            $stmt = $pdo->prepare("SELECT id, phone, email, account_holder_name, account_status FROM users WHERE LOWER(email) = ?");
+            $stmt->execute([$cleanEmail]);
+        } elseif (strlen($cleanPhone) === 10) {
+            $stmt = $pdo->prepare("SELECT id, phone, email, account_holder_name, account_status FROM users WHERE phone = ? OR LOWER(email) = ?");
+            $stmt->execute([$cleanPhone, $cleanEmail]);
+        } else {
+            $stmt = $pdo->prepare("SELECT id, phone, email, account_holder_name, account_status FROM users WHERE id = ? OR phone = ? OR LOWER(email) = ?");
+            $stmt->execute([(int)$clean, $cleanPhone, $cleanEmail]);
+        }
+        $user = $stmt->fetch();
+
+        if (!$user) {
+            return ['success' => false, 'error' => 'No account found matching the provided details. Please verify and try again.'];
+        }
+
+        if (empty($user['email']) || !filter_var($user['email'], FILTER_VALIDATE_EMAIL)) {
+            return ['success' => false, 'error' => 'No verified email address is linked to this account. Please contact support.'];
+        }
+
+        if ($user['account_status'] === 'suspended') {
+            return ['success' => false, 'error' => 'This account has been suspended. Please contact support.'];
+        }
+
+        $userId = (int)$user['id'];
+        $userEmail = strtolower(trim($user['email']));
+        $clientIp = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+
+        // Rate limit: 1 reset request per 60 seconds
+        $rateKey = "forgot_pw_{$userId}_{$clientIp}";
+        if (!RateLimiter::check($rateKey, 'forgot_pw', 1, 60)) {
+            return ['success' => false, 'error' => 'A password reset code was recently sent. Please wait 60 seconds before requesting another code.'];
+        }
+
+        $otp = sprintf('%06d', random_int(100000, 999999));
+        $token = bin2hex(random_bytes(32));
+        $nowUtc = gmdate('Y-m-d H:i:s');
+        $expiresAt = gmdate('Y-m-d H:i:s', time() + 900); // 15 minutes
+
+        // Expire previous pending resets for this user/email
+        $expStmt = $pdo->prepare("UPDATE password_resets SET status = 'expired' WHERE (user_id = ? OR LOWER(email) = ?) AND status = 'pending'");
+        $expStmt->execute([$userId, $userEmail]);
+
+        // Insert new password_resets record
+        $ins = $pdo->prepare("
+            INSERT INTO password_resets (user_id, email, otp_code, reset_token, status, attempts, ip_address, created_at, expires_at)
+            VALUES (?, ?, ?, ?, 'pending', 0, ?, ?, ?)
+        ");
+        $ins->execute([$userId, $userEmail, $otp, $token, $clientIp, $nowUtc, $expiresAt]);
+
+        // Update user record
+        $upd = $pdo->prepare("
+            UPDATE users
+            SET password_reset_otp = ?,
+                password_reset_token = ?,
+                password_reset_expires_at = ?
+            WHERE id = ?
+        ");
+        $upd->execute([$otp, $token, $expiresAt, $userId]);
+
+        // Dispatch Email via Hostinger SMTP
+        $mailRes = EmailService::sendPasswordResetEmail($userEmail, $otp, $token, $user['account_holder_name'] ?? null);
+
+        // Mask email for security display (e.g., u***r@example.com)
+        $emailParts = explode('@', $userEmail);
+        $namePart = $emailParts[0];
+        $domainPart = $emailParts[1] ?? 'jelipay.in';
+        $len = strlen($namePart);
+        if ($len <= 2) {
+            $maskedUser = $namePart[0] . '*';
+        } else {
+            $maskedUser = substr($namePart, 0, 1) . str_repeat('*', max(1, $len - 2)) . substr($namePart, -1);
+        }
+        $maskedEmail = $maskedUser . '@' . $domainPart;
+
+        return [
+            'success' => true,
+            'email' => $userEmail,
+            'masked_email' => $maskedEmail,
+            'otp' => (getenv('ALLOW_SQLITE_CLI_FALLBACK') === '1' || getenv('MOCK_EMAIL_DELIVERY') === '1') ? $otp : null,
+            'token' => (getenv('ALLOW_SQLITE_CLI_FALLBACK') === '1' || getenv('MOCK_EMAIL_DELIVERY') === '1') ? $token : null,
+            'mail_sent' => $mailRes['success'],
+            'mail_error' => $mailRes['error'] ?? null,
+            'message' => 'Password reset code has been sent to ' . $maskedEmail . '.'
+        ];
+    }
+
+    /**
+     * Verify Password Reset 6-Digit OTP
+     */
+    public static function verifyPasswordResetOtp(string $email, string $otp): array {
+        $cleanEmail = strtolower(trim($email));
+        $cleanOtp = trim($otp);
+
+        if (!filter_var($cleanEmail, FILTER_VALIDATE_EMAIL)) {
+            return ['success' => false, 'error' => 'Invalid email address.'];
+        }
+
+        if (strlen($cleanOtp) !== 6 || !ctype_digit($cleanOtp)) {
+            return ['success' => false, 'error' => 'Please enter a valid 6-digit reset code.'];
+        }
+
+        $pdo = Database::getConnection();
+        $nowUtc = gmdate('Y-m-d H:i:s');
+
+        $stmt = $pdo->prepare("
+            SELECT * FROM password_resets
+            WHERE LOWER(email) = ? AND status = 'pending'
+            ORDER BY id DESC LIMIT 1
+        ");
+        $stmt->execute([$cleanEmail]);
+        $rec = $stmt->fetch();
+
+        if (!$rec) {
+            return ['success' => false, 'error' => 'No active password reset request found. Please request a new code.'];
+        }
+
+        if ((int)$rec['attempts'] >= 5) {
+            $pdo->prepare("UPDATE password_resets SET status = 'expired' WHERE id = ?")->execute([$rec['id']]);
+            return ['success' => false, 'error' => 'Too many failed attempts. Please request a new code.'];
+        }
+
+        if (strtotime($rec['expires_at']) < strtotime($nowUtc)) {
+            $pdo->prepare("UPDATE password_resets SET status = 'expired' WHERE id = ?")->execute([$rec['id']]);
+            return ['success' => false, 'error' => 'Reset code has expired. Please request a new code.'];
+        }
+
+        if ($rec['otp_code'] !== $cleanOtp) {
+            $pdo->prepare("UPDATE password_resets SET attempts = attempts + 1 WHERE id = ?")->execute([$rec['id']]);
+            $remaining = 5 - ((int)$rec['attempts'] + 1);
+            return ['success' => false, 'error' => "Incorrect reset code. {$remaining} attempt(s) remaining."];
+        }
+
+        return [
+            'success' => true,
+            'reset_token' => $rec['reset_token'],
+            'email' => $cleanEmail,
+            'message' => 'Code verified successfully. Please enter your new password.'
+        ];
+    }
+
+    /**
+     * Verify Password Reset Token (1-Click Link)
+     */
+    public static function verifyPasswordResetToken(string $email, string $token): array {
+        $cleanEmail = strtolower(trim($email));
+        $cleanToken = trim($token);
+
+        if (empty($cleanEmail) || empty($cleanToken)) {
+            return ['success' => false, 'error' => 'Invalid password reset link parameters.'];
+        }
+
+        $pdo = Database::getConnection();
+        $nowUtc = gmdate('Y-m-d H:i:s');
+
+        $stmt = $pdo->prepare("
+            SELECT * FROM password_resets
+            WHERE LOWER(email) = ? AND reset_token = ? AND status = 'pending'
+            ORDER BY id DESC LIMIT 1
+        ");
+        $stmt->execute([$cleanEmail, $cleanToken]);
+        $rec = $stmt->fetch();
+
+        if (!$rec) {
+            return ['success' => false, 'error' => 'Invalid or expired password reset link. Please request a new one.'];
+        }
+
+        if (strtotime($rec['expires_at']) < strtotime($nowUtc)) {
+            $pdo->prepare("UPDATE password_resets SET status = 'expired' WHERE id = ?")->execute([$rec['id']]);
+            return ['success' => false, 'error' => 'This password reset link has expired. Please request a new one.'];
+        }
+
+        return [
+            'success' => true,
+            'user_id' => (int)$rec['user_id'],
+            'email' => $cleanEmail,
+            'reset_token' => $cleanToken,
+            'message' => 'Reset link is valid. You may now set a new password.'
+        ];
+    }
+
+    /**
+     * Reset Password and Log User In
+     */
+    public static function resetPassword(string $email, string $codeOrToken, string $newPassword, ?string $confirmPassword = null): array {
+        $cleanEmail = strtolower(trim($email));
+        $codeOrToken = trim($codeOrToken);
+
+        if (!filter_var($cleanEmail, FILTER_VALIDATE_EMAIL)) {
+            return ['success' => false, 'error' => 'Invalid email address.'];
+        }
+
+        if (strlen($newPassword) < 6) {
+            return ['success' => false, 'error' => 'Password must be at least 6 characters long.'];
+        }
+
+        if ($confirmPassword !== null && $newPassword !== $confirmPassword) {
+            return ['success' => false, 'error' => 'New password and confirmation do not match.'];
+        }
+
+        if (empty($codeOrToken)) {
+            return ['success' => false, 'error' => 'Reset code or authorization token is required.'];
+        }
+
+        $pdo = Database::getConnection();
+        $nowUtc = gmdate('Y-m-d H:i:s');
+
+        // Look for matching pending reset record by otp_code OR reset_token
+        $stmt = $pdo->prepare("
+            SELECT * FROM password_resets
+            WHERE LOWER(email) = ? AND (otp_code = ? OR reset_token = ?) AND status = 'pending'
+            ORDER BY id DESC LIMIT 1
+        ");
+        $stmt->execute([$cleanEmail, $codeOrToken, $codeOrToken]);
+        $rec = $stmt->fetch();
+
+        if (!$rec) {
+            return ['success' => false, 'error' => 'Invalid or expired reset code. Please request a new password reset.'];
+        }
+
+        if (strtotime($rec['expires_at']) < strtotime($nowUtc)) {
+            $pdo->prepare("UPDATE password_resets SET status = 'expired' WHERE id = ?")->execute([$rec['id']]);
+            return ['success' => false, 'error' => 'This reset session has expired. Please request a new code.'];
+        }
+
+        if ((int)$rec['attempts'] >= 5) {
+            $pdo->prepare("UPDATE password_resets SET status = 'expired' WHERE id = ?")->execute([$rec['id']]);
+            return ['success' => false, 'error' => 'Too many attempts. Please request a new reset code.'];
+        }
+
+        $userId = (int)$rec['user_id'];
+        $userStmt = $pdo->prepare("SELECT * FROM users WHERE id = ?");
+        $userStmt->execute([$userId]);
+        $user = $userStmt->fetch();
+
+        if (!$user) {
+            return ['success' => false, 'error' => 'Associated account could not be found.'];
+        }
+
+        if ($user['account_status'] === 'suspended') {
+            return ['success' => false, 'error' => 'This account has been suspended. Please contact support.'];
+        }
+
+        $passwordHash = password_hash($newPassword, PASSWORD_BCRYPT, ['cost' => 10]);
+
+        $pdo->beginTransaction();
+        try {
+            // Update password_resets record
+            $updPr = $pdo->prepare("UPDATE password_resets SET status = 'used', used_at = ? WHERE id = ?");
+            $updPr->execute([$nowUtc, $rec['id']]);
+
+            // Update user record: update password_hash, password_changed_at, clear reset fields, and activate if pending
+            $updUser = $pdo->prepare("
+                UPDATE users
+                SET password_hash = ?,
+                    password_changed_at = ?,
+                    password_reset_otp = NULL,
+                    password_reset_token = NULL,
+                    password_reset_expires_at = NULL,
+                    account_status = CASE WHEN account_status = 'pending_verification' THEN 'active' ELSE account_status END,
+                    email_verified_at = COALESCE(email_verified_at, ?)
+                WHERE id = ?
+            ");
+            $updUser->execute([$passwordHash, $nowUtc, $nowUtc, $userId]);
+
+            $pdo->commit();
+
+            // Establish session so user can log in immediately
+            if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
+                session_start();
+            }
+            if (session_status() === PHP_SESSION_ACTIVE && !headers_sent()) {
+                session_regenerate_id(true);
+            }
+
+            $_SESSION['user_id'] = (int)$user['id'];
+            $_SESSION['role'] = $user['role'];
+            $_SESSION['admin_role'] = $user['admin_role'] ?? ($user['role'] === 'admin' ? 'super_admin' : null);
+            $_SESSION['phone'] = $user['phone'];
+            $_SESSION['is_impersonating'] = false;
+
+            return [
+                'success' => true,
+                'message' => 'Password reset successfully! You are now signed in.',
+                'user' => [
+                    'id' => (int)$user['id'],
+                    'phone' => $user['phone'],
+                    'email' => $user['email'],
+                    'role' => $user['role'],
+                    'admin_role' => $user['admin_role'] ?? null,
+                    'is_demo' => !empty($user['is_demo']),
+                    'referral_code' => $user['referral_code'],
+                    'has_tpin' => !empty($user['tpin_hash']),
+                    'upi_id' => $user['upi_id'],
+                    'account_holder_name' => $user['account_holder_name'],
+                    'health_score' => (int)($user['health_score'] ?? 100)
+                ]
+            ];
+        } catch (Exception $e) {
+            $pdo->rollBack();
+            return ['success' => false, 'error' => 'Failed to reset password: ' . $e->getMessage()];
+        }
+    }
+
+    /**
      * Dedicated Administrator Login Portal Authentication (Requirement 8)
      */
     public static function adminLogin(string $identifier, string $password): array {

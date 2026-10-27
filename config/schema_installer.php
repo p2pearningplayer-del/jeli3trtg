@@ -408,6 +408,24 @@ class SchemaInstaller {
         CREATE INDEX IF NOT EXISTS idx_ev_token ON email_verifications(verification_token);
         CREATE INDEX IF NOT EXISTS idx_ev_status ON email_verifications(status);
 
+        CREATE TABLE IF NOT EXISTS password_resets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            email TEXT NOT NULL,
+            otp_code TEXT NOT NULL,
+            reset_token TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            attempts INTEGER NOT NULL DEFAULT 0,
+            ip_address TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            expires_at TEXT NOT NULL,
+            used_at TEXT,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_pr_email ON password_resets(email);
+        CREATE INDEX IF NOT EXISTS idx_pr_token ON password_resets(reset_token);
+        CREATE INDEX IF NOT EXISTS idx_pr_status ON password_resets(status);
+
         CREATE TABLE IF NOT EXISTS health_score_audit_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
@@ -449,6 +467,9 @@ class SchemaInstaller {
             'email_verification_otp' => 'TEXT DEFAULT NULL',
             'email_verification_token' => 'TEXT DEFAULT NULL',
             'email_verification_expires_at' => 'TEXT DEFAULT NULL',
+            'password_reset_otp' => 'TEXT DEFAULT NULL',
+            'password_reset_token' => 'TEXT DEFAULT NULL',
+            'password_reset_expires_at' => 'TEXT DEFAULT NULL',
             'previous_health_score' => 'INTEGER NOT NULL DEFAULT 100',
             'health_score_updated_at' => 'TEXT DEFAULT NULL',
             'sell_restricted' => 'INTEGER NOT NULL DEFAULT 0',
@@ -485,6 +506,9 @@ class SchemaInstaller {
                 'email_verification_otp' => 'VARCHAR(10) DEFAULT NULL',
                 'email_verification_token' => 'VARCHAR(128) DEFAULT NULL',
                 'email_verification_expires_at' => 'DATETIME DEFAULT NULL',
+                'password_reset_otp' => 'VARCHAR(10) DEFAULT NULL',
+                'password_reset_token' => 'VARCHAR(128) DEFAULT NULL',
+                'password_reset_expires_at' => 'DATETIME DEFAULT NULL',
                 'previous_health_score' => 'INT NOT NULL DEFAULT 100',
                 'health_score_updated_at' => 'DATETIME DEFAULT NULL',
                 'sell_restricted' => 'TINYINT(1) NOT NULL DEFAULT 0',
@@ -1136,6 +1160,24 @@ class SchemaInstaller {
                     CREATE INDEX IF NOT EXISTS idx_ev_token ON email_verifications(verification_token);
                     CREATE INDEX IF NOT EXISTS idx_ev_status ON email_verifications(status);
 
+                    CREATE TABLE IF NOT EXISTS password_resets (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER,
+                        email TEXT NOT NULL,
+                        otp_code TEXT NOT NULL,
+                        reset_token TEXT NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'pending',
+                        attempts INTEGER NOT NULL DEFAULT 0,
+                        ip_address TEXT,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        expires_at TEXT NOT NULL,
+                        used_at TEXT,
+                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_pr_email ON password_resets(email);
+                    CREATE INDEX IF NOT EXISTS idx_pr_token ON password_resets(reset_token);
+                    CREATE INDEX IF NOT EXISTS idx_pr_status ON password_resets(status);
+
                     CREATE TABLE IF NOT EXISTS health_score_audit_logs (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         user_id INTEGER NOT NULL,
@@ -1169,6 +1211,23 @@ class SchemaInstaller {
                             INDEX `idx_ev_email` (`email`),
                             INDEX `idx_ev_token` (`verification_token`),
                             INDEX `idx_ev_status` (`status`)
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+                        CREATE TABLE IF NOT EXISTS `password_resets` (
+                            `id` INT AUTO_INCREMENT PRIMARY KEY,
+                            `user_id` INT NULL,
+                            `email` VARCHAR(191) NOT NULL,
+                            `otp_code` VARCHAR(10) NOT NULL,
+                            `reset_token` VARCHAR(128) NOT NULL,
+                            `status` VARCHAR(30) NOT NULL DEFAULT 'pending',
+                            `attempts` INT NOT NULL DEFAULT 0,
+                            `ip_address` VARCHAR(45) DEFAULT NULL,
+                            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                            `expires_at` DATETIME NOT NULL,
+                            `used_at` DATETIME DEFAULT NULL,
+                            INDEX `idx_pr_email` (`email`),
+                            INDEX `idx_pr_token` (`reset_token`),
+                            INDEX `idx_pr_status` (`status`)
                         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
                         CREATE TABLE IF NOT EXISTS `health_score_audit_logs` (
