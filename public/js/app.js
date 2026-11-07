@@ -5036,13 +5036,14 @@ function setCryptoCalcPreset(amount) {
 async function submitCryptoTxidVerification() {
     const txidInput = document.getElementById('cryptoSubmitTxidInput');
     const amountInput = document.getElementById('cryptoSubmitAmountInput');
+    const screenshotInput = document.getElementById('cryptoSubmitScreenshotInput');
     const msgEl = document.getElementById('cryptoSubmitStatusMsg');
     const btn = document.getElementById('cryptoSubmitTxidBtn');
 
     if (!txidInput || !msgEl || !btn) return;
 
     const txid = txidInput.value.trim();
-    const amount = amountInput ? parseFloat(amountInput.value) : null;
+    const amount = amountInput ? parseFloat(amountInput.value) : 0;
 
     if (!txid) {
         msgEl.innerText = 'Please enter your 64-character Tron transaction hash (TXID).';
@@ -5051,16 +5052,44 @@ async function submitCryptoTxidVerification() {
         return;
     }
 
+    if (!amount || amount <= 0) {
+        msgEl.innerText = 'Please enter the USDT amount sent (Minimum 100 USDT).';
+        msgEl.className = 'text-[11px] text-rose-400 block';
+        msgEl.classList.remove('hidden');
+        return;
+    }
+
     btn.disabled = true;
     const originalText = btn.innerHTML;
-    btn.innerHTML = '<span>Verifying on Blockchain...</span>';
+    btn.innerHTML = '<span>Scanning Tron Network...</span>';
     msgEl.className = 'text-[11px] text-slate-400 block';
-    msgEl.innerText = 'Scanning Tron blockchain network and smart contracts...';
+    msgEl.innerText = 'Verifying transaction hash on Tron blockchain...';
     msgEl.classList.remove('hidden');
 
     try {
-        const payload = { action: 'usdt_submit_txid', txid: txid };
-        if (amount && amount >= 100) payload.amount = amount;
+        let screenshotPath = null;
+        if (screenshotInput && screenshotInput.files && screenshotInput.files[0]) {
+            msgEl.innerText = 'Uploading transfer screenshot proof...';
+            const formData = new FormData();
+            formData.append('file', screenshotInput.files[0]);
+            formData.append('type', 'proof');
+            try {
+                const upRes = await fetch('/api/uploads.php', { method: 'POST', body: formData });
+                const upJson = await upRes.json();
+                if (upJson.success && upJson.path) {
+                    screenshotPath = upJson.path;
+                }
+            } catch (eUpload) {
+                console.warn('Screenshot upload skipped/failed:', eUpload);
+            }
+        }
+
+        const payload = {
+            action: 'usdt_submit_txid',
+            txid: txid,
+            amount: amount,
+            proof_screenshot: screenshotPath
+        };
 
         const res = await fetch('/api/wallet.php', {
             method: 'POST',
@@ -5071,16 +5100,17 @@ async function submitCryptoTxidVerification() {
 
         if (json.success) {
             msgEl.className = 'text-[11px] text-emerald-400 block font-semibold';
-            msgEl.innerText = json.message || `Successfully credited ${json.coins_credited || ''} Coins!`;
+            msgEl.innerText = json.message || `Successfully submitted deposit!`;
             txidInput.value = '';
             if (amountInput) amountInput.value = '';
+            if (screenshotInput) screenshotInput.value = '';
             
             // Refresh wallet overview and crypto deposit history
             if (typeof loadWalletSummary === 'function') loadWalletSummary();
             loadUserCryptoDepositHistory();
         } else {
             msgEl.className = 'text-[11px] text-rose-400 block font-semibold';
-            msgEl.innerText = json.error || 'Unable to verify transaction. Please ensure it has at least 1 confirmation on TronScan.';
+            msgEl.innerText = json.error || 'Unable to submit deposit. Please verify transaction details.';
         }
     } catch (err) {
         console.error('Error submitting TXID:', err);
@@ -5106,32 +5136,51 @@ async function loadUserCryptoDepositHistory() {
         }
 
         listEl.innerHTML = json.deposits.map(d => {
-            const isCompleted = (d.status === 'completed');
-            const statusBadge = isCompleted 
-                ? '<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Credited</span>'
-                : '<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-rose-500/10 text-rose-400 border border-rose-500/20">Below Min (&lt;100)</span>';
+            let statusBadge = '';
+            if (d.status === 'completed') {
+                statusBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Credited</span>';
+            } else if (d.status === 'pending_approval') {
+                statusBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-500/10 text-amber-400 border border-amber-500/20 animate-pulse">Pending Review</span>';
+            } else if (d.status === 'below_minimum') {
+                statusBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-rose-500/10 text-rose-400 border border-rose-500/20">Below Min (&lt;100)</span>';
+            } else if (d.status === 'rejected') {
+                statusBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-rose-500/10 text-rose-400 border border-rose-500/20">Rejected</span>';
+            } else {
+                statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-800 text-slate-400">${escapeHtml(d.status || 'unknown')}</span>`;
+            }
 
             const txShort = d.txid ? `${d.txid.substring(0, 10)}...${d.txid.substring(d.txid.length - 8)}` : '-';
             const tronscanUrl = `https://tronscan.org/#/transaction/${encodeURIComponent(d.txid || '')}`;
+            const coinsDisplay = (d.status === 'completed')
+                ? `${parseFloat(d.coins_credited).toLocaleString('en-IN', { minimumFractionDigits: 2 })} Coins`
+                : `${(parseFloat(d.amount_usdt) * parseFloat(d.exchange_rate || 115)).toLocaleString('en-IN', { minimumFractionDigits: 2 })} Coins (Est)`;
 
             return `
                 <div class="bg-slate-900 border border-slate-800/80 rounded-xl p-2.5 flex items-center justify-between text-xs">
-                    <div class="space-y-0.5">
-                        <div class="flex items-center gap-2">
+                    <div class="space-y-0.5 min-w-0 flex-1 pr-2">
+                        <div class="flex items-center gap-2 flex-wrap">
                             <span class="font-mono font-bold text-white">${parseFloat(d.amount_usdt).toFixed(2)} USDT</span>
                             <span class="text-slate-500">&rarr;</span>
-                            <span class="font-mono font-bold text-emerald-400">${parseFloat(d.coins_credited).toLocaleString('en-IN', { minimumFractionDigits: 2 })} Coins</span>
+                            <span class="font-mono font-bold ${d.status === 'completed' ? 'text-emerald-400' : 'text-slate-300'}">${coinsDisplay}</span>
                             ${statusBadge}
                         </div>
-                        <div class="flex items-center gap-2 text-[10px] text-slate-500 font-mono">
+                        <div class="flex items-center gap-2 text-[10px] text-slate-500 font-mono flex-wrap">
                             <span>TX: <a href="${tronscanUrl}" target="_blank" rel="noopener noreferrer" class="text-indigo-400 hover:underline">${txShort}</a></span>
                             <span>&bull;</span>
                             <span>${d.completed_at || d.created_at || ''} UTC</span>
+                            ${d.admin_notes ? `<span class="text-rose-400 block font-sans">${escapeHtml(d.admin_notes)}</span>` : ''}
                         </div>
                     </div>
-                    <a href="${tronscanUrl}" target="_blank" rel="noopener noreferrer" class="text-[10px] text-slate-400 hover:text-white p-1 rounded hover:bg-slate-800 transition" title="View on TronScan">
-                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
-                    </a>
+                    <div class="flex items-center gap-1.5 flex-shrink-0">
+                        ${d.proof_screenshot ? `
+                            <button type="button" onclick="openUserEvidenceLightbox('${escapeHtml(d.proof_screenshot)}', 'USDT Deposit Proof')" class="text-indigo-400 hover:text-indigo-300 p-1 rounded hover:bg-slate-800 transition" title="View Uploaded Receipt">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                            </button>
+                        ` : ''}
+                        <a href="${tronscanUrl}" target="_blank" rel="noopener noreferrer" class="text-[10px] text-slate-400 hover:text-white p-1 rounded hover:bg-slate-800 transition" title="View on TronScan">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                        </a>
+                    </div>
                 </div>
             `;
         }).join('');

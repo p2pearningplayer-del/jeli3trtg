@@ -989,6 +989,44 @@ switch ($action) {
         }
         break;
 
+    case 'admin_crypto_approve':
+        require_once __DIR__ . '/../src/Crypto/CryptoDepositManager.php';
+        $depositId = (int)($input['deposit_id'] ?? $_POST['deposit_id'] ?? 0);
+        $notes = trim((string)($input['notes'] ?? $_POST['notes'] ?? 'Approved by administrator'));
+        if ($depositId <= 0) jsonError('Deposit ID is required.');
+        $res = \Crypto\CryptoDepositManager::approveManualDeposit($adminId, $depositId, $notes);
+        if (!empty($res['success'])) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error'] ?? 'Approval failed.', 400, $res);
+        }
+        break;
+
+    case 'admin_crypto_reject':
+        require_once __DIR__ . '/../src/Crypto/CryptoDepositManager.php';
+        $depositId = (int)($input['deposit_id'] ?? $_POST['deposit_id'] ?? 0);
+        $reason = trim((string)($input['reason'] ?? $_POST['reason'] ?? 'Deposit rejected by administrator'));
+        if ($depositId <= 0) jsonError('Deposit ID is required.');
+        $res = \Crypto\CryptoDepositManager::rejectManualDeposit($adminId, $depositId, $reason);
+        if (!empty($res['success'])) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error'] ?? 'Rejection failed.', 400, $res);
+        }
+        break;
+
+    case 'admin_crypto_verify_onchain':
+        require_once __DIR__ . '/../src/Crypto/CryptoDepositManager.php';
+        $depositId = (int)($input['deposit_id'] ?? $_POST['deposit_id'] ?? 0);
+        if ($depositId <= 0) jsonError('Deposit ID is required.');
+        $res = \Crypto\CryptoDepositManager::verifyOnChainDeposit($adminId, $depositId);
+        if (!empty($res['success'])) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error'] ?? 'On-chain verification failed.', 400, $res);
+        }
+        break;
+
     case 'save_crypto_settings':
         $settings = [
             'usdt_exchange_rate' => isset($input['usdt_exchange_rate']) ? (string)$input['usdt_exchange_rate'] : null,

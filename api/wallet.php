@@ -155,11 +155,15 @@ switch ($action) {
     case 'usdt_submit_txid':
         require_once __DIR__ . '/../src/Crypto/CryptoDepositManager.php';
         $txid = trim((string)($input['txid'] ?? $_POST['txid'] ?? ''));
-        $amount = isset($input['amount']) ? (float)$input['amount'] : (isset($_POST['amount']) ? (float)$_POST['amount'] : null);
+        $amount = isset($input['amount']) ? (float)$input['amount'] : (isset($_POST['amount']) ? (float)$_POST['amount'] : 0.0);
+        $proofScreenshot = !empty($input['proof_screenshot']) ? trim((string)$input['proof_screenshot']) : (!empty($_POST['proof_screenshot']) ? trim((string)$_POST['proof_screenshot']) : null);
         if (empty($txid)) {
             jsonError('Transaction Hash (TXID) is required.');
         }
-        $res = \Crypto\CryptoDepositManager::verifyAndProcessTxid((int)$user['id'], $txid, $amount);
+        if ($amount <= 0) {
+            jsonError('Please specify the USDT amount deposited.');
+        }
+        $res = \Crypto\CryptoDepositManager::submitManualDeposit((int)$user['id'], $txid, $amount, $proofScreenshot);
         if (!empty($res['success'])) {
             jsonResponse(true, $res);
         } else {

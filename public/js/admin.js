@@ -3829,6 +3829,7 @@ function debounceCryptoSearch() {
 
 async function loadAdminCryptoDeposits(silent = false) {
     const tableBody = document.getElementById('adminCryptoTableBody');
+    const pendingEl = document.getElementById('adminCryptoPendingCount');
     const totalUsdtEl = document.getElementById('adminCryptoTotalUsdt');
     const totalCoinsEl = document.getElementById('adminCryptoTotalCoins');
     const totalCountEl = document.getElementById('adminCryptoTotalCount');
@@ -3857,6 +3858,7 @@ async function loadAdminCryptoDeposits(silent = false) {
         }
 
         const totals = data.totals || {};
+        if (pendingEl) pendingEl.innerText = (totals.total_pending_count || 0).toString();
         if (totalUsdtEl) totalUsdtEl.innerText = `${parseFloat(totals.total_usdt_completed || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT`;
         if (totalCoinsEl) totalCoinsEl.innerText = parseFloat(totals.total_coins_credited || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         if (totalCountEl) totalCountEl.innerText = (totals.total_deposits_count || 0).toString();
@@ -3869,6 +3871,9 @@ async function loadAdminCryptoDeposits(silent = false) {
             }
         }
 
+        if (document.getElementById('cryptoSettingProvider')) {
+            document.getElementById('cryptoSettingProvider').value = data.gateway_provider || 'manual';
+        }
         if (document.getElementById('cryptoSettingRate')) {
             document.getElementById('cryptoSettingRate').value = data.exchange_rate || 115.00;
         }
@@ -3895,17 +3900,41 @@ async function loadAdminCryptoDeposits(silent = false) {
         }
 
         tableBody.innerHTML = deposits.map(d => {
-            const isCompleted = (d.status === 'completed');
-            const statusBadge = isCompleted
-                ? '<span class="px-2.5 py-1 rounded text-[10px] font-bold uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">Credited</span>'
-                : '<span class="px-2.5 py-1 rounded text-[10px] font-bold uppercase bg-rose-500/10 text-rose-400 border border-rose-500/20 font-mono">Below Min (&lt;100)</span>';
-
-            const sweepBadge = (d.sweep_status === 'swept')
-                ? '<span class="px-2 py-0.5 rounded text-[10px] font-mono text-emerald-400 bg-emerald-500/10">Swept</span>'
-                : '<span class="px-2 py-0.5 rounded text-[10px] font-mono text-slate-400 bg-slate-800">Uncredited</span>';
+            let statusBadge = '';
+            if (d.status === 'completed') {
+                statusBadge = '<span class="px-2.5 py-1 rounded text-[10px] font-bold uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">Credited</span>';
+            } else if (d.status === 'pending_approval') {
+                statusBadge = '<span class="px-2.5 py-1 rounded text-[10px] font-bold uppercase bg-amber-500/10 text-amber-400 border border-amber-500/20 font-mono animate-pulse">Pending Review</span>';
+            } else if (d.status === 'below_minimum') {
+                statusBadge = '<span class="px-2.5 py-1 rounded text-[10px] font-bold uppercase bg-rose-500/10 text-rose-400 border border-rose-500/20 font-mono">Below Min (&lt;100)</span>';
+            } else if (d.status === 'rejected') {
+                statusBadge = '<span class="px-2.5 py-1 rounded text-[10px] font-bold uppercase bg-rose-500/10 text-rose-400 border border-rose-500/20 font-mono">Rejected</span>';
+            } else {
+                statusBadge = `<span class="px-2.5 py-1 rounded text-[10px] font-bold uppercase bg-slate-800 text-slate-400 font-mono">${escapeHtml(d.status || 'unknown')}</span>`;
+            }
 
             const txShort = d.txid ? `${d.txid.substring(0, 8)}...${d.txid.substring(d.txid.length - 8)}` : '-';
             const tronscanUrl = `https://tronscan.org/#/transaction/${encodeURIComponent(d.txid || '')}`;
+            const coinsVal = (d.status === 'completed')
+                ? parseFloat(d.coins_credited).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                : (parseFloat(d.amount_usdt) * parseFloat(d.exchange_rate || 115)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' (Est)';
+
+            const proofCol = d.proof_screenshot
+                ? `<button type="button" onclick="openAdminProofLightbox('${escapeHtml(d.proof_screenshot)}')" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-indigo-400 border border-slate-700 rounded text-[10px] font-bold cursor-pointer transition">View Proof</button>`
+                : `<span class="text-slate-600">-</span>`;
+
+            let actionCol = '';
+            if (d.status === 'pending_approval') {
+                actionCol = `
+                    <div class="flex items-center gap-1.5 justify-center">
+                        <button type="button" onclick="adminVerifyOnChainDeposit(${d.id})" class="px-2 py-1 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 rounded text-[10px] font-bold transition cursor-pointer" title="Scan TronScan blockchain network">Verify On-Chain</button>
+                        <button type="button" onclick="adminApproveCryptoDeposit(${d.id})" class="px-2 py-1 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 rounded text-[10px] font-bold transition cursor-pointer" title="Approve and credit coins to Available Balance">Approve</button>
+                        <button type="button" onclick="adminRejectCryptoDeposit(${d.id})" class="px-2 py-1 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 rounded text-[10px] font-bold transition cursor-pointer" title="Reject deposit submission">Reject</button>
+                    </div>
+                `;
+            } else {
+                actionCol = `<span class="text-slate-500 text-[10px] font-mono">${escapeHtml(d.admin_notes || '-')}</span>`;
+            }
 
             return `
                 <tr class="hover:bg-slate-900/80 transition text-xs">
@@ -3924,11 +3953,11 @@ async function loadAdminCryptoDeposits(silent = false) {
                         </div>
                     </td>
                     <td class="p-3.5 text-right font-bold text-white">${parseFloat(d.amount_usdt).toFixed(2)} USDT</td>
-                    <td class="p-3.5 text-right text-slate-400 font-mono">1:${parseFloat(d.exchange_rate).toFixed(0)}</td>
-                    <td class="p-3.5 text-right font-black text-emerald-400">${parseFloat(d.coins_credited).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    <td class="p-3.5 text-center">${sweepBadge}</td>
+                    <td class="p-3.5 text-right font-black ${d.status === 'completed' ? 'text-emerald-400' : 'text-slate-300'}">${coinsVal}</td>
+                    <td class="p-3.5 text-center">${proofCol}</td>
                     <td class="p-3.5 text-center">${statusBadge}</td>
                     <td class="p-3.5 text-right text-slate-400 text-[11px] font-mono">${d.completed_at || d.created_at || '-'}</td>
+                    <td class="p-3.5 text-center">${actionCol}</td>
                 </tr>
             `;
         }).join('');
@@ -3990,6 +4019,94 @@ async function saveCryptoGatewaySettings(e) {
         alert('Network error saving crypto settings.');
     } finally {
         if (btn) btn.disabled = false;
+    }
+}
+
+function openAdminProofLightbox(path) {
+    if (typeof openEvidenceLightbox === 'function') {
+        openEvidenceLightbox(path, 'USDT Transfer Receipt Proof');
+    }
+}
+
+async function adminApproveCryptoDeposit(depositId) {
+    if (!confirm(`Are you sure you want to approve USDT Deposit #${depositId} and credit the user's available balance at 115 Coins per USDT?`)) {
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/admin.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'admin_crypto_approve',
+                deposit_id: depositId,
+                notes: 'Approved by admin via Crypto Management'
+            })
+        });
+        const data = await res.json();
+        if (data.success) {
+            alert(data.message || `Deposit #${depositId} approved and credited!`);
+            loadAdminCryptoDeposits(true);
+        } else {
+            alert(data.error || 'Failed to approve deposit.');
+        }
+    } catch (err) {
+        console.error('adminApproveCryptoDeposit error:', err);
+        alert('Network error approving deposit.');
+    }
+}
+
+async function adminRejectCryptoDeposit(depositId) {
+    const reason = prompt(`Enter rejection reason for USDT Deposit #${depositId}:`, 'Funds not received on Tron blockchain');
+    if (reason === null) return;
+    if (!reason.trim()) {
+        alert('Rejection reason is required.');
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/admin.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'admin_crypto_reject',
+                deposit_id: depositId,
+                reason: reason.trim()
+            })
+        });
+        const data = await res.json();
+        if (data.success) {
+            alert(data.message || `Deposit #${depositId} rejected.`);
+            loadAdminCryptoDeposits(true);
+        } else {
+            alert(data.error || 'Failed to reject deposit.');
+        }
+    } catch (err) {
+        console.error('adminRejectCryptoDeposit error:', err);
+        alert('Network error rejecting deposit.');
+    }
+}
+
+async function adminVerifyOnChainDeposit(depositId) {
+    try {
+        const res = await fetch('/api/admin.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'admin_crypto_verify_onchain',
+                deposit_id: depositId
+            })
+        });
+        const data = await res.json();
+        if (data.success) {
+            alert(data.message || `Deposit #${depositId} verified on blockchain and credited!`);
+            loadAdminCryptoDeposits(true);
+        } else {
+            alert(data.error || 'On-chain verification could not confirm this transaction yet. You can inspect the TronScan link directly.');
+        }
+    } catch (err) {
+        console.error('adminVerifyOnChainDeposit error:', err);
+        alert('Network error during on-chain verification.');
     }
 }
 

@@ -1412,26 +1412,31 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
         <!-- ========================================== -->
         <section id="adminView-crypto" class="admin-view hidden space-y-6">
             <!-- Macro Stats Cards -->
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+            <div class="grid grid-cols-2 sm:grid-cols-5 gap-3.5">
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm">
+                    <span class="text-xs font-bold text-amber-400 uppercase tracking-wider block">Pending Review</span>
+                    <p class="text-2xl sm:text-3xl font-black text-amber-400 font-mono mt-1" id="adminCryptoPendingCount">0</p>
+                    <span class="text-[11px] text-slate-500 mt-1 block">Awaiting admin/on-chain approval</span>
+                </div>
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm">
                     <span class="text-xs font-bold text-slate-400 uppercase tracking-wider block">Total USDT Deposited</span>
                     <p class="text-2xl sm:text-3xl font-black text-emerald-400 font-mono mt-1" id="adminCryptoTotalUsdt">0.00 USDT</p>
                     <span class="text-[11px] text-slate-500 mt-1 block">Confirmed on TRON network</span>
                 </div>
-                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm">
                     <span class="text-xs font-bold text-slate-400 uppercase tracking-wider block">Total Coins Credited</span>
                     <p class="text-2xl sm:text-3xl font-black text-indigo-400 font-mono mt-1" id="adminCryptoTotalCoins">0.00</p>
                     <span class="text-[11px] text-slate-500 mt-1 block">At 1:115 conversion ratio</span>
                 </div>
-                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm">
                     <span class="text-xs font-bold text-slate-400 uppercase tracking-wider block">Completed Deposits</span>
                     <p class="text-2xl sm:text-3xl font-black text-white font-mono mt-1" id="adminCryptoTotalCount">0</p>
-                    <span class="text-[11px] text-slate-500 mt-1 block">Unique valid TXIDs processed</span>
+                    <span class="text-[11px] text-slate-500 mt-1 block">Unique valid TXIDs credited</span>
                 </div>
-                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm">
                     <span class="text-xs font-bold text-slate-400 uppercase tracking-wider block">Below Minimum (&lt;100)</span>
                     <p class="text-2xl sm:text-3xl font-black text-rose-400 font-mono mt-1" id="adminCryptoBelowMinCount">0</p>
-                    <span class="text-[11px] text-slate-500 mt-1 block">Policy rejected (uncredited)</span>
+                    <span class="text-[11px] text-slate-500 mt-1 block">Rejected per policy</span>
                 </div>
             </div>
 
@@ -1439,8 +1444,8 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
             <div class="bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-900 border border-slate-800 rounded-2xl p-5 shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                 <div class="space-y-1">
                     <div class="flex items-center gap-2 flex-wrap">
-                        <span class="text-xs font-bold text-amber-400 uppercase tracking-wider">Central Master TRC20 Wallet</span>
-                        <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">Auto-Sweep Destination</span>
+                        <span class="text-xs font-bold text-amber-400 uppercase tracking-wider">Official 1-Address Deposit Gateway</span>
+                        <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">TRON TRC-20 Master Address</span>
                     </div>
                     <div class="flex items-center gap-2">
                         <span class="font-mono text-xs sm:text-sm text-white font-bold select-all bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800" id="adminCryptoMasterWalletText">TPuZpFS91NcE8VqUV3AtMYXyNx4tWWw8dV</span>
@@ -1448,12 +1453,12 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
                         </a>
                     </div>
-                    <p class="text-xs text-slate-400">All user-deposited USDT is automatically forwarded/swept to this address upon confirmation.</p>
+                    <p class="text-xs text-slate-400">All users send USDT directly to this 1 address. Submitted TXIDs are verified on-chain or approved by admin.</p>
                 </div>
                 <div class="flex items-center gap-2.5 w-full md:w-auto">
                     <button type="button" onclick="openAdminCryptoCreditModal()" class="flex-1 md:flex-none px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-900/30 transition flex items-center justify-center gap-1.5 cursor-pointer">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-                        <span>Manual Credit / Verify</span>
+                        <span>Manual Credit New TX</span>
                     </button>
                     <button type="button" onclick="toggleCryptoGatewaySettings()" class="flex-1 md:flex-none px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl border border-slate-700 transition flex items-center justify-center gap-1.5 cursor-pointer">
                         <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/></svg>
@@ -1467,12 +1472,20 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                 <div class="flex items-center justify-between border-b border-slate-800 pb-3">
                     <div>
                         <h4 class="text-sm font-bold text-white">USDT Gateway & Conversion Configuration</h4>
-                        <p class="text-xs text-slate-400">Configure exchange rate, minimum deposit limits, NOWPayments API keys, and IPN secret.</p>
+                        <p class="text-xs text-slate-400">Configure exchange rate, minimum deposit limits, and official 1-address deposit destination.</p>
                     </div>
                     <button type="button" onclick="toggleCryptoGatewaySettings()" class="text-slate-400 hover:text-white text-xs font-bold cursor-pointer">Close &times;</button>
                 </div>
 
                 <form onsubmit="saveCryptoGatewaySettings(event)" class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                    <div>
+                        <label class="block text-slate-400 mb-1 font-semibold">Gateway Provider</label>
+                        <select id="cryptoSettingProvider" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:border-amber-500 focus:outline-none">
+                            <option value="manual">Manual Gateway (1 Address - Master Wallet)</option>
+                            <option value="nowpayments">NOWPayments (Automated Sweeps & IPN)</option>
+                            <option value="trongrid">TronGrid Direct On-Chain Node</option>
+                        </select>
+                    </div>
                     <div>
                         <label class="block text-slate-400 mb-1 font-semibold">Exchange Rate (Coins per 1 USDT)</label>
                         <input type="number" id="cryptoSettingRate" step="0.01" value="115.00" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono font-bold focus:border-amber-500 focus:outline-none">
@@ -1481,31 +1494,21 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                         <label class="block text-slate-400 mb-1 font-semibold">Minimum Deposit (USDT)</label>
                         <input type="number" id="cryptoSettingMinDeposit" step="1" value="100.00" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono font-bold focus:border-amber-500 focus:outline-none">
                     </div>
-                    <div>
-                        <label class="block text-slate-400 mb-1 font-semibold">Master Wallet Address (TRC-20)</label>
+                    <div class="md:col-span-3">
+                        <label class="block text-slate-400 mb-1 font-semibold">Official 1 Deposit Address (TRON TRC-20 Master Wallet)</label>
                         <input type="text" id="cryptoSettingMasterWallet" value="TPuZpFS91NcE8VqUV3AtMYXyNx4tWWw8dV" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono text-xs focus:border-amber-500 focus:outline-none">
+                        <span class="text-[11px] text-slate-500 mt-1 block">All users in manual gateway mode will see this single address with its vector QR code for deposits.</span>
                     </div>
                     <div>
-                        <label class="block text-slate-400 mb-1 font-semibold">Gateway Provider</label>
-                        <select id="cryptoSettingProvider" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:border-amber-500 focus:outline-none">
-                            <option value="nowpayments">NOWPayments (Recommended - Automated Sweeps)</option>
-                            <option value="trongrid">TronGrid / TronScan Direct Node</option>
-                            <option value="manual">Manual Admin Verification Only</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-slate-400 mb-1 font-semibold">NOWPayments API Key</label>
+                        <label class="block text-slate-400 mb-1 font-semibold">NOWPayments API Key (Optional)</label>
                         <input type="password" id="cryptoSettingApiKey" placeholder="Enter NOWPayments API Key" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono text-xs focus:border-amber-500 focus:outline-none">
                     </div>
                     <div>
-                        <label class="block text-slate-400 mb-1 font-semibold">NOWPayments IPN Secret</label>
+                        <label class="block text-slate-400 mb-1 font-semibold">NOWPayments IPN Secret (Optional)</label>
                         <input type="password" id="cryptoSettingIpnSecret" placeholder="Enter HMAC IPN Secret Key" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono text-xs focus:border-amber-500 focus:outline-none">
                     </div>
-                    <div class="md:col-span-3 flex items-center justify-between pt-2">
-                        <div class="text-[11px] text-slate-500 font-mono">
-                            Webhook URL: <code class="text-indigo-400 bg-slate-950 px-2 py-0.5 rounded border border-slate-800"><?= htmlspecialchars((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? 'jelipay.in') . '/api/crypto_webhook.php') ?></code>
-                        </div>
-                        <button type="submit" id="cryptoSaveSettingsBtn" class="px-5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xl transition shadow-md cursor-pointer">
+                    <div class="flex items-end">
+                        <button type="submit" id="cryptoSaveSettingsBtn" class="w-full py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xl transition shadow-md cursor-pointer">
                             Save Gateway Settings
                         </button>
                     </div>
@@ -1522,8 +1525,10 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                     </div>
                     <select id="adminCryptoStatusFilter" onchange="loadAdminCryptoDeposits()" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500">
                         <option value="all">All Statuses</option>
+                        <option value="pending_approval">Pending Approval</option>
                         <option value="completed">Completed (Credited)</option>
                         <option value="below_minimum">Below Minimum (&lt;100)</option>
+                        <option value="rejected">Rejected</option>
                     </select>
                 </div>
                 <div class="flex items-center gap-2">
@@ -1543,11 +1548,11 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                             <th class="p-3.5">User Account</th>
                             <th class="p-3.5">TXID (Tron Blockchain)</th>
                             <th class="p-3.5 text-right">USDT Amount</th>
-                            <th class="p-3.5 text-right">Exchange Rate</th>
                             <th class="p-3.5 text-right">Coins Credited</th>
-                            <th class="p-3.5 text-center">Sweep Status</th>
+                            <th class="p-3.5 text-center">Receipt Proof</th>
                             <th class="p-3.5 text-center">Status</th>
-                            <th class="p-3.5 text-right">Completed At (UTC)</th>
+                            <th class="p-3.5 text-right">Submitted / Done</th>
+                            <th class="p-3.5 text-center">Actions</th>
                         </tr>
                     </thead>
                     <tbody id="adminCryptoTableBody" class="divide-y divide-slate-800/60 font-mono">

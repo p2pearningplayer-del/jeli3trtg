@@ -2311,13 +2311,16 @@ endif;
                     </p>
                 </div>
 
-                <!-- Unique Deposit Address & QR Code -->
+                <!-- Official Platform TRC20 Deposit Address & QR Code -->
                 <div class="bg-slate-950 border border-slate-800 rounded-2xl p-4 text-center space-y-3">
-                    <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Your Dedicated TRC20 Deposit Address</span>
+                    <div class="flex items-center justify-center gap-2">
+                        <span class="text-[11px] font-bold text-slate-300 uppercase tracking-wider block">Official Platform USDT (TRC-20) Address</span>
+                        <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Official Gateway</span>
+                    </div>
                     
                     <!-- Dynamic QR Container -->
                     <div id="cryptoDepositQrContainer" class="flex justify-center items-center py-2 min-h-[160px]">
-                        <div class="animate-pulse text-slate-500 text-xs">Generating your dedicated TRC20 deposit address...</div>
+                        <div class="animate-pulse text-slate-500 text-xs">Loading official TRC20 deposit address...</div>
                     </div>
 
                     <!-- Address & Copy Button -->
@@ -2329,7 +2332,7 @@ endif;
                                 <span id="cryptoCopyBtnLabel">Copy</span>
                             </button>
                         </div>
-                        <p class="text-[11px] text-slate-400">All USDT deposited to this unique address automatically forwards to the master vault and credits your platform account.</p>
+                        <p class="text-[11px] text-slate-400">Transfer USDT (TRC-20) to this official address. After transfer, submit your TXID below for instant verification.</p>
                     </div>
                 </div>
 
@@ -2365,24 +2368,38 @@ endif;
                     </div>
                 </div>
 
-                <!-- Self-Service TXID Instant Claim / Verification -->
-                <div class="border border-slate-800 rounded-2xl p-3.5 space-y-2 bg-slate-950/40">
+                <!-- Submit Transfer Details for Verification -->
+                <div class="border border-slate-800 rounded-2xl p-4 space-y-3 bg-slate-950/60 shadow-sm">
                     <div class="flex items-center justify-between">
-                        <span class="text-[11px] font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                            <svg class="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                            Instant Blockchain TXID Claim
+                        <span class="text-[11px] font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                            <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            Submit Transfer for Verification
                         </span>
-                        <span class="text-[10px] text-slate-500">Auto-scanned</span>
+                        <span class="text-[10px] text-slate-400">Step 2 of 2</span>
                     </div>
-                    <p class="text-[11px] text-slate-400">If your deposit was confirmed on TronScan but has not yet updated, paste your 64-character Transaction Hash below to verify immediately.</p>
-                    <div class="space-y-2">
-                        <input type="text" id="cryptoSubmitTxidInput" placeholder="e.g. 7f8a9b4c2d3e... (64-character TXID)" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono text-xs focus:border-indigo-500 focus:outline-none">
-                        <div class="flex gap-2">
-                            <input type="number" id="cryptoSubmitAmountInput" step="0.01" min="100" placeholder="Amount in USDT (e.g. 100)" class="w-1/2 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono text-xs focus:border-indigo-500 focus:outline-none">
-                            <button type="button" id="cryptoSubmitTxidBtn" onclick="submitCryptoTxidVerification()" class="w-1/2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl px-3 py-2 transition flex items-center justify-center gap-1.5 shadow-md cursor-pointer">
-                                <span>Verify & Claim</span>
-                            </button>
+                    <p class="text-[11px] text-slate-400">After sending USDT from Binance, TrustWallet, or OKX, paste your transaction hash (TXID) below to trigger verification.</p>
+                    
+                    <div class="space-y-2.5">
+                        <div>
+                            <label class="text-[10px] text-slate-400 block mb-1 font-semibold">Transaction Hash (TXID) *</label>
+                            <input type="text" id="cryptoSubmitTxidInput" placeholder="e.g. 7f8a9b4c2d3e... (64-character hash)" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono text-xs focus:border-indigo-500 focus:outline-none">
                         </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                            <div>
+                                <label class="text-[10px] text-slate-400 block mb-1 font-semibold">Amount Deposited (USDT) *</label>
+                                <input type="number" id="cryptoSubmitAmountInput" step="0.01" min="100" placeholder="Min 100.00" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono text-xs focus:border-indigo-500 focus:outline-none">
+                            </div>
+                            <div>
+                                <label class="text-[10px] text-slate-400 block mb-1 font-semibold">Transfer Receipt / Screenshot (Optional)</label>
+                                <input type="file" id="cryptoSubmitScreenshotInput" accept="image/*" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-slate-300 text-[11px] focus:outline-none file:mr-2 file:py-1 file:px-2 file:rounded-lg file:border-0 file:text-[10px] file:font-semibold file:bg-slate-800 file:text-slate-200">
+                            </div>
+                        </div>
+
+                        <button type="button" id="cryptoSubmitTxidBtn" onclick="submitCryptoTxidVerification()" class="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs rounded-xl px-4 py-2.5 transition flex items-center justify-center gap-1.5 shadow-md shadow-emerald-950/40 cursor-pointer">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                            <span>Submit Deposit for Verification</span>
+                        </button>
                         <p id="cryptoSubmitStatusMsg" class="text-[11px] hidden"></p>
                     </div>
                 </div>

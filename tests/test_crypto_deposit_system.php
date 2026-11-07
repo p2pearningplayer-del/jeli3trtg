@@ -1,16 +1,19 @@
 <?php
 /**
- * Test Suite: USDT (TRC-20) Automated Crypto Deposit & Conversion System
+ * Test Suite: USDT (TRC-20) Crypto Deposit System
  * 
  * Verifies:
- * 1. Default configuration (Master wallet TPuZpFS91NcE8VqUV3AtMYXyNx4tWWw8dV, 1:115 rate, 100 USDT min).
- * 2. Dedicated unique TRC20 address generation per user with Base58Check and SVG QR.
- * 3. Strict minimum deposit limit (<100 USDT rejected as below_minimum, 0 coins credited).
- * 4. Automatic coin conversion @ 1:115 ratio (e.g. 100 USDT = 11,500 Coins credited to Available Balance).
- * 5. Double-entry immutable ledger tracking (wallet_ledger with USDT_DEPOSIT).
- * 6. Strict idempotency (same TXID cannot be credited multiple times).
- * 7. Admin manual verification & audit logging.
- * 8. NOWPayments Webhook IPN processing and HMAC signature verification.
+ * 1. Default configuration (Master wallet TPuZpFS91NcE8VqUV3AtMYXyNx4tWWw8dV, 1:115 rate, 100 USDT min, manual 1-address provider).
+ * 2. Manual 1-Address Gateway: All users receive the official master wallet deposit address and vector QR code.
+ * 3. User manual submission flow: TXID, amount, proof receipt screenshot.
+ * 4. Strict minimum deposit limit (<100 USDT rejected as below_minimum, 0 coins credited).
+ * 5. Pending Approval Queue: Valid deposits queue for admin review when on-chain is unindexed.
+ * 6. Admin Manual Approval: Balance crediting @ 1:115, double-entry wallet_ledger, status=completed, audit log.
+ * 7. Admin Rejection: Reason recorded, status=rejected, user notification.
+ * 8. Strict Idempotency & Duplicate Prevention: Replayed or duplicate TXIDs blocked.
+ * 9. Automated Dedicated Address Generation: When provider is switched to automated (nowpayments/trongrid), unique TRC-20 addresses generated.
+ * 10. NOWPayments Webhook IPN processing and HMAC-SHA512 signature verification.
+ * 11. Admin Manual Credit Tool (adminManualCredit) and macro audit logs.
  */
 
 declare(strict_types=1);
@@ -40,7 +43,7 @@ SchemaInstaller::seedPlatformSettings($pdo);
 SchemaInstaller::seedDemoAccounts($pdo);
 
 echo "====================================================================\n";
-echo " JELIPAY - USDT (TRC20) CRYPTO DEPOSIT SYSTEM TEST SUITE\n";
+echo " JELIPAY - USDT (TRC20) 1-ADDRESS MANUAL & AUTOMATED GATEWAY TESTS\n";
 echo "====================================================================\n\n";
 
 $passedTests = 0;
@@ -85,57 +88,58 @@ runCheck(
     "Got: {$minDeposit}"
 );
 
-// =========================================================================
-// TEST GROUP 2: DEDICATED UNIQUE TRC20 ADDRESS GENERATION
-// =========================================================================
-echo "\n[TEST GROUP 2: Unique Dedicated TRC20 Address Generation]\n";
-
-$user1AddrInfo = CryptoDepositManager::getUserDepositAddress(1);
-$user2AddrInfo = CryptoDepositManager::getUserDepositAddress(2);
-
+$provider = CryptoDepositManager::getGatewayProvider();
 runCheck(
-    "User 1 deposit address generated successfully",
-    !empty($user1AddrInfo['address']) && str_starts_with($user1AddrInfo['address'], 'T'),
-    "Address: " . ($user1AddrInfo['address'] ?? 'none')
-);
-
-runCheck(
-    "User 1 deposit address is valid Tron length (34 chars)",
-    strlen($user1AddrInfo['address']) === 34,
-    "Length: " . strlen($user1AddrInfo['address'])
-);
-
-runCheck(
-    "User 2 receives a distinct unique address from User 1",
-    $user1AddrInfo['address'] !== $user2AddrInfo['address'],
-    "User 1: {$user1AddrInfo['address']}, User 2: {$user2AddrInfo['address']}"
-);
-
-runCheck(
-    "Deposit address query generates vector SVG QR code",
-    !empty($user1AddrInfo['qr_svg']) && str_contains($user1AddrInfo['qr_svg'], '<svg'),
-    "SVG contains: " . substr($user1AddrInfo['qr_svg'] ?? '', 0, 30)
-);
-
-$user1SecondQuery = CryptoDepositManager::getUserDepositAddress(1);
-runCheck(
-    "User address is persistent across repeat calls (same user retains same address)",
-    $user1AddrInfo['address'] === $user1SecondQuery['address']
+    "Gateway provider defaults to 'manual' (1 Address mode)",
+    $provider === 'manual',
+    "Got: {$provider}"
 );
 
 // =========================================================================
-// TEST GROUP 3: STRICT MINIMUM DEPOSIT LIMIT ENFORCEMENT (< 100 USDT)
+// TEST GROUP 2: MANUAL 1-ADDRESS GATEWAY (ALL USERS SHARE MASTER WALLET)
 // =========================================================================
-echo "\n[TEST GROUP 3: Strict Minimum Deposit Limit Enforcement (< 100 USDT)]\n";
+echo "\n[TEST GROUP 2: Manual 1-Address Gateway Verification]\n";
+
+$user1ManualAddr = CryptoDepositManager::getUserDepositAddress(1);
+$user2ManualAddr = CryptoDepositManager::getUserDepositAddress(2);
+
+runCheck(
+    "User 1 receives official master wallet address in manual mode",
+    $user1ManualAddr['address'] === 'TPuZpFS91NcE8VqUV3AtMYXyNx4tWWw8dV',
+    "Address: " . ($user1ManualAddr['address'] ?? 'none')
+);
+
+runCheck(
+    "User 2 receives identical master wallet address in manual mode",
+    $user2ManualAddr['address'] === 'TPuZpFS91NcE8VqUV3AtMYXyNx4tWWw8dV',
+    "User 2 Address: " . ($user2ManualAddr['address'] ?? 'none')
+);
+
+runCheck(
+    "Deposit address response includes is_manual flag",
+    !empty($user1ManualAddr['is_manual']) && $user1ManualAddr['is_manual'] === true
+);
+
+runCheck(
+    "Master wallet address query generates vector SVG QR code",
+    !empty($user1ManualAddr['qr_svg']) && str_contains($user1ManualAddr['qr_svg'], '<svg'),
+    "SVG contains: " . substr($user1ManualAddr['qr_svg'] ?? '', 0, 30)
+);
+
+// =========================================================================
+// TEST GROUP 3: MANUAL DEPOSIT SUBMISSION & STRICT MINIMUM LIMIT (< 100 USDT)
+// =========================================================================
+echo "\n[TEST GROUP 3: Manual Deposit Submission & Strict Minimum Enforcement]\n";
 
 $walletBeforeSub = Wallet::getWallet(1);
 $balBeforeSub = (float)$walletBeforeSub['available_balance'];
 
-$subTxid = 'submin_tx_' . bin2hex(random_bytes(8));
-$subResult = CryptoDepositManager::processDeposit(1, $user1AddrInfo['address'], $subTxid, 50.00);
+// Sub-minimum: 50 USDT submitted by User 1
+$subTxid = 'manual_submin_tx_' . bin2hex(random_bytes(16));
+$subResult = CryptoDepositManager::submitManualDeposit(1, $subTxid, 50.00, 'uploads/proofs/test_submin.png');
 
 runCheck(
-    "50.00 USDT deposit is rejected by system",
+    "Sub-minimum 50.00 USDT manual deposit is immediately rejected",
     $subResult['success'] === false && ($subResult['status'] ?? '') === 'below_minimum',
     "Result: " . json_encode($subResult)
 );
@@ -143,7 +147,7 @@ runCheck(
 $walletAfterSub = Wallet::getWallet(1);
 $balAfterSub = (float)$walletAfterSub['available_balance'];
 runCheck(
-    "Zero coins credited to user's wallet for sub-minimum deposit",
+    "Zero coins credited to user's wallet for sub-minimum submission",
     abs($balAfterSub - $balBeforeSub) < 0.001,
     "Before: {$balBeforeSub}, After: {$balAfterSub}"
 );
@@ -152,117 +156,199 @@ $stmtSub = $pdo->prepare("SELECT * FROM crypto_deposits WHERE txid = ?");
 $stmtSub->execute([$subTxid]);
 $subRow = $stmtSub->fetch();
 runCheck(
-    "Sub-minimum transaction recorded in database with status 'below_minimum'",
-    $subRow && $subRow['status'] === 'below_minimum' && (float)$subRow['coins_credited'] === 0.0
+    "Sub-minimum submission recorded in database with status 'below_minimum' and proof saved",
+    $subRow && $subRow['status'] === 'below_minimum' && (float)$subRow['coins_credited'] === 0.0 && $subRow['proof_screenshot'] === 'uploads/proofs/test_submin.png'
 );
 
-// Test edge case: 99.99 USDT (strictly below 100.00)
-$edgeTxid = 'submin_edge_' . bin2hex(random_bytes(8));
-$edgeResult = CryptoDepositManager::processDeposit(1, $user1AddrInfo['address'], $edgeTxid, 99.99);
+// Resubmitting the same sub-minimum TXID is blocked
+$subReplay = CryptoDepositManager::submitManualDeposit(1, $subTxid, 50.00);
 runCheck(
-    "99.99 USDT deposit is rejected (strict 100.00 minimum enforced)",
-    $edgeResult['success'] === false && ($edgeResult['status'] ?? '') === 'below_minimum'
+    "Resubmitting existing below_minimum TXID returns rejection message",
+    $subReplay['success'] === false && ($subReplay['status'] ?? '') === 'below_minimum'
 );
 
 // =========================================================================
-// TEST GROUP 4: AUTOMATED COIN CONVERSION & AVAILABLE BALANCE CREDITING
+// TEST GROUP 4: VALID MANUAL DEPOSIT QUEUEING (PENDING APPROVAL)
 // =========================================================================
-echo "\n[TEST GROUP 4: Automated Coin Conversion & Balance Crediting]\n";
+echo "\n[TEST GROUP 4: Valid Manual Deposit Submission (Pending Approval Queue)]\n";
 
-$walletBeforeValid = Wallet::getWallet(1);
-$balBeforeValid = (float)$walletBeforeValid['available_balance'];
+$validManualTxid1 = 'tron_manual_100usdt_' . bin2hex(random_bytes(16));
+$proofPath1 = 'uploads/proofs/valid_receipt_100.png';
 
-// User 1 deposits 100 USDT -> Expect 100 * 115 = 11,500 Coins
-$validTxid1 = 'tron_valid_tx_100usdt_' . bin2hex(random_bytes(16));
-$validResult1 = CryptoDepositManager::processDeposit(1, $user1AddrInfo['address'], $validTxid1, 100.00);
+$manualSub1 = CryptoDepositManager::submitManualDeposit(1, $validManualTxid1, 100.00, $proofPath1);
 
 runCheck(
-    "100.00 USDT deposit processes successfully",
-    !empty($validResult1['success']),
-    "Error: " . ($validResult1['error'] ?? 'none')
+    "100.00 USDT manual deposit submitted successfully",
+    !empty($manualSub1['success']),
+    "Result: " . json_encode($manualSub1)
 );
 
 runCheck(
-    "100 USDT converts exactly to 11,500.00 Coins",
-    abs((float)($validResult1['coins_credited'] ?? 0) - 11500.00) < 0.01,
-    "Coins credited: " . ($validResult1['coins_credited'] ?? 0)
+    "Deposit is placed in pending_approval queue when blockchain unindexed in test env",
+    !empty($manualSub1['pending']) && ($manualSub1['deposit_id'] ?? 0) > 0,
+    "Deposit ID: " . ($manualSub1['deposit_id'] ?? 0)
 );
 
-$walletAfterValid = Wallet::getWallet(1);
-$balAfterValid = (float)$walletAfterValid['available_balance'];
+$pendingDepositId1 = (int)$manualSub1['deposit_id'];
+
+// Check database row
+$stmtPending = $pdo->prepare("SELECT * FROM crypto_deposits WHERE id = ?");
+$stmtPending->execute([$pendingDepositId1]);
+$pendingRow = $stmtPending->fetch();
+
 runCheck(
-    "User 1 Available Balance incremented by exactly 11,500.00 Coins",
-    abs(($balAfterValid - $balBeforeValid) - 11500.00) < 0.01,
-    "Expected diff 11500, got: " . ($balAfterValid - $balBeforeValid)
+    "Deposit record stored with status 'pending_approval' and correct proof screenshot",
+    $pendingRow && $pendingRow['status'] === 'pending_approval' && $pendingRow['proof_screenshot'] === $proofPath1 && (float)$pendingRow['amount_usdt'] === 100.00
 );
 
-// Verify double-entry ledger record
+// Resubmitting the same pending TXID returns pending notice without duplicating row
+$reSubPending = CryptoDepositManager::submitManualDeposit(1, $validManualTxid1, 100.00);
+runCheck(
+    "Resubmitting pending TXID returns pending status idempotently without duplicate row",
+    !empty($reSubPending['success']) && !empty($reSubPending['pending'])
+);
+
+// =========================================================================
+// TEST GROUP 5: ADMIN MANUAL APPROVAL & BALANCE CREDITING @ 1:115
+// =========================================================================
+echo "\n[TEST GROUP 5: Admin Manual Approval & Balance Crediting]\n";
+
+$walletBeforeApprove = Wallet::getWallet(1);
+$balBeforeApprove = (float)$walletBeforeApprove['available_balance'];
+
+// Admin (User 1) approves the pending deposit
+$approveRes = CryptoDepositManager::approveManualDeposit(
+    1, // adminId
+    $pendingDepositId1,
+    'Verified via TronScan hash and verified screenshot proof'
+);
+
+runCheck(
+    "Admin approveManualDeposit succeeds",
+    !empty($approveRes['success']),
+    "Error: " . ($approveRes['error'] ?? 'none')
+);
+
+runCheck(
+    "Admin approval calculated exact 1:115 conversion (100 USDT = 11,500 Coins)",
+    abs((float)($approveRes['coins_credited'] ?? 0) - 11500.00) < 0.01,
+    "Coins credited: " . ($approveRes['coins_credited'] ?? 0)
+);
+
+$walletAfterApprove = Wallet::getWallet(1);
+$balAfterApprove = (float)$walletAfterApprove['available_balance'];
+runCheck(
+    "User Available Balance credited with exactly 11,500.00 Coins",
+    abs(($balAfterApprove - $balBeforeApprove) - 11500.00) < 0.01,
+    "Diff: " . ($balAfterApprove - $balBeforeApprove)
+);
+
+// Verify double-entry ledger entry
 $stmtLedger = $pdo->prepare("SELECT * FROM wallet_ledger WHERE user_id = 1 AND transaction_type = 'USDT_DEPOSIT' ORDER BY id DESC LIMIT 1");
 $stmtLedger->execute();
 $ledgerRow = $stmtLedger->fetch();
 runCheck(
-    "Double-entry wallet ledger created with transaction_type 'USDT_DEPOSIT'",
-    $ledgerRow && abs((float)$ledgerRow['amount'] - 11500.00) < 0.01 && $ledgerRow['reference_id'] === $validTxid1,
+    "Double-entry wallet ledger created with transaction_type 'USDT_DEPOSIT' and admin reference",
+    $ledgerRow && abs((float)$ledgerRow['amount'] - 11500.00) < 0.01 && $ledgerRow['reference_id'] === $validManualTxid1,
     "Ledger: " . json_encode($ledgerRow)
 );
 
-// Verify database record in crypto_deposits
-$stmtDep = $pdo->prepare("SELECT * FROM crypto_deposits WHERE txid = ?");
-$stmtDep->execute([$validTxid1]);
-$depRow = $stmtDep->fetch();
+// Verify deposit row updated to completed
+$stmtApprovedDep = $pdo->prepare("SELECT * FROM crypto_deposits WHERE id = ?");
+$stmtApprovedDep->execute([$pendingDepositId1]);
+$approvedDepRow = $stmtApprovedDep->fetch();
 runCheck(
-    "Crypto deposit record marked 'completed' and 'swept' to master wallet",
-    $depRow && $depRow['status'] === 'completed' && $depRow['sweep_status'] === 'swept' && $depRow['master_wallet'] === 'TPuZpFS91NcE8VqUV3AtMYXyNx4tWWw8dV'
+    "Deposit row updated to status 'completed' and sweep_status 'swept'",
+    $approvedDepRow && $approvedDepRow['status'] === 'completed' && $approvedDepRow['sweep_status'] === 'swept'
 );
 
-// Test another amount: 250 USDT -> Expect 250 * 115 = 28,750 Coins
-$validTxid2 = 'tron_valid_tx_250usdt_' . bin2hex(random_bytes(16));
-$validResult2 = CryptoDepositManager::processDeposit(1, $user1AddrInfo['address'], $validTxid2, 250.00);
+// Re-approving an already completed deposit is idempotent
+$reApprove = CryptoDepositManager::approveManualDeposit(1, $pendingDepositId1);
 runCheck(
-    "250.00 USDT deposit converts to 28,750.00 Coins",
-    !empty($validResult2['success']) && abs((float)$validResult2['coins_credited'] - 28750.00) < 0.01
-);
-
-// =========================================================================
-// TEST GROUP 5: STRICT IDEMPOTENCY & REPLAY PREVENTION
-// =========================================================================
-echo "\n[TEST GROUP 5: Strict Idempotency & Replay Prevention]\n";
-
-$walletBeforeReplay = Wallet::getWallet(1);
-$balBeforeReplay = (float)$walletBeforeReplay['available_balance'];
-
-// Resubmit the exact same $validTxid1
-$replayResult = CryptoDepositManager::processDeposit(1, $user1AddrInfo['address'], $validTxid1, 100.00);
-
-runCheck(
-    "Replayed TXID returns idempotent response",
-    !empty($replayResult['success']) && !empty($replayResult['idempotent']),
-    "Response: " . json_encode($replayResult)
-);
-
-$walletAfterReplay = Wallet::getWallet(1);
-$balAfterReplay = (float)$walletAfterReplay['available_balance'];
-runCheck(
-    "User Available Balance does NOT change on replayed TXID",
-    abs($balAfterReplay - $balBeforeReplay) < 0.001,
-    "Before: {$balBeforeReplay}, After: {$balAfterReplay}"
+    "Re-approving already completed deposit is idempotent",
+    !empty($reApprove['success']) && !empty($reApprove['idempotent'])
 );
 
 // =========================================================================
-// TEST GROUP 6: ADMIN MANUAL CREDIT TOOL
+// TEST GROUP 6: ADMIN MANUAL REJECTION
 // =========================================================================
-echo "\n[TEST GROUP 6: Admin Manual Verification & Credit Tool]\n";
+echo "\n[TEST GROUP 6: Admin Manual Rejection Flow]\n";
+
+// Submit another deposit to reject
+$rejectTxid = 'tron_reject_tx_' . bin2hex(random_bytes(16));
+$rejectSub = CryptoDepositManager::submitManualDeposit(2, $rejectTxid, 120.00, 'uploads/proofs/fake_receipt.png');
+$rejectDepositId = (int)($rejectSub['deposit_id'] ?? 0);
+
+runCheck(
+    "Deposit for User 2 submitted to pending queue",
+    $rejectDepositId > 0
+);
+
+$rejectRes = CryptoDepositManager::rejectManualDeposit(
+    1, // adminId
+    $rejectDepositId,
+    'Transaction hash not found on Tron blockchain explorer'
+);
+
+runCheck(
+    "Admin rejectManualDeposit succeeds",
+    !empty($rejectRes['success']),
+    "Error: " . ($rejectRes['error'] ?? 'none')
+);
+
+// Check database row
+$stmtRejectDep = $pdo->prepare("SELECT * FROM crypto_deposits WHERE id = ?");
+$stmtRejectDep->execute([$rejectDepositId]);
+$rejectRow = $stmtRejectDep->fetch();
+
+runCheck(
+    "Deposit status updated to 'rejected' with admin rejection reason saved",
+    $rejectRow && $rejectRow['status'] === 'rejected' && str_contains($rejectRow['admin_notes'] ?? '', 'Tron blockchain explorer')
+);
+
+// Submitting this rejected TXID again is blocked
+$resubReject = CryptoDepositManager::submitManualDeposit(2, $rejectTxid, 120.00);
+runCheck(
+    "Resubmitting a rejected TXID is blocked with explanation",
+    $resubReject['success'] === false && ($resubReject['status'] ?? '') === 'rejected'
+);
+
+// =========================================================================
+// TEST GROUP 7: AUTOMATED COIN CONVERSION VIA PROCESS DEPOSIT
+// =========================================================================
+echo "\n[TEST GROUP 7: Direct Automated Conversion & Crediting]\n";
+
+$validTxidAuto = 'tron_direct_auto_' . bin2hex(random_bytes(16));
+$directResult = CryptoDepositManager::processDeposit(1, $masterWallet, $validTxidAuto, 250.00);
+
+runCheck(
+    "Direct processDeposit converts 250 USDT to 28,750.00 Coins (250 * 115)",
+    !empty($directResult['success']) && abs((float)$directResult['coins_credited'] - 28750.00) < 0.01,
+    "Result: " . json_encode($directResult)
+);
+
+// Replay prevention
+$replayRes = CryptoDepositManager::processDeposit(1, $masterWallet, $validTxidAuto, 250.00);
+runCheck(
+    "Replayed processDeposit TXID is idempotent and does not re-credit",
+    !empty($replayRes['success']) && !empty($replayRes['idempotent'])
+);
+
+// =========================================================================
+// TEST GROUP 8: ADMIN DIRECT CREDIT TOOL (adminManualCredit)
+// =========================================================================
+echo "\n[TEST GROUP 8: Admin Direct Credit Tool (adminManualCredit)]\n";
 
 $user2Before = Wallet::getWallet(2);
 $user2BalBefore = (float)$user2Before['available_balance'];
 
-$adminTxid = 'admin_credit_tx_' . bin2hex(random_bytes(16));
+$adminDirectTxid = 'admin_direct_tx_' . bin2hex(random_bytes(16));
 $adminCreditRes = CryptoDepositManager::adminManualCredit(
     1, // adminId
     2, // userId
-    $adminTxid,
+    $adminDirectTxid,
     150.00, // 150 USDT -> 17,250 Coins
-    'Verified on TronScan explorer block #6789012'
+    'Direct ledger credit verified on TronScan explorer'
 );
 
 runCheck(
@@ -289,15 +375,34 @@ runCheck(
 );
 
 // =========================================================================
-// TEST GROUP 7: NOWPAYMENTS WEBHOOK IPN PROCESSING
+// TEST GROUP 9: MULTI-ADDRESS MODE & NOWPAYMENTS WEBHOOK
 // =========================================================================
-echo "\n[TEST GROUP 7: NOWPayments Webhook IPN Processing]\n";
+echo "\n[TEST GROUP 9: Multi-Address Provider & NOWPayments Webhook]\n";
 
+// Switch gateway provider to 'nowpayments' to test multi-address capabilities
+$pdo->prepare("UPDATE platform_settings SET setting_value = 'nowpayments' WHERE setting_key = 'crypto_gateway_provider'")->execute();
+
+$user1MultiAddr = CryptoDepositManager::getUserDepositAddress(1);
+$user2MultiAddr = CryptoDepositManager::getUserDepositAddress(2);
+
+runCheck(
+    "In automated mode, User 1 receives a dedicated Base58Check Tron address",
+    !empty($user1MultiAddr['address']) && str_starts_with($user1MultiAddr['address'], 'T') && strlen($user1MultiAddr['address']) === 34,
+    "Address: " . ($user1MultiAddr['address'] ?? 'none')
+);
+
+runCheck(
+    "In automated mode, User 2 receives a distinct unique address from User 1",
+    $user1MultiAddr['address'] !== $user2MultiAddr['address'],
+    "User 1: {$user1MultiAddr['address']}, User 2: {$user2MultiAddr['address']}"
+);
+
+// Webhook test with assigned address
 $webhookTxid = 'nowpay_ipn_tx_' . bin2hex(random_bytes(16));
 $webhookPayload = [
     'payment_id' => 'np_pay_998877',
     'payment_status' => 'finished',
-    'pay_address' => $user1AddrInfo['address'],
+    'pay_address' => $user1MultiAddr['address'],
     'pay_amount' => 200.00,
     'actually_paid' => 200.00,
     'pay_currency' => 'usdttrc20',
@@ -308,16 +413,16 @@ $rawJson = json_encode($webhookPayload);
 $webhookRes = CryptoDepositManager::handleNowPaymentsWebhook($webhookPayload, $rawJson, null);
 
 runCheck(
-    "NOWPayments webhook processes confirmed payment and credits user",
+    "NOWPayments webhook processes confirmed payment and credits user (200 USDT = 23,000 Coins)",
     !empty($webhookRes['success']) && abs((float)($webhookRes['coins_credited'] ?? 0) - 23000.00) < 0.01,
     "Result: " . json_encode($webhookRes)
 );
 
-// Webhook with unconfirmed status (e.g. 'waiting') should be ignored safely
+// Webhook with unconfirmed status ('waiting') should be ignored safely
 $waitingPayload = [
     'payment_id' => 'np_pay_waiting',
     'payment_status' => 'waiting',
-    'pay_address' => $user1AddrInfo['address'],
+    'pay_address' => $user1MultiAddr['address'],
     'actually_paid' => 100.00,
     'txn_id' => 'tx_waiting_' . bin2hex(random_bytes(8))
 ];
@@ -327,11 +432,11 @@ runCheck(
     !empty($waitingRes['success']) && !empty($waitingRes['ignored'])
 );
 
-// Webhook with sub-minimum deposit (<100 USDT)
+// Webhook with sub-minimum payment (<100 USDT)
 $subWebhookPayload = [
     'payment_id' => 'np_pay_sub',
     'payment_status' => 'finished',
-    'pay_address' => $user1AddrInfo['address'],
+    'pay_address' => $user1MultiAddr['address'],
     'actually_paid' => 45.00,
     'txn_id' => 'tx_sub_webhook_' . bin2hex(random_bytes(8))
 ];
@@ -349,7 +454,7 @@ $signedTxid = 'signed_ipn_tx_' . bin2hex(random_bytes(16));
 $signedPayload = [
     'payment_id' => 'np_pay_signed',
     'payment_status' => 'finished',
-    'pay_address' => $user1AddrInfo['address'],
+    'pay_address' => $user1MultiAddr['address'],
     'actually_paid' => 120.00,
     'txn_id' => $signedTxid
 ];
@@ -372,30 +477,42 @@ runCheck(
     "Result: " . json_encode($validSigRes)
 );
 
-// Reset secret for other tests
-$pdo->prepare("UPDATE platform_settings SET setting_value = '' WHERE setting_key = 'nowpayments_ipn_secret'")->execute();
+// Switch back to manual provider as default
+$pdo->prepare("UPDATE platform_settings SET setting_value = 'manual' WHERE setting_key = 'crypto_gateway_provider'")->execute();
 
 // =========================================================================
-// TEST GROUP 8: DEPOSIT LOGS & AGGREGATE TOTALS
+// TEST GROUP 10: DEPOSIT LOGS & MACRO TOTALS
 // =========================================================================
-echo "\n[TEST GROUP 8: Admin Deposit Logs & Macro Totals]\n";
+echo "\n[TEST GROUP 10: Admin Deposit Logs & Macro Counters]\n";
 
 $logs = CryptoDepositManager::getDepositLogs(50, 0);
 runCheck(
     "getDepositLogs returns list of deposits",
-    !empty($logs['deposits']) && count($logs['deposits']) >= 4
+    !empty($logs['deposits']) && count($logs['deposits']) >= 5
 );
 
 runCheck(
     "getDepositLogs aggregates total completed USDT",
-    ($logs['totals']['total_usdt_completed'] ?? 0) >= 700.00,
+    ($logs['totals']['total_usdt_completed'] ?? 0) >= 800.00,
     "Total USDT: " . ($logs['totals']['total_usdt_completed'] ?? 0)
 );
 
 runCheck(
     "getDepositLogs aggregates below_minimum count",
-    ($logs['totals']['total_below_minimum_count'] ?? 0) >= 3,
+    ($logs['totals']['total_below_minimum_count'] ?? 0) >= 2,
     "Below min count: " . ($logs['totals']['total_below_minimum_count'] ?? 0)
+);
+
+runCheck(
+    "getDepositLogs aggregates pending_approval count",
+    isset($logs['totals']['total_pending_count']),
+    "Pending count: " . ($logs['totals']['total_pending_count'] ?? 0)
+);
+
+runCheck(
+    "getDepositLogs aggregates rejected count",
+    ($logs['totals']['total_rejected_count'] ?? 0) >= 1,
+    "Rejected count: " . ($logs['totals']['total_rejected_count'] ?? 0)
 );
 
 runCheck(

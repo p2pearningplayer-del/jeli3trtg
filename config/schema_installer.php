@@ -509,6 +509,8 @@ class SchemaInstaller {
             sweep_txid TEXT DEFAULT NULL,
             master_wallet TEXT NOT NULL DEFAULT 'TPuZpFS91NcE8VqUV3AtMYXyNx4tWWw8dV',
             raw_payload TEXT DEFAULT NULL,
+            proof_screenshot TEXT DEFAULT NULL,
+            admin_notes TEXT DEFAULT NULL,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             completed_at TEXT DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -701,6 +703,29 @@ class SchemaInstaller {
                         try {
                             $pdo->exec("ALTER TABLE `parent_sell_orders` ADD COLUMN IF NOT EXISTS `{$col}` {$type}");
                         } catch (Exception $e2) {}
+                    }
+                }
+            } catch (Exception $e) {}
+        }
+
+        $cryptoCols = [
+            'proof_screenshot' => 'TEXT DEFAULT NULL',
+            'admin_notes' => 'TEXT DEFAULT NULL',
+        ];
+        foreach ($cryptoCols as $col => $type) {
+            try {
+                if ($driver === 'sqlite') {
+                    $pdo->exec("ALTER TABLE crypto_deposits ADD COLUMN {$col} {$type}");
+                } else {
+                    $chk = $pdo->query("SHOW COLUMNS FROM `crypto_deposits` LIKE '{$col}'")->fetch();
+                    if (!$chk) {
+                        try {
+                            $pdo->exec("ALTER TABLE `crypto_deposits` ADD COLUMN `{$col}` {$type}");
+                        } catch (Exception $e) {
+                            try {
+                                $pdo->exec("ALTER TABLE `crypto_deposits` ADD COLUMN IF NOT EXISTS `{$col}` {$type}");
+                            } catch (Exception $e2) {}
+                        }
                     }
                 }
             } catch (Exception $e) {}
@@ -1491,6 +1516,8 @@ class SchemaInstaller {
                             `sweep_txid` VARCHAR(120) DEFAULT NULL,
                             `master_wallet` VARCHAR(100) NOT NULL DEFAULT 'TPuZpFS91NcE8VqUV3AtMYXyNx4tWWw8dV',
                             `raw_payload` TEXT DEFAULT NULL,
+                            `proof_screenshot` VARCHAR(255) DEFAULT NULL,
+                            `admin_notes` TEXT DEFAULT NULL,
                             `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                             `completed_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                             UNIQUE KEY `uk_cd_txid` (`txid`),
@@ -1519,6 +1546,8 @@ class SchemaInstaller {
                                 `sweep_txid` VARCHAR(120) DEFAULT NULL,
                                 `master_wallet` VARCHAR(100) NOT NULL DEFAULT 'TPuZpFS91NcE8VqUV3AtMYXyNx4tWWw8dV',
                                 `raw_payload` TEXT DEFAULT NULL,
+                                `proof_screenshot` VARCHAR(255) DEFAULT NULL,
+                                `admin_notes` TEXT DEFAULT NULL,
                                 `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                                 `completed_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                                 UNIQUE KEY `uk_cd_txid` (`txid`)
@@ -1576,7 +1605,7 @@ class SchemaInstaller {
             ['usdt_exchange_rate', '115.00', 'Exchange rate: 1 USDT equals platform token coins (default: 115)'],
             ['usdt_min_deposit', '100.00', 'Minimum deposit limit in USDT TRC20 (default: 100)'],
             ['usdt_master_wallet', 'TPuZpFS91NcE8VqUV3AtMYXyNx4tWWw8dV', 'Central master TRON TRC-20 wallet address for automated sweeping'],
-            ['crypto_gateway_provider', 'nowpayments', 'Crypto gateway provider (nowpayments, trongrid, manual)'],
+            ['crypto_gateway_provider', 'manual', 'Crypto gateway provider (manual, nowpayments, trongrid)'],
             ['nowpayments_api_key', '', 'NOWPayments merchant API key'],
             ['nowpayments_ipn_secret', '', 'NOWPayments IPN HMAC secret key'],
             ['trongrid_api_key', '', 'Optional TronGrid API key for direct blockchain querying']
