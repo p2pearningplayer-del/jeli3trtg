@@ -4938,15 +4938,20 @@ window._currentUsdtExchangeRate = 115.00;
 window._currentUserCryptoAddress = '';
 
 function openCryptoDepositModal() {
-    if (!currentUser) {
-        openAuthModal('signin');
-        return;
-    }
-
     const modal = document.getElementById('cryptoDepositModal');
     if (!modal) return;
 
     modal.classList.remove('hidden');
+
+    const guestNotice = document.getElementById('cryptoGuestNotice');
+    if (guestNotice) {
+        if (!currentUser) {
+            guestNotice.classList.remove('hidden');
+        } else {
+            guestNotice.classList.add('hidden');
+        }
+    }
+
     loadCryptoDepositInfo();
     loadUserCryptoDepositHistory();
 }
@@ -5042,6 +5047,14 @@ async function submitCryptoTxidVerification() {
 
     if (!txidInput || !msgEl || !btn) return;
 
+    if (!currentUser) {
+        msgEl.innerText = 'Please sign in or create an account first so your deposited coins can be credited to your platform balance.';
+        msgEl.className = 'text-[11px] text-amber-400 block font-semibold';
+        msgEl.classList.remove('hidden');
+        setTimeout(() => { openAuthModal('signin'); }, 1200);
+        return;
+    }
+
     const txid = txidInput.value.trim();
     const amount = amountInput ? parseFloat(amountInput.value) : 0;
 
@@ -5125,6 +5138,11 @@ async function submitCryptoTxidVerification() {
 async function loadUserCryptoDepositHistory() {
     const listEl = document.getElementById('cryptoUserHistoryList');
     if (!listEl) return;
+
+    if (!currentUser) {
+        listEl.innerHTML = '<div class="text-slate-400 text-center py-4 text-xs bg-slate-950/40 rounded-xl border border-slate-800/60 p-3">💡 <span class="text-slate-300">Sign in to view your personalized crypto deposit history.</span><br><button type="button" onclick="openAuthModal(\'signin\')" class="mt-2 px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition cursor-pointer">Sign In</button></div>';
+        return;
+    }
 
     try {
         const res = await fetch('/api/wallet.php?action=usdt_deposit_history&limit=15');

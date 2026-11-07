@@ -258,13 +258,13 @@ endif;
 
                 <!-- Navigation Links / User Actions -->
                 <div class="flex items-center gap-3">
-                    <?php if ($currentUser): ?>
-                        <!-- Deposit USDT (TRC-20) Header Quick Action Button -->
-                        <button type="button" onclick="openCryptoDepositModal()" class="flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 rounded-xl text-xs font-bold transition shadow-sm cursor-pointer" title="Deposit USDT (TRC-20) - Auto-Credit">
-                            <svg class="w-4 h-4 text-emerald-400 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 14.93V18h-2v-1.07A6.99 6.99 0 0 1 5.5 12h2.09a5 5 0 0 0 4.41 3.91V11.5H8.25V9.5H12V7.07A5 5 0 0 0 7.59 11H5.5a6.99 6.99 0 0 1 5.5-4.93V5h2v1.07A6.99 6.99 0 0 1 18.5 11h-2.09A5 5 0 0 0 12 7.09V9.5h3.75v2H12v4.41a5 5 0 0 0 4.41-3.91h2.09a6.99 6.99 0 0 1-5.5 4.93z"/></svg>
-                            <span class="hidden sm:inline">Deposit USDT</span>
-                        </button>
+                    <!-- Deposit USDT (TRC-20) Header Quick Action Button (Accessible to All Users & Guests) -->
+                    <button type="button" onclick="openCryptoDepositModal()" class="flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 rounded-xl text-xs font-bold transition shadow-sm cursor-pointer" title="Deposit USDT (TRC-20) - Official Gateway">
+                        <svg class="w-4 h-4 text-emerald-400 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 14.93V18h-2v-1.07A6.99 6.99 0 0 1 5.5 12h2.09a5 5 0 0 0 4.41 3.91V11.5H8.25V9.5H12V7.07A5 5 0 0 0 7.59 11H5.5a6.99 6.99 0 0 1 5.5-4.93V5h2v1.07A6.99 6.99 0 0 1 18.5 11h-2.09A5 5 0 0 0 12 7.09V9.5h3.75v2H12v4.41a5 5 0 0 0 4.41-3.91h2.09a6.99 6.99 0 0 1-5.5 4.93z"/></svg>
+                        <span class="hidden sm:inline">Deposit USDT</span>
+                    </button>
 
+                    <?php if ($currentUser): ?>
                         <!-- Shared Wallet Balance Chip -->
                         <div class="flex items-center bg-slate-800/80 border border-slate-700/80 rounded-xl px-2.5 py-1.5 sm:px-3 sm:py-1.5 gap-2 cursor-pointer max-w-[160px] sm:max-w-xs min-w-0" onclick="switchTab('home')" title="Shared Available Wallet Balance">
                             <div class="text-right hidden sm:block min-w-0">
@@ -559,7 +559,7 @@ endif;
                             <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 font-mono">1 USDT = 115 Coins</span>
                         </div>
                         <h4 class="text-sm sm:text-base font-bold text-white mt-0.5 truncate">Deposit USDT &bull; Instant Balance Crediting</h4>
-                        <p class="text-xs text-slate-400">Get your unique dedicated TRC20 address. Deposits are automatically converted at 1:115 and swept to vault.</p>
+                        <p class="text-xs text-slate-400">Official Platform TRC-20 Master Address. Deposits are automatically converted at 1:115 and credited directly to Available Balance.</p>
                     </div>
                 </div>
                 <div class="flex items-center gap-2.5 w-full sm:w-auto">
@@ -2379,6 +2379,17 @@ endif;
                     </div>
                     <p class="text-[11px] text-slate-400">After sending USDT from Binance, TrustWallet, or OKX, paste your transaction hash (TXID) below to trigger verification.</p>
                     
+                    <!-- Guest Sign-in Alert -->
+                    <div id="cryptoGuestNotice" class="hidden bg-indigo-950/60 border border-indigo-500/40 rounded-xl p-2.5 text-[11px] text-indigo-300 flex items-center justify-between gap-2">
+                        <div class="flex items-center gap-2 min-w-0">
+                            <svg class="w-4 h-4 text-indigo-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            <span class="truncate">Sign in to credit coins to your platform balance.</span>
+                        </div>
+                        <button type="button" onclick="openAuthModal('signin')" class="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold text-[10px] flex-shrink-0 transition cursor-pointer">
+                            Sign In
+                        </button>
+                    </div>
+
                     <div class="space-y-2.5">
                         <div>
                             <label class="text-[10px] text-slate-400 block mb-1 font-semibold">Transaction Hash (TXID) *</label>

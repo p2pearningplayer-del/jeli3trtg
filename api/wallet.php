@@ -11,16 +11,44 @@ require_once __DIR__ . '/../src/Validator.php';
 require_once __DIR__ . '/../src/StateMachine.php';
 require_once __DIR__ . '/response.php';
 
-$user = Auth::getCurrentUser();
-if (!$user) {
-    jsonError('Authentication required.', 401);
-}
-
 // Opportunistically sync expired orders
 StateMachine::checkAndExpireOrders();
 
 $input = getJsonInput();
 $action = $_GET['action'] ?? $input['action'] ?? $_POST['action'] ?? 'summary';
+
+// Public endpoints accessible to all users & guests (e.g. Master Address info)
+if ($action === 'usdt_deposit_info') {
+    require_once __DIR__ . '/../src/Crypto/CryptoDepositManager.php';
+    $user = Auth::getCurrentUser();
+    $userId = $user ? (int)$user['id'] : 0;
+    $info = \Crypto\CryptoDepositManager::getUserDepositAddress($userId);
+    jsonResponse(true, $info);
+    exit;
+}
+
+if ($action === 'usdt_deposit_history') {
+    require_once __DIR__ . '/../src/Crypto/CryptoDepositManager.php';
+    $user = Auth::getCurrentUser();
+    if (!$user) {
+        jsonResponse(true, [
+            'deposits' => [],
+            'totals' => ['total_usdt_completed' => 0, 'total_pending_count' => 0],
+            'is_guest' => true
+        ]);
+        exit;
+    }
+    $limit = max(1, min(100, (int)($_GET['limit'] ?? $input['limit'] ?? 20)));
+    $offset = max(0, (int)($_GET['offset'] ?? $input['offset'] ?? 0));
+    $history = \Crypto\CryptoDepositManager::getDepositLogs($limit, $offset, (int)$user['id']);
+    jsonResponse(true, $history);
+    exit;
+}
+
+$user = Auth::getCurrentUser();
+if (!$user) {
+    jsonError('Authentication required.', 401);
+}
 
 switch ($action) {
     case 'summary':
@@ -136,20 +164,6 @@ switch ($action) {
         $stmt = $pdo->prepare("UPDATE notifications SET is_read = 1 WHERE user_id = ?");
         $stmt->execute([$user['id']]);
         jsonResponse(true, ['message' => 'Notifications marked as read.']);
-        break;
-
-    case 'usdt_deposit_info':
-        require_once __DIR__ . '/../src/Crypto/CryptoDepositManager.php';
-        $info = \Crypto\CryptoDepositManager::getUserDepositAddress((int)$user['id']);
-        jsonResponse(true, $info);
-        break;
-
-    case 'usdt_deposit_history':
-        require_once __DIR__ . '/../src/Crypto/CryptoDepositManager.php';
-        $limit = max(1, min(100, (int)($_GET['limit'] ?? $input['limit'] ?? 20)));
-        $offset = max(0, (int)($_GET['offset'] ?? $input['offset'] ?? 0));
-        $history = \Crypto\CryptoDepositManager::getDepositLogs($limit, $offset, (int)$user['id']);
-        jsonResponse(true, $history);
         break;
 
     case 'usdt_submit_txid':

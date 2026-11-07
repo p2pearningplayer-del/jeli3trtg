@@ -109,10 +109,10 @@ class CryptoDepositManager {
 
         $isManual = ($provider === 'manual' || $provider === 'single_address' || empty($provider));
 
-        if ($isManual) {
-            // Manual Gateway for 1 Address: All users deposit directly to the single platform Master Wallet
+        if ($isManual || $userId <= 0) {
+            // Manual Gateway for 1 Address or guest preview: All users deposit directly to the single platform Master Wallet
             $depositAddress = $masterWallet;
-            $gatewayMode = 'manual_single_address';
+            $gatewayMode = $isManual ? 'manual_single_address' : 'guest_preview';
         } else {
             // Automated multi-address provider
             $stmt = $pdo->prepare("SELECT * FROM user_crypto_addresses WHERE user_id = ? AND network = 'TRC20'");

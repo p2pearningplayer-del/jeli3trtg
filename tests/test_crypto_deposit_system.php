@@ -100,6 +100,18 @@ runCheck(
 // =========================================================================
 echo "\n[TEST GROUP 2: Manual 1-Address Gateway Verification]\n";
 
+$guestManualAddr = CryptoDepositManager::getUserDepositAddress(0);
+runCheck(
+    "Guest visitor (userId = 0) successfully receives official master wallet address",
+    $guestManualAddr['address'] === 'TPuZpFS91NcE8VqUV3AtMYXyNx4tWWw8dV',
+    "Address: " . ($guestManualAddr['address'] ?? 'none')
+);
+
+runCheck(
+    "Guest query includes QR SVG and exchange rate preview",
+    !empty($guestManualAddr['qr_svg']) && abs((float)$guestManualAddr['exchange_rate'] - 115.00) < 0.01
+);
+
 $user1ManualAddr = CryptoDepositManager::getUserDepositAddress(1);
 $user2ManualAddr = CryptoDepositManager::getUserDepositAddress(2);
 
