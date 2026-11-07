@@ -71,9 +71,9 @@ class RiskScoringEngine {
             $explanations[] = $utrData['error'] ?: 'UTR format is invalid';
         }
 
-        // 5. Visually Similar Screenshot (pHash Hamming distance <= 5)
+        // 5. Visually Similar Screenshot (pHash Hamming distance <= tolerance)
         if (!empty($imageDupCheck['is_duplicate']) && $imageDupCheck['match_type'] === 'PERCEPTUAL_PHASH') {
-            $score += 45;
+            $score += 20;
             $reasons[] = 'PERCEPTUAL_SIMILAR_IMAGE';
             $explanations[] = $imageDupCheck['description'];
         }

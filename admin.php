@@ -1093,6 +1093,49 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                     </div>
                 </div>
 
+                <!-- Perceptual Hash & Duplicate Detection Sensitivity Controls -->
+                <div class="bg-slate-950/80 border border-slate-800/80 rounded-xl p-4 space-y-3">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-2.5">
+                        <div class="flex items-center gap-2">
+                            <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                            <span class="text-xs font-bold text-white uppercase tracking-wider">Perceptual Hash (pHash) Duplicate Screenshot Sensitivity</span>
+                        </div>
+                        <span class="text-[10px] text-emerald-400 font-bold bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded">False-Positive Prevention Calibrated</span>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                        <div class="space-y-1">
+                            <label class="font-bold text-slate-300 block text-[11px]">Perceptual Hash Duplicate Detection</label>
+                            <select id="settingFraudPhashEnabled" class="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:border-amber-500 focus:outline-none text-xs">
+                                <option value="0">0 - Disabled (Recommended: avoids false flags on UPI receipts)</option>
+                                <option value="1">1 - Enabled (Visual near-duplicate scanning)</option>
+                            </select>
+                            <span class="text-[10px] text-slate-500 block">Disabled to prevent standard PhonePe/GPay layouts from being flagged.</span>
+                        </div>
+                        <div class="space-y-1">
+                            <label class="font-bold text-slate-300 block text-[11px]">pHash Distance Tolerance</label>
+                            <select id="settingFraudPhashTolerance" class="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:border-amber-500 focus:outline-none text-xs">
+                                <option value="0">0 - Exact Visual Hash Only (Strict / Recommended)</option>
+                                <option value="1">1 - 1-bit Difference (Very Strict)</option>
+                                <option value="2">2 - 2-bits Difference (Moderate)</option>
+                                <option value="5">5 - 5-bits Difference (Loose / Deprecated)</option>
+                            </select>
+                            <span class="text-[10px] text-slate-500 block">Maximum Hamming bit difference before triggering a visual match.</span>
+                        </div>
+                        <div class="space-y-1 flex flex-col justify-between">
+                            <div>
+                                <label class="font-bold text-slate-300 block text-[11px]">Fraud Prevention Engine</label>
+                                <select id="settingFraudEngineEnabled" class="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:border-amber-500 focus:outline-none text-xs">
+                                    <option value="1">1 - Active (SHA-256 + UTR Duplication Guards)</option>
+                                    <option value="0">0 - Globally Disabled</option>
+                                </select>
+                            </div>
+                            <button onclick="saveFraudSensitivitySettings(this)" class="mt-1.5 w-full bg-amber-600 hover:bg-amber-500 text-white font-bold py-2 rounded-xl transition text-xs flex items-center justify-center gap-1.5 shadow-md shadow-amber-600/20">
+                                <span>Save Sensitivity Settings</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Filters & Search Controls -->
                 <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
                     <div class="sm:col-span-2 relative">

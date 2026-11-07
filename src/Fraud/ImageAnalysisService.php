@@ -451,13 +451,16 @@ class ImageAnalysisService {
         ?string $phash,
         int $currentOrderId,
         int $currentBuyerId = 0,
-        int $tolerance = 5
+        int $tolerance = 0,
+        ?bool $phashEnabled = null
     ): array {
-        return self::checkDuplicateImage($pdo, $sha256, (string)$phash, $currentOrderId, $currentBuyerId, $tolerance);
+        return self::checkDuplicateImage($pdo, $sha256, (string)$phash, $currentOrderId, $currentBuyerId, $tolerance, $phashEnabled);
     }
 
     /**
      * Check if this screenshot is an exact or perceptual duplicate of a previous submission.
+     * When $phashEnabled is false or $tolerance <= 0, perceptual visual hashing is disabled
+     * to avoid false-positive duplicate rejections on standard UPI receipts.
      */
     public static function checkDuplicateImage(
         PDO $pdo,
@@ -465,7 +468,8 @@ class ImageAnalysisService {
         string $phash,
         int $currentOrderId,
         int $currentBuyerId,
-        int $tolerance = 5
+        int $tolerance = 0,
+        ?bool $phashEnabled = null
     ): array {
         // 1. Check exact cryptographic hash (SHA-256)
         $stmtExact = $pdo->prepare("
@@ -499,7 +503,10 @@ class ImageAnalysisService {
         }
 
         // 2. Check perceptual visual hash (Hamming distance)
-        if (!empty($phash)) {
+        // Enabled only when explicitly requested ($phashEnabled === true) or when tolerance > 0 and not explicitly disabled ($phashEnabled !== false)
+        $runPhash = ($phashEnabled !== null) ? $phashEnabled : ($tolerance > 0);
+
+        if ($runPhash && $tolerance > 0 && !empty($phash)) {
             $stmtPhash = $pdo->prepare("
                 SELECT fp.id, fp.child_order_id, fp.buyer_id, fp.image_phash, c.status as order_status
                 FROM payment_fingerprints fp

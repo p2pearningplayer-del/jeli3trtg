@@ -110,12 +110,41 @@ class FraudDecisionEngine {
             ];
         }
 
+        // 6. Configurable Thresholds from platform_settings
+        $autoRejectScore = (int)self::getSettingValue($pdo, 'fraud_auto_reject_score', 75);
+        $reviewThreshold = (int)self::getSettingValue($pdo, 'fraud_review_threshold', 25);
+        $fraudEnabled = (bool)(int)self::getSettingValue($pdo, 'fraud_detection_enabled', 1);
+        $phashEnabled = (bool)(int)self::getSettingValue($pdo, 'fraud_perceptual_hash_enabled', 0);
+        $phashTolerance = (int)self::getSettingValue($pdo, 'fraud_perceptual_hash_tolerance', 0);
+
+        // If fraud engine is globally disabled, immediately approve submission
+        if (!$fraudEnabled) {
+            return [
+                'decision' => 'VERIFIED',
+                'can_proceed' => true,
+                'error' => null,
+                'risk_score' => 0,
+                'risk_level' => 'low',
+                'reason_codes' => ['FRAUD_DETECTION_DISABLED'],
+                'explanations' => ['Automated fraud prevention engine is globally disabled in platform settings.'],
+                'assessment_id' => 0,
+                'utr_normalized' => $utrData['normalized'],
+                'ocr' => $imageData['ocr'],
+                'image' => [
+                    'sha256' => $imageData['sha256'],
+                    'phash' => $imageData['phash']
+                ]
+            ];
+        }
+
         $imageDupCheck = ImageAnalysisService::checkDuplicateImage(
             $pdo,
             $imageData['sha256'],
             $imageData['phash'],
             $childOrderId,
-            $buyerId
+            $buyerId,
+            $phashTolerance,
+            $phashEnabled
         );
 
         // 5. Step 3: Risk Scoring Evaluation
@@ -133,20 +162,23 @@ class FraudDecisionEngine {
         $reasonCodes = $riskEvaluation['reasons'];
         $explanations = $riskEvaluation['explanations'];
 
-        // 6. Configurable Thresholds from platform_settings
-        $autoRejectScore = (int)self::getSettingValue($pdo, 'fraud_auto_reject_score', 75);
-        $reviewThreshold = (int)self::getSettingValue($pdo, 'fraud_review_threshold', 25);
-        $fraudEnabled = (bool)self::getSettingValue($pdo, 'fraud_detection_enabled', 1);
-
         // 7. Decision Determination
         $decision = 'PENDING_REVIEW';
         $canProceed = false;
         $rejectionReason = null;
 
         if ($riskEvaluation['hard_rule_violated'] || $riskScore >= $autoRejectScore) {
-            $decision = 'REJECTED';
-            $canProceed = false;
-            $rejectionReason = !empty($explanations[0]) ? $explanations[0] : 'Payment proof rejected by automated fraud prevention rules.';
+            // Guard against false-positive auto-rejections on soft visual similarity alone:
+            // If the rejection would be triggered without any hard rule violation and involves perceptual hash similarity,
+            // downgrade to PENDING_REVIEW so legitimate buyers are not blocked from submitting proof and orders do not time out.
+            if (!$riskEvaluation['hard_rule_violated'] && in_array('PERCEPTUAL_SIMILAR_IMAGE', $reasonCodes, true)) {
+                $decision = 'PENDING_REVIEW';
+                $canProceed = true;
+            } else {
+                $decision = 'REJECTED';
+                $canProceed = false;
+                $rejectionReason = !empty($explanations[0]) ? $explanations[0] : 'Payment proof rejected by automated fraud prevention rules.';
+            }
         } elseif ($riskScore >= $reviewThreshold || !empty($imageData['aspect_ratio_anomaly'])) {
             $decision = 'PENDING_REVIEW';
             $canProceed = true; // Still moves to 'Seller Confirmation Pending' but flagged for review

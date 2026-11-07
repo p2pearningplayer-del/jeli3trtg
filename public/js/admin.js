@@ -1570,6 +1570,11 @@ async function loadAdminContentSettings() {
         'telegram_support_url',
         'telegram_support_username',
         'platform_mode',
+        'fraud_detection_enabled',
+        'fraud_perceptual_hash_enabled',
+        'fraud_perceptual_hash_tolerance',
+        'fraud_auto_reject_score',
+        'fraud_review_threshold',
         'allow_user_registration',
         'allow_sell_listings',
         'allow_buy_orders',
@@ -2174,7 +2179,63 @@ function changeFraudPage(direction) {
     loadAdminFraudAssessments();
 }
 
+async function loadAdminFraudSettings() {
+    try {
+        const res = await fetch('/api/admin.php?action=settings');
+        const data = await res.json();
+        if (data.success && data.settings) {
+            const phashEn = data.settings.find(s => s.setting_key === 'fraud_perceptual_hash_enabled');
+            const phashTol = data.settings.find(s => s.setting_key === 'fraud_perceptual_hash_tolerance');
+            const engineEn = data.settings.find(s => s.setting_key === 'fraud_detection_enabled');
+            const elPhashEn = document.getElementById('settingFraudPhashEnabled');
+            const elPhashTol = document.getElementById('settingFraudPhashTolerance');
+            const elEngineEn = document.getElementById('settingFraudEngineEnabled');
+            if (elPhashEn && phashEn) elPhashEn.value = phashEn.setting_value;
+            if (elPhashTol && phashTol) elPhashTol.value = phashTol.setting_value;
+            if (elEngineEn && engineEn) elEngineEn.value = engineEn.setting_value;
+        }
+    } catch (e) {}
+}
+
+async function saveFraudSensitivitySettings(btn) {
+    const elPhashEn = document.getElementById('settingFraudPhashEnabled');
+    const elPhashTol = document.getElementById('settingFraudPhashTolerance');
+    const elEngineEn = document.getElementById('settingFraudEngineEnabled');
+    if (!elPhashEn || !elPhashTol || !elEngineEn) return;
+
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerText = 'Saving...';
+
+    try {
+        await Promise.all([
+            fetch('/api/admin.php?action=settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ setting_key: 'fraud_perceptual_hash_enabled', setting_value: elPhashEn.value, reason: 'Fraud sensitivity adjustment' })
+            }),
+            fetch('/api/admin.php?action=settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ setting_key: 'fraud_perceptual_hash_tolerance', setting_value: elPhashTol.value, reason: 'Fraud tolerance adjustment' })
+            }),
+            fetch('/api/admin.php?action=settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ setting_key: 'fraud_detection_enabled', setting_value: elEngineEn.value, reason: 'Fraud engine toggle' })
+            })
+        ]);
+        alert('Fraud sensitivity settings successfully saved and updated across live order verification!');
+    } catch (e) {
+        alert('Network error saving fraud settings.');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
 async function loadAdminFraudAssessments(silent = false) {
+    loadAdminFraudSettings();
     const tbody = document.getElementById('adminFraudTableBody');
     if (!tbody) return;
 

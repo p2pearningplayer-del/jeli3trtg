@@ -1257,7 +1257,8 @@ class SchemaInstaller {
             ['fraud_auto_reject_score', '75', 'Risk score threshold at or above which submissions are automatically rejected'],
             ['fraud_review_threshold', '25', 'Risk score threshold at or above which submissions are marked PENDING_REVIEW'],
             ['fraud_gemini_api_key', '', 'Optional Google Gemini Vision API key for enhanced OCR screenshot inspection'],
-            ['fraud_perceptual_hash_tolerance', '5', 'Max Hamming distance threshold for perceptual duplicate detection'],
+            ['fraud_perceptual_hash_enabled', '0', 'Perceptual visual hash duplicate detection (1=Active, 0=Disabled to avoid false positives on standard UPI receipts)'],
+            ['fraud_perceptual_hash_tolerance', '0', 'Max Hamming distance threshold for perceptual duplicate detection (0=Exact match, 1-2=Strict)'],
             ['site_name', 'JeliPay', 'Website and platform public brand name'],
             ['site_tagline', 'Unified Peer-to-Peer Token Trading Platform', 'Platform sub-header description'],
             ['token_rate_inr', '1', 'Base value of 1 token in INR'],
@@ -1318,6 +1319,15 @@ class SchemaInstaller {
                 if ($curUser === '@jelipay_support' || $curUser === 'jelipay_support' || empty($curUser)) {
                     $pdo->exec("UPDATE platform_settings SET setting_value = '@amilacorp' WHERE setting_key = 'telegram_support_username'");
                 }
+            }
+
+            // Migrate perceptual hash duplicate settings to prevent false-positives on standard UPI receipts
+            $pdo->exec("UPDATE platform_settings SET setting_value = '0' WHERE setting_key = 'fraud_perceptual_hash_tolerance' AND setting_value = '5'");
+            $chkFp = $pdo->prepare("SELECT setting_value FROM platform_settings WHERE setting_key = 'fraud_perceptual_hash_enabled'");
+            $chkFp->execute();
+            if (!$chkFp->fetch()) {
+                $insFp = $pdo->prepare("INSERT INTO platform_settings (setting_key, setting_value, description) VALUES ('fraud_perceptual_hash_enabled', '0', 'Perceptual visual hash duplicate detection (1=Active, 0=Disabled to avoid false positives on standard UPI receipts)')");
+                $insFp->execute();
             }
         } catch (Exception $e) {
             // Ignore migration exception
