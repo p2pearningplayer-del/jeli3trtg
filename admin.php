@@ -489,6 +489,10 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                             <option value="40">40 users</option>
                             <option value="100">100 users</option>
                         </select>
+                        <button onclick="openQuickMassFreezeModal()" class="px-3 py-1.5 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 rounded-xl text-xs font-bold flex items-center gap-1.5 transition" title="1-Click Cancel All Active Orders & Freeze Account">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
+                            <span>1-Click Freeze User</span>
+                        </button>
                         <button onclick="loadAdminUsers()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold border border-slate-700 transition">
                             Refresh
                         </button>
@@ -1415,7 +1419,11 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                     </div>
                     <p class="text-xs text-slate-400 mt-1">Registered: <span id="dossierCreated" class="font-mono text-slate-300">-</span></p>
                 </div>
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2 flex-wrap">
+                    <button id="dossierMassCancelFreezeBtn" onclick="triggerDossierMassCancelFreeze()" class="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-lg shadow-rose-600/30" title="1-Click Cancel All & Freeze: Cancel all active buy/sell orders, return tokens to wallet, and freeze account">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
+                        <span>1-Click Cancel All & Freeze</span>
+                    </button>
                     <button id="dossierFlagBtn" class="px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/30 rounded-xl text-xs font-bold transition">
                         Flag Suspicious
                     </button>
@@ -2300,6 +2308,60 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                     Close
                 </button>
             </div>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MODAL 15: 1-CLICK MASS CANCEL & FREEZE (Anti-Scam Tool) -->
+    <!-- ========================================== -->
+    <div id="quickMassFreezeModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-slate-900 border border-rose-500/40 rounded-2xl max-w-lg w-full p-6 shadow-2xl relative space-y-4">
+            <button onclick="closeQuickMassFreezeModal()" class="absolute right-4 top-4 text-slate-400 hover:text-white">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+            <div class="flex items-center gap-3 border-b border-slate-800 pb-3">
+                <div class="h-10 w-10 rounded-xl bg-rose-500/20 border border-rose-500/30 flex items-center justify-center text-rose-400 flex-shrink-0">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
+                </div>
+                <div>
+                    <h3 class="text-lg font-bold text-white">1-Click Cancel All & Freeze (Anti-Scam)</h3>
+                    <p class="text-xs text-rose-300">Instantly cancel active orders, unlock tokens, and freeze account</p>
+                </div>
+            </div>
+
+            <div class="text-xs text-slate-300 space-y-2 bg-slate-950 border border-slate-800 rounded-xl p-3">
+                <p><strong>What this action does:</strong></p>
+                <ul class="list-disc list-inside space-y-1 text-slate-400">
+                    <li>Instantly cancels all active <strong>Buy Reservations</strong> placed by this user.</li>
+                    <li>Instantly cancels all active <strong>Sell Listings</strong> and child micro-orders.</li>
+                    <li>Moves all locked/reserved tokens back to their main <strong>Available Wallet</strong>.</li>
+                    <li>Temporarily <strong>suspends & flags</strong> the account so they cannot trade.</li>
+                </ul>
+            </div>
+
+            <form onsubmit="submitQuickMassFreeze(event)" class="space-y-4">
+                <div>
+                    <label class="text-xs font-semibold text-slate-300 block mb-1">Target User ID or Phone Number</label>
+                    <input type="text" id="massFreezeTargetInput" required placeholder="e.g. 9610510173 or #42" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:border-rose-500 focus:outline-none font-mono">
+                </div>
+
+                <div>
+                    <label class="text-xs font-semibold text-slate-300 block mb-1">Reason for Freeze</label>
+                    <input type="text" id="massFreezeReasonInput" placeholder="e.g. Anti-scam freeze: suspicious payment verification" value="Anti-scam emergency freeze" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:border-rose-500 focus:outline-none">
+                </div>
+
+                <div id="massFreezeStatusBox" class="hidden text-xs p-3 rounded-xl"></div>
+
+                <div class="flex items-center justify-end gap-3 pt-2">
+                    <button type="button" onclick="closeQuickMassFreezeModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition">
+                        Cancel
+                    </button>
+                    <button type="submit" id="massFreezeSubmitBtn" class="px-5 py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-rose-600/30">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
+                        <span>Execute Cancel & Freeze</span>
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 

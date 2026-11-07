@@ -832,6 +832,481 @@ class AdminManager {
     }
 
     /**
+     * 1-Click Mass Cancel All Active Orders & Freeze User Account (Anti-Scam Tool)
+     *
+     * 1. Cancels all active Buy reservations made by the target user and unlocks tokens in parent orders.
+     * 2. Cancels all active Sell listings placed by the target user.
+     * 3. Moves all locked/listed tokens back to the user's available wallet balance.
+     * 4. Temporarily freezes / suspends the user account and flags as suspicious.
+     * 5. Records comprehensive audit trail in admin_audit_logs & wallet_ledger.
+     */
+    public static function massCancelAndFreezeUser(int|string $targetIdentifier, int $adminId, string $reason = 'Anti-scam mass cancellation and account freeze'): array {
+        if (empty(trim($reason))) {
+            $reason = 'Anti-scam mass cancellation and account freeze';
+        }
+
+        $pdo = Database::getConnection();
+
+        // 1. Locate target user by ID, Phone, or Referral Code
+        $targetStr = trim((string)$targetIdentifier);
+        if (is_numeric($targetStr)) {
+            $uStmt = $pdo->prepare("SELECT * FROM users WHERE id = ? OR phone = ? LIMIT 1");
+            $uStmt->execute([(int)$targetStr, $targetStr]);
+        } else {
+            $uStmt = $pdo->prepare("SELECT * FROM users WHERE phone = ? OR referral_code = ? LIMIT 1");
+            $uStmt->execute([$targetStr, $targetStr]);
+        }
+        $user = $uStmt->fetch();
+
+        if (!$user) {
+            return ['success' => false, 'error' => "Target user '{$targetIdentifier}' not found."];
+        }
+
+        $userId = (int)$user['id'];
+        $userPhone = $user['phone'];
+        $nowUtc = gmdate('Y-m-d H:i:s');
+
+        $pdo->beginTransaction();
+        try {
+            $cancelledBuyOrdersCount = 0;
+            $cancelledSellOrdersCount = 0;
+            $totalBuyAmountFreed = 0.0;
+            $totalSellTokensRestored = 0.0;
+
+            // -------------------------------------------------------------
+            // A. Cancel Active BUY Orders (where target user is buyer)
+            // -------------------------------------------------------------
+            $activeBuyStmt = $pdo->prepare("
+                SELECT id, parent_order_id, amount, seller_id, status
+                FROM child_orders
+                WHERE buyer_id = ? AND status IN ('Reserved', 'Payment Proof Submitted', 'Seller Confirmation Pending')
+            ");
+            $activeBuyStmt->execute([$userId]);
+            $activeBuys = $activeBuyStmt->fetchAll();
+
+            foreach ($activeBuys as $buy) {
+                $childId = (int)$buy['id'];
+                $parentId = (int)$buy['parent_order_id'];
+                $amount = (float)$buy['amount'];
+
+                // Mark child order cancelled
+                $updChild = $pdo->prepare("UPDATE child_orders SET status = 'Cancelled', cancelled_at = ? WHERE id = ?");
+                $updChild->execute([$nowUtc, $childId]);
+
+                // Return reserved amount in parent sell order back to remaining_amount
+                if ($parentId > 0) {
+                    $updParent = $pdo->prepare("
+                        UPDATE parent_sell_orders
+                        SET reserved_amount = MAX(0, reserved_amount - ?),
+                            remaining_amount = remaining_amount + ?
+                        WHERE id = ?
+                    ");
+                    $updParent->execute([$amount, $amount, $parentId]);
+                }
+
+                // If dispute exists for this child order, close as cancelled
+                $pdo->prepare("UPDATE disputes SET status = 'closed', resolution_notes = 'Closed: Buyer cancelled via Admin Mass Freeze' WHERE child_order_id = ? AND status = 'pending'")
+                    ->execute([$childId]);
+
+                // Notify seller that buyer's reservation was cancelled by admin
+                if (!empty($buy['seller_id'])) {
+                    Auth::createNotification(
+                        (int)$buy['seller_id'],
+                        'Buyer Order Cancelled',
+                        "Buyer reservation for Order #{$childId} (₹" . number_format($amount, 2) . ") was cancelled by platform administration. Tokens returned to your listing queue.",
+                        'order',
+                        $childId
+                    );
+                }
+
+                $cancelledBuyOrdersCount++;
+                $totalBuyAmountFreed += $amount;
+            }
+
+            // -------------------------------------------------------------
+            // B. Cancel Active SELL Orders (where target user is seller)
+            // -------------------------------------------------------------
+            $activeSellStmt = $pdo->prepare("
+                SELECT id, original_amount, remaining_amount, reserved_amount, completed_amount, status
+                FROM parent_sell_orders
+                WHERE seller_id = ? AND status IN ('active', 'partially_completed')
+            ");
+            $activeSellStmt->execute([$userId]);
+            $activeSells = $activeSellStmt->fetchAll();
+
+            foreach ($activeSells as $parent) {
+                $parentId = (int)$parent['id'];
+                $remAmount = (float)$parent['remaining_amount'];
+                $resAmount = (float)$parent['reserved_amount'];
+                $unsettledTokens = $remAmount + $resAmount;
+
+                // Cancel all uncompleted child micro-orders for this parent
+                $childUpd = $pdo->prepare("
+                    UPDATE child_orders
+                    SET status = 'Cancelled', cancelled_at = ?
+                    WHERE parent_order_id = ? AND status IN ('Available', 'Reserved', 'Seller Confirmation Pending', 'Seller Response Timeout')
+                ");
+                $childUpd->execute([$nowUtc, $parentId]);
+
+                // Mark parent order cancelled
+                $pdo->prepare("
+                    UPDATE parent_sell_orders
+                    SET status = 'cancelled',
+                        remaining_amount = 0,
+                        reserved_amount = 0
+                    WHERE id = ?
+                ")->execute([$parentId]);
+
+                $cancelledSellOrdersCount++;
+                $totalSellTokensRestored += $unsettledTokens;
+            }
+
+            // -------------------------------------------------------------
+            // C. Move ALL Locked / Reserved Tokens Back to Main Available Balance
+            // -------------------------------------------------------------
+            $wallet = Wallet::getWallet($userId, true);
+            $currentReserved = (float)($wallet['reserved_balance'] ?? 0);
+            $currentAvail = (float)($wallet['available_balance'] ?? 0);
+
+            if ($currentReserved > 0) {
+                $newAvailable = round($currentAvail + $currentReserved, 2);
+                $newReserved = 0.00;
+                $newVersion = (int)$wallet['version'] + 1;
+
+                $updWallet = $pdo->prepare("
+                    UPDATE wallets
+                    SET available_balance = ?, reserved_balance = ?, version = ?
+                    WHERE user_id = ? AND version = ?
+                ");
+                $updWallet->execute([$newAvailable, $newReserved, $newVersion, $userId, $wallet['version']]);
+
+                Ledger::record(
+                    $userId,
+                    'SELL_RELEASE',
+                    $currentReserved,
+                    $currentReserved,
+                    0.00,
+                    'reserved',
+                    'MASS_FREEZE',
+                    $adminId,
+                    'admin',
+                    "1-Click Anti-Scam Mass Cancel & Freeze: {$reason}"
+                );
+            }
+
+            // -------------------------------------------------------------
+            // D. Temporarily Freeze / Suspend User Account
+            // -------------------------------------------------------------
+            $updUser = $pdo->prepare("
+                UPDATE users
+                SET account_status = 'suspended',
+                    is_flagged = 1,
+                    flag_reason = ?,
+                    sell_restricted = 1,
+                    sell_restriction_reason = ?,
+                    updated_at = ?
+                WHERE id = ?
+            ");
+            $updUser->execute([
+                "Frozen by Super Admin: {$reason}",
+                "Account frozen by Administrator: 1-Click Anti-Scam Mass Cancel & Freeze",
+                $nowUtc,
+                $userId
+            ]);
+
+            // -------------------------------------------------------------
+            // E. Audit Log & In-App Notification
+            // -------------------------------------------------------------
+            self::logAudit(
+                $adminId,
+                'MASS_CANCEL_AND_FREEZE',
+                'users',
+                (string)$userId,
+                [
+                    'previous_status' => $user['account_status'],
+                    'phone' => $userPhone,
+                    'reserved_balance_before' => $currentReserved
+                ],
+                [
+                    'new_status' => 'suspended',
+                    'buy_orders_cancelled' => $cancelledBuyOrdersCount,
+                    'sell_orders_cancelled' => $cancelledSellOrdersCount,
+                    'tokens_restored_to_wallet' => $currentReserved
+                ],
+                $reason
+            );
+
+            Auth::createNotification(
+                $userId,
+                'Account Frozen & Active Orders Cancelled',
+                "Your account has been temporarily frozen by platform administration and all active Buy and Sell orders cancelled. All reserved tokens (₹" . number_format($currentReserved, 2) . ") have been returned to your Available Balance.",
+                'system',
+                'MASS_FREEZE'
+            );
+
+            $pdo->commit();
+
+            return [
+                'success' => true,
+                'user_id' => $userId,
+                'phone' => $userPhone,
+                'buy_orders_cancelled' => $cancelledBuyOrdersCount,
+                'sell_orders_cancelled' => $cancelledSellOrdersCount,
+                'tokens_restored' => $currentReserved,
+                'account_status' => 'suspended',
+                'message' => "Successfully cancelled {$cancelledBuyOrdersCount} active buy order(s) and {$cancelledSellOrdersCount} active sell listing(s). ₹" . number_format($currentReserved, 2) . " tokens moved back to main wallet. Account temporarily suspended."
+            ];
+        } catch (Exception $e) {
+            $pdo->rollBack();
+            return ['success' => false, 'error' => 'Failed to execute mass cancel and freeze: ' . $e->getMessage()];
+        }
+    }
+
+    /**
+     * Reverse Unauthorized Token Transfer (Security Resolution)
+     * Reverses a completed child order where tokens were transferred without seller authorization:
+     * - Debits buyer's wallet (token amount + 9% reward).
+     * - Re-credits exact token amount back to seller's Available Balance.
+     * - Reverses any referral and agent commissions.
+     * - Sets order status to 'Cancelled / Reversed'.
+     * - Records full audit entries and notifies seller.
+     */
+    public static function reverseUnauthorizedOrder(int $childOrderId, int $adminId, string $reason = 'Unauthorized token transfer reversed by Super Admin'): array {
+        if ($childOrderId <= 0) {
+            return ['success' => false, 'error' => 'Valid Child Order ID is required for reversal.'];
+        }
+
+        $pdo = Database::getConnection();
+
+        $orderStmt = $pdo->prepare("SELECT * FROM child_orders WHERE id = ?");
+        $orderStmt->execute([$childOrderId]);
+        $order = $orderStmt->fetch();
+
+        if (!$order) {
+            return ['success' => false, 'error' => "Order #{$childOrderId} not found."];
+        }
+
+        if ($order['status'] === 'Cancelled / Reversed') {
+            return ['success' => false, 'error' => "Order #{$childOrderId} has already been cancelled and reversed."];
+        }
+
+        $amount = (float)$order['amount'];
+        $rewardAmount = (float)$order['snapshotted_reward_amount'];
+        $sellerId = (int)$order['seller_id'];
+        $buyerId = (int)$order['buyer_id'];
+        $parentId = (int)$order['parent_order_id'];
+        $nowUtc = gmdate('Y-m-d H:i:s');
+
+        $pdo->beginTransaction();
+        try {
+            // 1. Mark child order as 'Cancelled / Reversed'
+            $updOrder = $pdo->prepare("UPDATE child_orders SET status = 'Cancelled / Reversed', cancelled_at = ? WHERE id = ?");
+            $updOrder->execute([$nowUtc, $childOrderId]);
+
+            // 2. Refund seller's Available Balance
+            $sellerWallet = Wallet::getWallet($sellerId, true);
+            $sellerAvailBefore = (float)$sellerWallet['available_balance'];
+            $sellerAvailAfter = round($sellerAvailBefore + $amount, 2);
+            $newSellerVersion = (int)$sellerWallet['version'] + 1;
+
+            $updSeller = $pdo->prepare("UPDATE wallets SET available_balance = ?, version = ? WHERE user_id = ? AND version = ?");
+            $updSeller->execute([$sellerAvailAfter, $newSellerVersion, $sellerId, $sellerWallet['version']]);
+
+            Ledger::record(
+                $sellerId,
+                'ADJUST_CREDIT',
+                $amount,
+                $sellerAvailBefore,
+                $sellerAvailAfter,
+                'available',
+                (string)$childOrderId,
+                $adminId,
+                'admin',
+                "Unauthorized token transfer reversed: ₹{$amount} restored to Available Balance (Order #{$childOrderId}). Reason: {$reason}"
+            );
+
+            // 3. Debit buyer wallet (recovering base tokens + reward)
+            if ($buyerId > 0) {
+                $buyerWallet = Wallet::getWallet($buyerId, true);
+                $buyerAvailBefore = (float)$buyerWallet['available_balance'];
+                $totalBuyerDeduction = round($amount + $rewardAmount, 2);
+                $buyerAvailAfter = round(max(0, $buyerAvailBefore - $totalBuyerDeduction), 2);
+                $newBuyerVersion = (int)$buyerWallet['version'] + 1;
+
+                $updBuyer = $pdo->prepare("UPDATE wallets SET available_balance = ?, version = ? WHERE user_id = ? AND version = ?");
+                $updBuyer->execute([$buyerAvailAfter, $newBuyerVersion, $buyerId, $buyerWallet['version']]);
+
+                Ledger::record(
+                    $buyerId,
+                    'ADJUST_DEBIT',
+                    $totalBuyerDeduction,
+                    $buyerAvailBefore,
+                    $buyerAvailAfter,
+                    'available',
+                    (string)$childOrderId,
+                    $adminId,
+                    'admin',
+                    "Reversal of unauthorized transfer on Order #{$childOrderId}: debited base ₹{$amount} + reward ₹{$rewardAmount}"
+                );
+            }
+
+            // 4. Reverse Agent commissions
+            AgentManager::onOrderReversed($childOrderId);
+
+            // 5. Update parent sell order completed_amount
+            if ($parentId > 0) {
+                $pdo->prepare("UPDATE parent_sell_orders SET completed_amount = MAX(0, completed_amount - ?) WHERE id = ?")
+                    ->execute([$amount, $parentId]);
+            }
+
+            // 6. Close any open dispute on this order
+            $pdo->prepare("
+                UPDATE disputes
+                SET status = 'resolved_seller',
+                    resolution_notes = ?,
+                    resolved_by_admin_id = ?,
+                    resolved_at = ?
+                WHERE child_order_id = ?
+            ")->execute(["Unauthorized token transfer reversed by Super Admin: {$reason}", $adminId, $nowUtc, $childOrderId]);
+
+            // 7. Audit Log
+            self::logAudit(
+                $adminId,
+                'REVERSE_UNAUTHORIZED_ORDER',
+                'child_orders',
+                (string)$childOrderId,
+                [
+                    'previous_status' => $order['status'],
+                    'seller_id' => $sellerId,
+                    'buyer_id' => $buyerId,
+                    'amount' => $amount,
+                    'reward_amount' => $rewardAmount
+                ],
+                [
+                    'new_status' => 'Cancelled / Reversed',
+                    'seller_balance_restored' => $amount
+                ],
+                $reason
+            );
+
+            // 8. In-App Notification to Seller
+            Auth::createNotification(
+                $sellerId,
+                'Unauthorized Transfer Reversed',
+                "Order #{$childOrderId} (₹" . number_format($amount, 2) . ") has been reversed by administration. ₹" . number_format($amount, 2) . " tokens have been fully restored to your Available Balance.",
+                'order',
+                $childOrderId
+            );
+
+            $pdo->commit();
+
+            return [
+                'success' => true,
+                'order_id' => $childOrderId,
+                'seller_id' => $sellerId,
+                'amount_restored' => $amount,
+                'buyer_debited' => $amount + $rewardAmount,
+                'message' => "Order #{$childOrderId} successfully reversed. ₹" . number_format($amount, 2) . " tokens restored to seller wallet."
+            ];
+        } catch (Exception $e) {
+            $pdo->rollBack();
+            return ['success' => false, 'error' => 'Failed to reverse unauthorized order: ' . $e->getMessage()];
+        }
+    }
+
+    /**
+     * Inspect and Repair Target User 9610510173
+     * Diagnostics and automated reversal of unauthorized token transfers for user 9610510173.
+     */
+    public static function inspectAndRepairUser9610510173(int $adminId, bool $executeReversal = true, ?int $specificOrderId = null): array {
+        $pdo = Database::getConnection();
+
+        $uStmt = $pdo->prepare("SELECT * FROM users WHERE phone = '9610510173' LIMIT 1");
+        $uStmt->execute();
+        $user = $uStmt->fetch();
+
+        if (!$user) {
+            return [
+                'success' => false,
+                'found' => false,
+                'phone' => '9610510173',
+                'message' => "Target user with phone 9610510173 not found in database."
+            ];
+        }
+
+        $userId = (int)$user['id'];
+        $wallet = Wallet::getWallet($userId);
+
+        // Fetch all orders for this user
+        $ordersStmt = $pdo->prepare("
+            SELECT c.*, ps.original_amount as parent_amount, ps.status as parent_status
+            FROM child_orders c
+            LEFT JOIN parent_sell_orders ps ON c.parent_order_id = ps.id
+            WHERE c.seller_id = ?
+            ORDER BY c.id DESC
+        ");
+        $ordersStmt->execute([$userId]);
+        $orders = $ordersStmt->fetchAll();
+
+        // Fetch recent ledger entries
+        $ledgerStmt = $pdo->prepare("
+            SELECT * FROM wallet_ledger
+            WHERE user_id = ?
+            ORDER BY id DESC LIMIT 20
+        ");
+        $ledgerStmt->execute([$userId]);
+        $ledger = $ledgerStmt->fetchAll();
+
+        // Find stuck or completed order to reverse
+        $targetOrderToReverse = null;
+        if ($specificOrderId) {
+            foreach ($orders as $o) {
+                if ((int)$o['id'] === $specificOrderId) {
+                    $targetOrderToReverse = $o;
+                    break;
+                }
+            }
+        } else {
+            // Find most recent completed order that hasn't been reversed
+            foreach ($orders as $o) {
+                if ($o['status'] === 'Completed') {
+                    $targetOrderToReverse = $o;
+                    break;
+                }
+            }
+        }
+
+        $reversalResult = null;
+        if ($executeReversal && $targetOrderToReverse) {
+            $reversalResult = self::reverseUnauthorizedOrder(
+                (int)$targetOrderToReverse['id'],
+                $adminId,
+                "Automated recovery: unauthorized token release without T-PIN for user 9610510173"
+            );
+        }
+
+        return [
+            'success' => true,
+            'found' => true,
+            'user' => [
+                'id' => $user['id'],
+                'phone' => $user['phone'],
+                'email' => $user['email'] ?? null,
+                'account_status' => $user['account_status'],
+                'upi_id' => $user['upi_id'] ?? null,
+                'health_score' => $user['health_score'] ?? 100,
+                'wallet' => $wallet
+            ],
+            'orders_count' => count($orders),
+            'orders' => $orders,
+            'ledger_count' => count($ledger),
+            'target_order' => $targetOrderToReverse,
+            'reversal_executed' => $reversalResult !== null,
+            'reversal_result' => $reversalResult
+        ];
+    }
+
+    /**
      * Retrieve paginated disputes partitioned into three sections (Pending, Evidence Required, Resolved)
      * with comprehensive multi-field search across Order ID, Parent Order ID, Buyer ID, Seller ID, and UTR.
      */

@@ -72,14 +72,19 @@ switch ($action) {
             jsonError('Settlement execution is disabled in Admin Support Mode.', 403);
         }
 
-        $childOrderId = (int)($input['order_id'] ?? 0);
-        $idempotencyKey = $input['idempotency_key'] ?? null;
+        $childOrderId = (int)($input['order_id'] ?? $_POST['order_id'] ?? 0);
+        $tpin = trim((string)($input['tpin'] ?? $_POST['tpin'] ?? ''));
+        $idempotencyKey = $input['idempotency_key'] ?? $_POST['idempotency_key'] ?? null;
 
         if ($childOrderId <= 0) {
             jsonError('Invalid order ID.');
         }
 
-        $res = StateMachine::confirmPayment($childOrderId, $user['id'], $idempotencyKey);
+        if (empty($tpin)) {
+            jsonError('Selling T-PIN is strictly required to authorize payment confirmation and token release.', 400);
+        }
+
+        $res = StateMachine::confirmPayment($childOrderId, $user['id'], $tpin, $idempotencyKey);
         if ($res['success']) {
             jsonResponse(true, $res);
         } else {

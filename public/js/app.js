@@ -1600,9 +1600,82 @@ async function cancelChildSellPortion(childId) {
     }
 }
 
-async function confirmPayment(orderId) {
-    if (!confirm(`Are you sure you have received payment in your bank for order #${orderId}? This will immediately release the tokens to the buyer.`)) {
+let pendingTPINOrderId = null;
+
+function openSellerConfirmTPINModal(orderId, amount = null) {
+    pendingTPINOrderId = orderId;
+    const modal = document.getElementById('sellerConfirmTPINModal');
+    if (!modal) {
+        const promptPin = prompt(`Strict Authorization: Enter your 4-digit Selling T-PIN to release tokens for Order #${orderId}:`);
+        if (promptPin) {
+            executeConfirmPayment(orderId, promptPin.trim());
+        }
         return;
+    }
+    const oEl = document.getElementById('sellerTPINOrderId');
+    const aEl = document.getElementById('sellerTPINAmount');
+    const input = document.getElementById('sellerConfirmTPINInput');
+    const err = document.getElementById('sellerTPINError');
+    if (oEl) oEl.innerText = `#${orderId}`;
+    if (aEl) aEl.innerText = amount ? `₹${parseFloat(amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '--';
+    if (input) {
+        input.value = '';
+        setTimeout(() => input.focus(), 100);
+    }
+    if (err) {
+        err.innerText = '';
+        err.classList.add('hidden');
+    }
+    modal.classList.remove('hidden');
+}
+
+function closeSellerConfirmTPINModal() {
+    pendingTPINOrderId = null;
+    const modal = document.getElementById('sellerConfirmTPINModal');
+    if (modal) modal.classList.add('hidden');
+}
+
+async function submitSellerConfirmTPIN() {
+    if (!pendingTPINOrderId) return;
+    const input = document.getElementById('sellerConfirmTPINInput');
+    const err = document.getElementById('sellerTPINError');
+    const tpin = input ? input.value.trim() : '';
+
+    if (!tpin || tpin.length !== 4 || !/^\d{4}$/.test(tpin)) {
+        if (err) {
+            err.innerText = 'Please enter your secret 4-digit Selling T-PIN.';
+            err.classList.remove('hidden');
+        }
+        if (input) input.focus();
+        return;
+    }
+
+    const orderId = pendingTPINOrderId;
+    const submitBtn = document.getElementById('sellerTPINSubmitBtn');
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerText = 'Authorizing...';
+    }
+
+    try {
+        await executeConfirmPayment(orderId, tpin);
+        closeSellerConfirmTPINModal();
+    } catch (e) {
+        if (err) {
+            err.innerText = e.message || 'Settlement authorization failed.';
+            err.classList.remove('hidden');
+        }
+    } finally {
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg><span>Authorize Release</span>`;
+        }
+    }
+}
+
+async function executeConfirmPayment(orderId, tpin) {
+    if (!tpin || tpin.length !== 4) {
+        throw new Error('Selling T-PIN (4 digits) is strictly required to authorize token release.');
     }
 
     // Idempotency key to prevent double clicks (FR-015, QA-007)
@@ -1612,20 +1685,35 @@ async function confirmPayment(orderId) {
         const res = await fetch('/api/sell.php?action=confirm_payment', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ order_id: orderId, idempotency_key: idempotencyKey })
+            body: JSON.stringify({
+                order_id: orderId,
+                tpin: tpin,
+                idempotency_key: idempotencyKey
+            })
         });
         const data = await res.json();
         if (data.success) {
-            alert('Settlement confirmed! Reserved tokens transferred and buyer credited successfully.');
-            fetchSession();
-            loadWalletStats();
-            loadSellerDashboard();
+            alert('Settlement authorized successfully! Reserved tokens transferred and buyer credited.');
+            if (typeof fetchSession === 'function') fetchSession();
+            if (typeof loadWalletStats === 'function') loadWalletStats();
+            if (typeof loadSellerDashboard === 'function') loadSellerDashboard();
+            return data;
         } else {
-            alert(data.error || 'Settlement failed.');
+            const errorMsg = data.error || 'Settlement failed.';
+            alert(errorMsg);
+            throw new Error(errorMsg);
         }
     } catch (e) {
-        alert('Network error confirming payment.');
+        if (e.message && e.message.includes('Selling T-PIN')) throw e;
+        throw new Error(e.message || 'Network error confirming payment.');
     }
+}
+
+async function confirmPayment(orderId, tpin = null) {
+    if (tpin) {
+        return await executeConfirmPayment(orderId, tpin);
+    }
+    openSellerConfirmTPINModal(orderId);
 }
 
 // -------------------------------------------------------------
@@ -4526,6 +4614,14 @@ async function checkPendingSellerConfirmations() {
                 }
             }
 
+            const tpinInput = document.getElementById('confirmModalTPIN');
+            const tpinErr = document.getElementById('confirmModalTPINError');
+            if (tpinInput) tpinInput.value = '';
+            if (tpinErr) {
+                tpinErr.innerText = '';
+                tpinErr.classList.add('hidden');
+            }
+
             modal.classList.remove('hidden');
         } else {
             if (pendingConfirmOrderId) {
@@ -4541,9 +4637,31 @@ async function checkPendingSellerConfirmations() {
 async function handleConfirmationReceipt() {
     if (!pendingConfirmOrderId) return;
     const orderId = pendingConfirmOrderId;
-    const modal = document.getElementById('confirmationModal');
-    if (modal) modal.classList.add('hidden');
-    await confirmPayment(orderId);
+    const tpinInput = document.getElementById('confirmModalTPIN');
+    const tpinErr = document.getElementById('confirmModalTPINError');
+    const tpin = tpinInput ? tpinInput.value.trim() : '';
+
+    if (!tpin || tpin.length !== 4 || !/^\d{4}$/.test(tpin)) {
+        if (tpinErr) {
+            tpinErr.innerText = 'Selling T-PIN is strictly required to authorize receipt and token release.';
+            tpinErr.classList.remove('hidden');
+        }
+        if (tpinInput) tpinInput.focus();
+        return;
+    }
+
+    try {
+        await executeConfirmPayment(orderId, tpin);
+        const modal = document.getElementById('confirmationModal');
+        if (modal) modal.classList.add('hidden');
+        if (tpinInput) tpinInput.value = '';
+        if (tpinErr) tpinErr.classList.add('hidden');
+    } catch (e) {
+        if (tpinErr) {
+            tpinErr.innerText = e.message || 'Settlement authorization failed.';
+            tpinErr.classList.remove('hidden');
+        }
+    }
 }
 
 function handleConfirmationAppeal() {

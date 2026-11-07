@@ -401,8 +401,9 @@ class StateMachine {
 
     /**
      * Seller confirms payment receipt -> Idempotent settlement (FR-015, QA-007)
+     * Strictly requires verified Selling T-PIN authorization to prevent unauthorized token transfers.
      */
-    public static function confirmPayment(int $childOrderId, int $sellerId, ?string $idempotencyKey = null): array {
+    public static function confirmPayment(int $childOrderId, int $sellerId, string $tpin, ?string $idempotencyKey = null): array {
         $pdo = Database::getConnection();
 
         $orderStmt = $pdo->prepare("SELECT * FROM child_orders WHERE id = ?");
@@ -429,6 +430,22 @@ class StateMachine {
         $validPendingStates = ['Payment Proof Submitted', 'Seller Confirmation Pending', 'Seller Response Timeout'];
         if (!in_array($order['status'], $validPendingStates, true)) {
             return ['success' => false, 'error' => "Cannot confirm payment. Current order status is '{$order['status']}'."];
+        }
+
+        // Strict Seller Authorization via Selling T-PIN
+        if (empty(trim($tpin))) {
+            return [
+                'success' => false,
+                'error' => 'Selling T-PIN is strictly required to authorize payment confirmation and token release.'
+            ];
+        }
+
+        $tpinCheck = Auth::verifyTPIN($sellerId, $tpin);
+        if (!$tpinCheck['success']) {
+            return [
+                'success' => false,
+                'error' => $tpinCheck['error'] ?? 'Invalid Selling T-PIN. Unauthorized token transfer prevented.'
+            ];
         }
 
         $completedUtc = gmdate('Y-m-d H:i:s');

@@ -415,6 +415,10 @@ async function loadAdminUsers() {
                         <button onclick="openSetUserStatusModal(${u.id}, '${escapeHtml(u.phone)}', '${u.account_status}')" class="px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded text-[11px] font-semibold transition cursor-pointer" title="Change Account Status">
                             Status
                         </button>
+                        <!-- Anti-Scam: 1-Click Mass Cancel & Freeze -->
+                        <button onclick="executeMassCancelAndFreeze(${u.id}, '${escapeHtml(u.phone)}')" class="px-2 py-1 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 rounded text-[11px] font-semibold transition cursor-pointer" title="1-Click Cancel All Active Orders & Freeze Account">
+                            Freeze & Cancel
+                        </button>
                         <button onclick="impersonateUser(${u.id})" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[11px] font-semibold transition cursor-pointer" title="Read-Only Support Mode">
                             Support
                         </button>
@@ -477,6 +481,8 @@ async function viewUserDossier(userId) {
         }
 
         // Setup action buttons in modal
+        currentDossierUserId = u.id;
+        currentDossierUserPhone = u.phone;
         document.getElementById('dossierAdjustBtn').onclick = () => { closeUserDossierModal(); openAdjustmentModal(u.id, u.phone); };
         document.getElementById('dossierFlagBtn').onclick = () => toggleUserSuspicious(u.id);
 
@@ -488,6 +494,123 @@ async function viewUserDossier(userId) {
 
 function closeUserDossierModal() {
     document.getElementById('userDossierModal').classList.add('hidden');
+}
+
+let currentDossierUserId = null;
+let currentDossierUserPhone = null;
+
+function openQuickMassFreezeModal(defaultTarget = '') {
+    const modal = document.getElementById('quickMassFreezeModal');
+    if (!modal) return;
+    const targetInput = document.getElementById('massFreezeTargetInput');
+    const reasonInput = document.getElementById('massFreezeReasonInput');
+    const statusBox = document.getElementById('massFreezeStatusBox');
+    if (targetInput) targetInput.value = defaultTarget;
+    if (reasonInput) reasonInput.value = 'Anti-scam emergency freeze';
+    if (statusBox) {
+        statusBox.className = 'hidden';
+        statusBox.innerHTML = '';
+    }
+    modal.classList.remove('hidden');
+    if (targetInput) setTimeout(() => targetInput.focus(), 100);
+}
+
+function closeQuickMassFreezeModal() {
+    const modal = document.getElementById('quickMassFreezeModal');
+    if (modal) modal.classList.add('hidden');
+}
+
+async function submitQuickMassFreeze(event) {
+    if (event) event.preventDefault();
+    const targetInput = document.getElementById('massFreezeTargetInput');
+    const reasonInput = document.getElementById('massFreezeReasonInput');
+    const target = targetInput ? targetInput.value.trim() : '';
+    const reason = reasonInput ? reasonInput.value.trim() : '1-Click Anti-Scam Mass Cancel & Freeze';
+
+    if (!target) {
+        alert('Please enter a target User ID or Phone Number.');
+        return;
+    }
+
+    if (!confirm(`Are you sure you want to MASS CANCEL all active buy/sell orders, move all reserved tokens back to the main wallet, and SUSPEND target user "${target}"?`)) {
+        return;
+    }
+
+    const btn = document.getElementById('massFreezeSubmitBtn');
+    const statusBox = document.getElementById('massFreezeStatusBox');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerText = 'Executing...';
+    }
+
+    try {
+        const res = await fetch('/api/admin.php?action=mass_cancel_and_freeze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: target, reason: reason })
+        });
+        const data = await res.json();
+        if (data.success) {
+            if (statusBox) {
+                statusBox.className = 'text-xs p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 block space-y-1';
+                statusBox.innerHTML = `
+                    <p class="font-bold">✓ ${escapeHtml(data.message)}</p>
+                    <p class="text-[11px] text-emerald-400">Target User #${data.user_id} (${escapeHtml(data.phone)}) is now SUSPENDED. All locked tokens returned to available balance.</p>
+                `;
+            }
+            if (typeof loadAdminUsers === 'function') loadAdminUsers();
+            if (typeof loadAdminOrders === 'function') loadAdminOrders();
+            setTimeout(() => {
+                closeQuickMassFreezeModal();
+                alert(data.message);
+            }, 1200);
+        } else {
+            if (statusBox) {
+                statusBox.className = 'text-xs p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 block';
+                statusBox.innerText = `Error: ${data.error || 'Execution failed.'}`;
+            } else {
+                alert(data.error || 'Execution failed.');
+            }
+        }
+    } catch (e) {
+        alert('Network error executing mass cancel and freeze.');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg><span>Execute Cancel & Freeze</span>`;
+        }
+    }
+}
+
+async function executeMassCancelAndFreeze(userId, phone) {
+    const reason = prompt(`1-CLICK ANTI-SCAM FREEZE:\n\nEnter reason to cancel all active Buy/Sell orders, return locked tokens to main wallet, and SUSPEND User #${userId} (${phone}):`, 'Anti-scam emergency freeze');
+    if (!reason) return;
+
+    try {
+        const res = await fetch('/api/admin.php?action=mass_cancel_and_freeze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: userId, reason: reason })
+        });
+        const data = await res.json();
+        if (data.success) {
+            alert(data.message);
+            if (typeof loadAdminUsers === 'function') loadAdminUsers();
+            if (typeof loadAdminOrders === 'function') loadAdminOrders();
+            if (currentDossierUserId === userId) {
+                viewUserDossier(userId);
+            }
+        } else {
+            alert(data.error || 'Failed to execute mass cancel and freeze.');
+        }
+    } catch (e) {
+        alert('Network error executing mass cancel and freeze.');
+    }
+}
+
+function triggerDossierMassCancelFreeze() {
+    if (!currentDossierUserId) return;
+    executeMassCancelAndFreeze(currentDossierUserId, currentDossierUserPhone || '');
 }
 
 async function toggleUserStatus(userId, currentStatus) {

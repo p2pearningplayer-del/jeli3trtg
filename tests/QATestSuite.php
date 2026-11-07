@@ -311,14 +311,14 @@ class QATestSuite {
 
         $buyerBalBefore = (float)Wallet::getWallet(3)['available_balance'];
 
-        // Call confirmPayment first time
+        // Call confirmPayment first time with verified TPIN
         $idemKey = 'IDEM_KEY_' . uniqid();
-        $confirm1 = StateMachine::confirmPayment($childId, 2, $idemKey);
+        $confirm1 = StateMachine::confirmPayment($childId, 2, '1234', $idemKey);
 
         $buyerBalAfter1 = (float)Wallet::getWallet(3)['available_balance'];
 
         // Rapid double click / network retry with same idempotency key
-        $confirm2 = StateMachine::confirmPayment($childId, 2, $idemKey);
+        $confirm2 = StateMachine::confirmPayment($childId, 2, '1234', $idemKey);
 
         $buyerBalAfter2 = (float)Wallet::getWallet(3)['available_balance'];
 
@@ -509,7 +509,7 @@ class QATestSuite {
         // Step 3: Alpha submits proof, Beta confirms payment
         $alphaUtr = 'UTR_E2E_' . time() . rand(100, 999);
         StateMachine::submitPaymentProof($betaChildId, $alphaId, $alphaUtr, 'proofs/e2e.png', 'E2E test transfer');
-        $settleRes = StateMachine::confirmPayment($betaChildId, $betaId, 'IDEM_E2E_' . uniqid());
+        $settleRes = StateMachine::confirmPayment($betaChildId, $betaId, '1234', 'IDEM_E2E_' . uniqid());
 
         // Verify Step 3: Alpha received purchased tokens + 9% reward into their shared Available Balance
         $alphaWalletAfterBuy = Wallet::getWallet($alphaId);
@@ -529,7 +529,7 @@ class QATestSuite {
         StateMachine::pickOrder($alphaChildId, $gammaId);
         $gammaUtr = 'UTR_GAMMA_' . time() . rand(100, 999);
         StateMachine::submitPaymentProof($alphaChildId, $gammaId, $gammaUtr, 'proofs/gamma.png');
-        $alphaConfirm = StateMachine::confirmPayment($alphaChildId, $alphaId, 'IDEM_GAMMA_' . uniqid());
+        $alphaConfirm = StateMachine::confirmPayment($alphaChildId, $alphaId, '1234', 'IDEM_GAMMA_' . uniqid());
         $step5Valid = ($alphaConfirm['success'] === true);
 
         // Step 6: Verify Unified Transaction History for User Alpha

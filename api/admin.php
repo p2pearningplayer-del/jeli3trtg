@@ -137,6 +137,46 @@ switch ($action) {
         }
         break;
 
+    case 'mass_cancel_and_freeze':
+        // New Admin Feature: 1-Click Mass Cancel & Freeze (Anti-Scam)
+        $targetIdentifier = $input['user_id'] ?? $input['identifier'] ?? $input['phone'] ?? $_POST['user_id'] ?? $_POST['phone'] ?? '';
+        $reason = trim((string)($input['reason'] ?? $_POST['reason'] ?? '1-Click Anti-Scam Mass Cancel & Freeze'));
+        if (empty($targetIdentifier)) {
+            jsonError('Target User ID or Phone Number is required.');
+        }
+
+        $res = AdminManager::massCancelAndFreezeUser($targetIdentifier, $adminId, $reason);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
+    case 'reverse_unauthorized_order':
+        // Security Resolution: Reverse unauthorized token release
+        $childOrderId = (int)($input['order_id'] ?? $_POST['order_id'] ?? 0);
+        $reason = trim((string)($input['reason'] ?? $_POST['reason'] ?? 'Unauthorized token transfer reversed by Super Admin'));
+        if ($childOrderId <= 0) {
+            jsonError('Child Order ID is required for reversal.');
+        }
+
+        $res = AdminManager::reverseUnauthorizedOrder($childOrderId, $adminId, $reason);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
+    case 'inspect_and_repair_9610510173':
+        // Target User 9610510173 Diagnostics & Automated Reversal
+        $executeReversal = !isset($_GET['execute']) || $_GET['execute'] === '1' || ($input['execute'] ?? true);
+        $specificOrderId = isset($_GET['order_id']) ? (int)$_GET['order_id'] : (isset($input['order_id']) ? (int)$input['order_id'] : null);
+        $res = AdminManager::inspectAndRepairUser9610510173($adminId, (bool)$executeReversal, $specificOrderId);
+        jsonResponse(true, $res);
+        break;
+
     case 'manual_adjustment':
         // Requirement 2: Adjust user token balances with mandatory reason
         $targetUserId = (int)($input['user_id'] ?? 0);

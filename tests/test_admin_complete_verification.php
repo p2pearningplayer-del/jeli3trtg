@@ -184,7 +184,7 @@ $proofRes = StateMachine::submitPaymentProof($childOrderId, $targetUserId, $real
 runCheck("Buyer submits payment proof with valid UTR and screenshot", $proofRes['success'] === true);
 
 // Seller confirms payment -> triggers 9% reward, referral commissions, and agent commissions
-$confirmRes = StateMachine::confirmPayment($childOrderId, 1);
+$confirmRes = StateMachine::confirmPayment($childOrderId, 1, '1234');
 runCheck("Seller confirms payment and triggers completion hooks", $confirmRes['success'] === true);
 
 // Check 9% buyer reward credited
