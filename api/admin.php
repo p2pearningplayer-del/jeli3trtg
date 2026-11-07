@@ -177,6 +177,35 @@ switch ($action) {
         jsonResponse(true, $res);
         break;
 
+    case 'scan_exploiters':
+        // Scan for accounts performing suspicious Buy -> Sell loops
+        $suspects = AdminManager::scanSuspiciousBuySellLoops();
+        jsonResponse(true, ['suspects' => $suspects, 'total_suspects' => count($suspects)]);
+        break;
+
+    case 'neutralize_exploiters':
+        // Automated exploit neutralization: Freeze accounts and restore tokens to sellers
+        $specificUserId = isset($input['user_id']) ? (int)$input['user_id'] : (isset($_POST['user_id']) ? (int)$_POST['user_id'] : null);
+        $res = AdminManager::neutralizeExploiterAccounts($adminId, $specificUserId);
+        jsonResponse(true, $res);
+        break;
+
+    case 'banned_ips':
+        // View active banned IP addresses
+        require_once __DIR__ . '/../src/Security/IPBanManager.php';
+        $bans = IPBanManager::getBannedIps();
+        jsonResponse(true, ['banned_ips' => $bans]);
+        break;
+
+    case 'unban_ip':
+        // Unban an IP address
+        require_once __DIR__ . '/../src/Security/IPBanManager.php';
+        $ipToUnban = trim((string)($input['ip_address'] ?? $_POST['ip_address'] ?? ''));
+        if (empty($ipToUnban)) jsonError('IP address required.');
+        $success = IPBanManager::unbanIp($ipToUnban);
+        jsonResponse(true, ['success' => $success, 'message' => "IP {$ipToUnban} unbanned."]);
+        break;
+
     case 'manual_adjustment':
         // Requirement 2: Adjust user token balances with mandatory reason
         $targetUserId = (int)($input['user_id'] ?? 0);

@@ -8,11 +8,23 @@ require_once __DIR__ . '/../src/Auth.php';
 require_once __DIR__ . '/../src/OrderEngine.php';
 require_once __DIR__ . '/../src/StateMachine.php';
 require_once __DIR__ . '/../src/Validator.php';
+require_once __DIR__ . '/../src/RateLimiter.php';
+require_once __DIR__ . '/../src/Security/IPBanManager.php';
 require_once __DIR__ . '/response.php';
+
+// IP Ban and Rate Limit Enforcement
+$clientIp = IPBanManager::getClientIp();
+if (IPBanManager::isBanned($clientIp)) {
+    jsonError('Access Denied: Your IP address is temporarily banned due to security policy violations.', 403);
+}
 
 $user = Auth::getCurrentUser();
 if (!$user) {
     jsonError('Authentication required.', 401);
+}
+
+if ($user['account_status'] === 'suspended') {
+    jsonError('Access Denied: Your account is suspended.', 403);
 }
 
 // Opportunistically check and expire overdue reservations
@@ -72,6 +84,14 @@ switch ($action) {
             jsonError('Settlement execution is disabled in Admin Support Mode.', 403);
         }
 
+        // Strict rate limiting: Max 5 attempts per 5 minutes per user & per IP
+        $rateKeyUser = "confirm_pay_u_{$user['id']}";
+        $rateKeyIp = "confirm_pay_ip_{$clientIp}";
+        if (!RateLimiter::checkWithBan($rateKeyUser, 'confirm_payment', 5, 300, $clientIp) ||
+            !RateLimiter::checkWithBan($rateKeyIp, 'confirm_payment', 5, 300, $clientIp)) {
+            jsonError('Too many confirmation attempts. Please wait 5 minutes before trying again.', 429);
+        }
+
         $childOrderId = (int)($input['order_id'] ?? $_POST['order_id'] ?? 0);
         $tpin = trim((string)($input['tpin'] ?? $_POST['tpin'] ?? ''));
         $idempotencyKey = $input['idempotency_key'] ?? $_POST['idempotency_key'] ?? null;
@@ -84,8 +104,42 @@ switch ($action) {
             jsonError('Selling T-PIN is strictly required to authorize payment confirmation and token release.', 400);
         }
 
-        $res = StateMachine::confirmPayment($childOrderId, $user['id'], $tpin, $idempotencyKey);
+        // Pre-flight IDOR check: Verify caller is the authentic seller
+        $pdo = Database::getConnection();
+        $chkOrderStmt = $pdo->prepare("SELECT id, seller_id, buyer_id, status FROM child_orders WHERE id = ?");
+        $chkOrderStmt->execute([$childOrderId]);
+        $orderRecord = $chkOrderStmt->fetch();
+
+        if (!$orderRecord) {
+            jsonError('Order not found.', 404);
+        }
+
+        // IDOR Check 1: Buyer attempting to confirm their own buy order
+        if ((int)$orderRecord['buyer_id'] === (int)$user['id']) {
+            IPBanManager::recordViolation($clientIp, "Critical IDOR violation: Buyer #{$user['id']} attempted to confirm/settle order #{$childOrderId}", 'IDOR_VIOLATION', 24);
+            require_once __DIR__ . '/../src/AdminManager.php';
+            AdminManager::logAudit(
+                0,
+                'SECURITY_ALERT_IDOR',
+                'child_orders',
+                (string)$childOrderId,
+                ['status' => $orderRecord['status']],
+                ['user_id' => $user['id'], 'ip' => $clientIp, 'action' => 'confirm_payment'],
+                'Critical IDOR violation: Buyer attempted to confirm/settle order'
+            );
+            jsonError('Access Denied: Insecure Direct Object Reference (IDOR) detected. Buyers cannot confirm order settlement.', 403);
+        }
+
+        // IDOR Check 2: Unauthorized third party who is not the seller
+        if ((int)$orderRecord['seller_id'] !== (int)$user['id']) {
+            IPBanManager::recordViolation($clientIp, "Unauthorized settlement attempt: User #{$user['id']} is not seller on order #{$childOrderId}", 'UNAUTHORIZED_SETTLEMENT', 6);
+            jsonError('Access Denied: Unauthorized. This sell order does not belong to your account.', 403);
+        }
+
+        $res = StateMachine::confirmPayment($childOrderId, (int)$user['id'], $tpin, $idempotencyKey);
         if ($res['success']) {
+            RateLimiter::reset($rateKeyUser, 'confirm_payment');
+            RateLimiter::reset($rateKeyIp, 'confirm_payment');
             jsonResponse(true, $res);
         } else {
             jsonError($res['error']);
@@ -103,6 +157,17 @@ switch ($action) {
 
         if ($childOrderId <= 0) {
             jsonError('Invalid order ID.');
+        }
+
+        // Pre-flight IDOR check: Verify caller owns this order
+        $pdo = Database::getConnection();
+        $chkOrderStmt = $pdo->prepare("SELECT id, seller_id, buyer_id FROM child_orders WHERE id = ?");
+        $chkOrderStmt->execute([$childOrderId]);
+        $orderRecord = $chkOrderStmt->fetch();
+
+        if ($orderRecord && (int)$orderRecord['seller_id'] !== (int)$user['id']) {
+            IPBanManager::recordViolation($clientIp, "IDOR attempt on raise_appeal: User #{$user['id']} is not seller on order #{$childOrderId}", 'IDOR_APPEAL_ATTEMPT', 6);
+            jsonError('Access Denied: Unauthorized. You can only appeal sell orders belonging to your account.', 403);
         }
 
         $res = StateMachine::raiseAppeal($childOrderId, $user['id'], $reason, $evidencePath);

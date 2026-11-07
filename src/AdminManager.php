@@ -2669,4 +2669,174 @@ class AdminManager {
         $pdo = Database::getConnection();
         return \Fraud\FraudDecisionEngine::recordAdminReview($pdo, $assessmentId, $adminId, $action, $notes);
     }
+
+    /**
+     * Scan database for suspicious Buy -> Sell cashout loops and exploiter accounts.
+     * Detects accounts that rapidly bought tokens and immediately listed them for sale.
+     */
+    public static function scanSuspiciousBuySellLoops(): array {
+        $pdo = Database::getConnection();
+
+        $stmt = $pdo->prepare("
+            SELECT 
+                u.id, u.phone, u.account_status, u.is_flagged, u.flag_reason, u.sell_restricted, u.created_at,
+                (SELECT COUNT(*) FROM child_orders co WHERE co.buyer_id = u.id AND co.status = 'Completed') as completed_buys_count,
+                (SELECT COALESCE(SUM(co.amount), 0) FROM child_orders co WHERE co.buyer_id = u.id AND co.status = 'Completed') as total_buy_amount,
+                (SELECT COUNT(*) FROM parent_sell_orders pso WHERE pso.seller_id = u.id) as sell_listings_count,
+                (SELECT COALESCE(SUM(pso.original_amount), 0) FROM parent_sell_orders pso WHERE pso.seller_id = u.id) as total_sell_amount,
+                (SELECT COUNT(*) FROM child_orders co WHERE co.buyer_id = u.id AND co.status = 'Completed' AND co.seller_id IN (SELECT id FROM users WHERE phone = '9610510173')) as buys_from_target_user
+            FROM users u
+            WHERE u.role != 'admin'
+              AND (
+                  (
+                      (SELECT COUNT(*) FROM child_orders co WHERE co.buyer_id = u.id AND co.status = 'Completed') > 0
+                      AND (SELECT COUNT(*) FROM parent_sell_orders pso WHERE pso.seller_id = u.id) > 0
+                  )
+                  OR (SELECT COUNT(*) FROM child_orders co WHERE co.buyer_id = u.id AND co.status = 'Completed' AND co.seller_id IN (SELECT id FROM users WHERE phone = '9610510173')) > 0
+                  OR (u.is_flagged = 1 AND u.account_status = 'suspended')
+              )
+            ORDER BY u.id DESC
+        ");
+        $stmt->execute();
+        $suspects = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $results = [];
+        foreach ($suspects as $s) {
+            $userId = (int)$s['id'];
+            // Fetch completed buy orders for this suspect
+            $boStmt = $pdo->prepare("
+                SELECT c.id, c.amount, c.snapshotted_reward_amount, c.seller_id, c.completed_at, c.status,
+                       u_seller.phone as seller_phone
+                FROM child_orders c
+                LEFT JOIN users u_seller ON c.seller_id = u_seller.id
+                WHERE c.buyer_id = ? AND c.status = 'Completed'
+                ORDER BY c.id DESC
+            ");
+            $boStmt->execute([$userId]);
+            $completedBuys = $boStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Fetch active sell listings for this suspect
+            $soStmt = $pdo->prepare("
+                SELECT id, original_amount, remaining_amount, reserved_amount, completed_amount, status, created_at
+                FROM parent_sell_orders
+                WHERE seller_id = ?
+                ORDER BY id DESC
+            ");
+            $soStmt->execute([$userId]);
+            $sellListings = $soStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $results[] = [
+                'user_id' => $userId,
+                'phone' => $s['phone'],
+                'account_status' => $s['account_status'],
+                'is_flagged' => (int)$s['is_flagged'],
+                'sell_restricted' => (int)$s['sell_restricted'],
+                'registered_at' => $s['created_at'],
+                'completed_buys_count' => (int)$s['completed_buys_count'],
+                'total_buy_amount' => (float)$s['total_buy_amount'],
+                'sell_listings_count' => (int)$s['sell_listings_count'],
+                'total_sell_amount' => (float)$s['total_sell_amount'],
+                'buys_from_target_user' => (int)$s['buys_from_target_user'],
+                'completed_buys' => $completedBuys,
+                'sell_listings' => $sellListings
+            ];
+        }
+
+        return $results;
+    }
+
+    /**
+     * Neutralize exploiter accounts:
+     * 1. 1-Click Mass Cancel active buy/sell listings, unlock tokens, and suspend account.
+     * 2. Revert all unauthorized completed orders back to the legitimate sellers.
+     */
+    public static function neutralizeExploiterAccounts(?int $adminId = null, ?int $specificUserId = null): array {
+        $adminId = $adminId ?: 1;
+        $pdo = Database::getConnection();
+
+        $suspects = [];
+        if ($specificUserId !== null && $specificUserId > 0) {
+            $stmt = $pdo->prepare("SELECT id, phone FROM users WHERE id = ?");
+            $stmt->execute([$specificUserId]);
+            $userRow = $stmt->fetch();
+            if ($userRow) {
+                $suspects[] = ['user_id' => (int)$userRow['id'], 'phone' => $userRow['phone']];
+            }
+        } else {
+            $scanned = self::scanSuspiciousBuySellLoops();
+            foreach ($scanned as $s) {
+                $suspects[] = ['user_id' => (int)$s['user_id'], 'phone' => $s['phone']];
+            }
+        }
+
+        $frozenAccounts = [];
+        $reversedOrders = [];
+        $totalRestored = 0.0;
+
+        foreach ($suspects as $suspect) {
+            $uid = (int)$suspect['user_id'];
+            $phone = $suspect['phone'];
+
+            // 1. Mass Cancel active orders & Freeze account
+            $freezeRes = self::massCancelAndFreezeUser($uid, $adminId, "Security Breach Neutralization: Buy-to-Sell cashout loop detected");
+            $frozenAccounts[] = [
+                'user_id' => $uid,
+                'phone' => $phone,
+                'freeze_result' => $freezeRes
+            ];
+
+            // 2. Locate all completed buy orders that need reversal
+            $oStmt = $pdo->prepare("
+                SELECT c.id, c.amount, c.seller_id, u_s.phone as seller_phone
+                FROM child_orders c
+                LEFT JOIN users u_s ON c.seller_id = u_s.id
+                WHERE c.buyer_id = ? AND c.status = 'Completed'
+            ");
+            $oStmt->execute([$uid]);
+            $ordersToReverse = $oStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            foreach ($ordersToReverse as $ord) {
+                $childOrderId = (int)$ord['id'];
+                $amount = (float)$ord['amount'];
+                $revRes = self::reverseUnauthorizedOrder($childOrderId, $adminId, "Security Breach Reversal: Stolen tokens returned to seller #{$ord['seller_id']} ({$ord['seller_phone']})");
+                if ($revRes['success']) {
+                    $reversedOrders[] = [
+                        'child_order_id' => $childOrderId,
+                        'exploiter_buyer_id' => $uid,
+                        'victim_seller_id' => (int)$ord['seller_id'],
+                        'victim_seller_phone' => $ord['seller_phone'] ?? 'N/A',
+                        'amount_restored' => $amount
+                    ];
+                    $totalRestored += $amount;
+                }
+            }
+        }
+
+        // Record high-priority audit entry
+        self::logAudit(
+            $adminId,
+            'NEUTRALIZE_EXPLOITERS_EXECUTION',
+            'users_and_orders',
+            (string)count($frozenAccounts),
+            null,
+            [
+                'total_frozen_accounts' => count($frozenAccounts),
+                'total_orders_reversed' => count($reversedOrders),
+                'total_tokens_restored' => $totalRestored,
+                'frozen_account_ids' => array_column($frozenAccounts, 'user_id'),
+                'reversed_order_ids' => array_column($reversedOrders, 'child_order_id')
+            ],
+            'Automated exploit neutralization and token reversal sweep'
+        );
+
+        return [
+            'success' => true,
+            'total_frozen_accounts' => count($frozenAccounts),
+            'total_orders_reversed' => count($reversedOrders),
+            'total_tokens_restored' => $totalRestored,
+            'frozen_accounts' => $frozenAccounts,
+            'reversed_orders' => $reversedOrders,
+            'message' => "Successfully neutralized " . count($frozenAccounts) . " exploiter account(s), reversed " . count($reversedOrders) . " unauthorized order(s), and restored ₹" . number_format($totalRestored, 2) . " tokens back to victim sellers."
+        ];
+    }
 }

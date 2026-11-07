@@ -5,6 +5,19 @@
  */
 
 require_once __DIR__ . '/config/config.php';
+require_once __DIR__ . '/src/Auth.php';
+
+// Production Security Lockdown: Prevent unauthorized execution of QA test suites
+if (php_sapi_name() !== 'cli') {
+    $currentUser = Auth::getCurrentUser();
+    $isAdmin = $currentUser && ($currentUser['role'] === 'admin' || !empty($currentUser['real_admin_id']));
+    $hasSecret = isset($_GET['key']) && $_GET['key'] === (defined('JWT_SECRET') ? JWT_SECRET : 'jelipay_secure_token_secret_key');
+    if (!$isAdmin && !$hasSecret) {
+        http_response_code(403);
+        die('Access Denied: Administrator authentication required to run automated test suites.');
+    }
+}
+
 require_once __DIR__ . '/tests/QATestSuite.php';
 
 $suite = new QATestSuite();

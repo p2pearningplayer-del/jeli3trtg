@@ -466,6 +466,18 @@ class SchemaInstaller {
         CREATE INDEX IF NOT EXISTS idx_oc_upi ON order_cancellations(seller_upi_id);
         CREATE INDEX IF NOT EXISTS idx_oc_buyer ON order_cancellations(buyer_id);
         CREATE INDEX IF NOT EXISTS idx_oc_reason ON order_cancellations(reason_code);
+
+        CREATE TABLE IF NOT EXISTS ip_bans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ip_address TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            violation_type TEXT NOT NULL DEFAULT 'IDOR_VIOLATION',
+            violation_count INTEGER NOT NULL DEFAULT 1,
+            banned_until TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_ipb_ip ON ip_bans(ip_address);
+        CREATE INDEX IF NOT EXISTS idx_ipb_until ON ip_bans(banned_until);
         ";
 
         $pdo->exec($schema);
@@ -1349,6 +1361,39 @@ class SchemaInstaller {
                         ");
                     } catch (Exception $e5) {}
                 }
+            }
+
+            // Ensure ip_bans table exists for IP blacklist & IDOR mitigation
+            if ($driver === 'sqlite') {
+                $pdo->exec("
+                    CREATE TABLE IF NOT EXISTS ip_bans (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        ip_address TEXT NOT NULL,
+                        reason TEXT NOT NULL,
+                        violation_type TEXT NOT NULL DEFAULT 'IDOR_VIOLATION',
+                        violation_count INTEGER NOT NULL DEFAULT 1,
+                        banned_until TEXT NOT NULL,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_ipb_ip ON ip_bans(ip_address);
+                    CREATE INDEX IF NOT EXISTS idx_ipb_until ON ip_bans(banned_until);
+                ");
+            } else {
+                try {
+                    $pdo->exec("
+                        CREATE TABLE IF NOT EXISTS `ip_bans` (
+                            `id` INT AUTO_INCREMENT PRIMARY KEY,
+                            `ip_address` VARCHAR(45) NOT NULL,
+                            `reason` TEXT NOT NULL,
+                            `violation_type` VARCHAR(50) NOT NULL DEFAULT 'IDOR_VIOLATION',
+                            `violation_count` INT NOT NULL DEFAULT 1,
+                            `banned_until` DATETIME NOT NULL,
+                            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                            INDEX `idx_ipb_ip` (`ip_address`),
+                            INDEX `idx_ipb_until` (`banned_until`)
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                    ");
+                } catch (Exception $eBans) {}
             }
         } catch (Exception $e) {
             // Tables already exist or migration handled

@@ -414,6 +414,20 @@ class StateMachine {
             return ['success' => false, 'error' => 'Order not found.'];
         }
 
+        // Anti-IDOR Defense: Strictly prevent buyer from confirming settlement
+        if ((int)$order['buyer_id'] === $sellerId) {
+            return [
+                'success' => false,
+                'error' => 'Insecure Direct Object Reference (IDOR) violation: Buyers cannot confirm order settlement.'
+            ];
+        }
+
+        // Anti-IDOR Defense: Strictly prevent unauthorized users from settling
+        if ((int)$order['seller_id'] !== $sellerId) {
+            return ['success' => false, 'error' => 'Unauthorized. This sell order does not belong to your account.'];
+        }
+
+        // Idempotency: Verified seller checking an already completed order
         if ($order['status'] === 'Completed') {
             return [
                 'success' => true,
@@ -421,10 +435,6 @@ class StateMachine {
                 'message' => 'Order was already completed and settled. No duplicate action taken.',
                 'status' => 'Completed'
             ];
-        }
-
-        if ((int)$order['seller_id'] !== $sellerId) {
-            return ['success' => false, 'error' => 'Unauthorized. This sell order does not belong to your account.'];
         }
 
         $validPendingStates = ['Payment Proof Submitted', 'Seller Confirmation Pending', 'Seller Response Timeout'];

@@ -582,6 +582,31 @@ async function submitQuickMassFreeze(event) {
     }
 }
 
+async function triggerAntiExploitSweep() {
+    if (!confirm('Run Automated Anti-Exploit Security Sweep?\n\nThis will scan the platform for suspicious Buy -> Sell cashout loops, mass-cancel active orders, freeze attacker wallets, and automatically revert stolen tokens back to legitimate peer sellers.')) {
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/admin.php?action=neutralize_exploiters', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        });
+        const data = await res.json();
+        if (data.success) {
+            alert(`Anti-Exploit Sweep Completed!\n\n${data.message}\n\nAccounts Frozen: ${data.total_frozen_accounts}\nOrders Reversed: ${data.total_orders_reversed}\nTokens Restored: ₹${(data.total_tokens_restored || 0).toLocaleString('en-IN', {minimumFractionDigits: 2})}`);
+            if (typeof loadAdminUsers === 'function') loadAdminUsers();
+            if (typeof loadAdminOrders === 'function') loadAdminOrders();
+            if (typeof loadAdminDashboard === 'function') loadAdminDashboard();
+        } else {
+            alert(`Error: ${data.error || 'Failed to execute anti-exploit sweep.'}`);
+        }
+    } catch (e) {
+        alert('Network error executing anti-exploit sweep: ' + e.message);
+    }
+}
+
 async function executeMassCancelAndFreeze(userId, phone) {
     const reason = prompt(`1-CLICK ANTI-SCAM FREEZE:\n\nEnter reason to cancel all active Buy/Sell orders, return locked tokens to main wallet, and SUSPEND User #${userId} (${phone}):`, 'Anti-scam emergency freeze');
     if (!reason) return;
