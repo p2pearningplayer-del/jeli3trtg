@@ -183,11 +183,25 @@ switch ($action) {
         jsonResponse(true, ['suspects' => $suspects, 'total_suspects' => count($suspects)]);
         break;
 
-    case 'neutralize_exploiters':
-        // Automated exploit neutralization: Freeze accounts and restore tokens to sellers
-        $specificUserId = isset($input['user_id']) ? (int)$input['user_id'] : (isset($_POST['user_id']) ? (int)$_POST['user_id'] : null);
-        $res = AdminManager::neutralizeExploiterAccounts($adminId, $specificUserId);
+    case 'emergency_unsuspend_all':
+        // Emergency Recovery: Unsuspend all users across the platform
+        $excludeHackerId = isset($input['exclude_hacker_id']) ? (int)$input['exclude_hacker_id'] : (isset($_GET['exclude_hacker_id']) ? (int)$_GET['exclude_hacker_id'] : null);
+        $res = AdminManager::emergencyUnsuspendAll($adminId, $excludeHackerId);
         jsonResponse(true, $res);
+        break;
+
+    case 'neutralize_exploiters':
+        // Automated exploit neutralization: Freeze specific target account and restore tokens to sellers
+        $specificUserId = (int)($input['user_id'] ?? $_POST['user_id'] ?? $_GET['user_id'] ?? 0);
+        if ($specificUserId <= 0) {
+            jsonError('Target User ID is strictly required (WHERE user_id = ?). Global updates on all users are permanently prohibited.', 400);
+        }
+        $res = AdminManager::neutralizeExploiterAccounts($adminId, $specificUserId);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error'], 400);
+        }
         break;
 
     case 'banned_ips':

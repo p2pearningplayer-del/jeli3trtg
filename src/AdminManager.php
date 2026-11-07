@@ -2746,28 +2746,80 @@ class AdminManager {
     }
 
     /**
-     * Neutralize exploiter accounts:
-     * 1. 1-Click Mass Cancel active buy/sell listings, unlock tokens, and suspend account.
-     * 2. Revert all unauthorized completed orders back to the legitimate sellers.
+     * Emergency Recovery: Un-suspend all users affected by accidental mass suspension.
+     * Optionally keep a specific scammer ID suspended.
      */
-    public static function neutralizeExploiterAccounts(?int $adminId = null, ?int $specificUserId = null): array {
+    public static function emergencyUnsuspendAll(?int $adminId = null, ?int $excludeHackerId = null): array {
         $adminId = $adminId ?: 1;
         $pdo = Database::getConnection();
 
-        $suspects = [];
-        if ($specificUserId !== null && $specificUserId > 0) {
-            $stmt = $pdo->prepare("SELECT id, phone FROM users WHERE id = ?");
-            $stmt->execute([$specificUserId]);
-            $userRow = $stmt->fetch();
-            if ($userRow) {
-                $suspects[] = ['user_id' => (int)$userRow['id'], 'phone' => $userRow['phone']];
-            }
-        } else {
-            $scanned = self::scanSuspiciousBuySellLoops();
-            foreach ($scanned as $s) {
-                $suspects[] = ['user_id' => (int)$s['user_id'], 'phone' => $s['phone']];
-            }
+        $sql = "
+            UPDATE users
+            SET account_status = 'active',
+                is_flagged = 0,
+                flag_reason = NULL,
+                sell_restricted = 0
+            WHERE account_status = 'suspended'
+        ";
+        $params = [];
+        if ($excludeHackerId !== null && $excludeHackerId > 0) {
+            $sql .= " AND id != ?";
+            $params[] = $excludeHackerId;
         }
+
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $unsuspendedCount = $stmt->rowCount();
+
+        // Audit the emergency recovery
+        self::logAudit(
+            $adminId,
+            'EMERGENCY_UNSUSPEND_ALL',
+            'users',
+            'all',
+            null,
+            ['unsuspended_count' => $unsuspendedCount, 'excluded_hacker_id' => $excludeHackerId],
+            'Emergency recovery: Un-suspended all platform users'
+        );
+
+        return [
+            'success' => true,
+            'unsuspended_count' => $unsuspendedCount,
+            'message' => "Successfully un-suspended {$unsuspendedCount} user(s). All regular users restored to active status."
+        ];
+    }
+
+    /**
+     * Neutralize a SPECIFIC exploiter account:
+     * 1. 1-Click Mass Cancel active buy/sell listings, unlock tokens, and suspend account.
+     * 2. Revert all unauthorized completed orders back to the legitimate sellers.
+     * STRICT SAFETY REQUIREMENT: Must strictly require a valid specific User ID. Global updates are strictly prohibited.
+     */
+    public static function neutralizeExploiterAccounts(?int $adminId = null, ?int $specificUserId = null): array {
+        $adminId = $adminId ?: 1;
+
+        if ($specificUserId === null || $specificUserId <= 0) {
+            return [
+                'success' => false,
+                'error' => 'A specific Target User ID is strictly required (WHERE user_id = ?). Global sweep across the user base is permanently disabled.'
+            ];
+        }
+
+        $pdo = Database::getConnection();
+
+        $stmt = $pdo->prepare("SELECT id, phone, role FROM users WHERE id = ?");
+        $stmt->execute([$specificUserId]);
+        $targetUser = $stmt->fetch();
+
+        if (!$targetUser) {
+            return ['success' => false, 'error' => "Target user #{$specificUserId} not found."];
+        }
+
+        if ($targetUser['role'] === 'admin') {
+            return ['success' => false, 'error' => "Cannot neutralize administrator accounts."];
+        }
+
+        $suspects = [['user_id' => (int)$targetUser['id'], 'phone' => $targetUser['phone']]];
 
         $frozenAccounts = [];
         $reversedOrders = [];

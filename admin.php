@@ -489,13 +489,13 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                             <option value="40">40 users</option>
                             <option value="100">100 users</option>
                         </select>
-                        <button onclick="openQuickMassFreezeModal()" class="px-3 py-1.5 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 rounded-xl text-xs font-bold flex items-center gap-1.5 transition" title="1-Click Cancel All Active Orders & Freeze Account">
+                        <button onclick="openQuickMassFreezeModal()" class="px-3 py-1.5 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 rounded-xl text-xs font-bold flex items-center gap-1.5 transition" title="1-Click Cancel All Active Orders & Freeze Specific User Account">
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
                             <span>1-Click Freeze User</span>
                         </button>
-                        <button onclick="triggerAntiExploitSweep()" class="px-3 py-1.5 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 rounded-xl text-xs font-bold flex items-center gap-1.5 transition" title="Scan and Neutralize Buy->Sell Loop Exploiters & Revert Stolen Tokens">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
-                            <span>Sweep & Revert Exploiters</span>
+                        <button onclick="triggerEmergencyUnsuspendAll()" class="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 rounded-xl text-xs font-bold flex items-center gap-1.5 transition" title="Emergency Recovery: Un-suspend all users and restore active platform access">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            <span>Un-suspend All Users</span>
                         </button>
                         <button onclick="loadAdminUsers()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold border border-slate-700 transition">
                             Refresh
