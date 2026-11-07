@@ -90,6 +90,7 @@ class StateMachine {
                 'amount' => (float)$order['amount'],
                 'seller_upi' => $order['snapshotted_upi_id'],
                 'seller_name' => $order['snapshotted_account_holder'],
+                'seller_upi_risk' => self::isSellerUpiAtRisk($pdo, (int)$order['seller_id'], (string)$order['snapshotted_upi_id']),
                 'payment_deadline' => $deadlineUtc,
                 'seconds_remaining' => BUYER_PAYMENT_WINDOW_SECONDS
             ];
@@ -101,8 +102,9 @@ class StateMachine {
 
     /**
      * Buyer cancels active reservation before payment proof submission (Requirement 4)
+     * Mandatory reason selection and seller UPI risk evaluation.
      */
-    public static function cancelReservation(int $childOrderId, int $buyerId): array {
+    public static function cancelReservation(int $childOrderId, int $buyerId, ?string $reasonCode = null, ?string $reasonText = null): array {
         $pdo = Database::getConnection();
         $stmt = $pdo->prepare("SELECT * FROM child_orders WHERE id = ?");
         $stmt->execute([$childOrderId]);
@@ -135,6 +137,21 @@ class StateMachine {
             return ['success' => false, 'error' => 'Active reservation not found or order already processed.'];
         }
 
+        // Reason mapping and validation
+        $validReasons = [
+            'upi_risk' => 'UPI risk / payment failure',
+            'insufficient_funds' => 'Insufficient funds in bank account',
+            'seller_inactive' => 'Seller UPI inactive / Name mismatch',
+            'placed_by_mistake' => 'Changed mind / Placed by mistake',
+            'other' => 'Other reason'
+        ];
+
+        $code = !empty($reasonCode) ? trim($reasonCode) : 'placed_by_mistake';
+        $reasonLabel = $validReasons[$code] ?? ucfirst(str_replace('_', ' ', $code));
+        $customText = !empty($reasonText) ? trim($reasonText) : '';
+        $fullReason = $customText !== '' ? "[$code] $reasonLabel: $customText" : "[$code] $reasonLabel";
+
+        $nowUtc = gmdate('Y-m-d H:i:s');
         $pdo->beginTransaction();
         try {
             $upd = $pdo->prepare("
@@ -142,10 +159,13 @@ class StateMachine {
                 SET status = 'Available',
                     buyer_id = NULL,
                     picked_at = NULL,
-                    payment_deadline = NULL
+                    payment_deadline = NULL,
+                    cancellation_reason = ?,
+                    cancellation_reason_code = ?,
+                    cancelled_at = ?
                 WHERE id = ? AND status = 'Reserved'
             ");
-            $upd->execute([$childOrderId]);
+            $upd->execute([$fullReason, $code, $nowUtc, $childOrderId]);
 
             if ($upd->rowCount() === 0) {
                 $pdo->rollBack();
@@ -166,12 +186,97 @@ class StateMachine {
             ");
             $parentUpd->execute([$amount, $amount, $amount, $order['parent_order_id']]);
 
+            // Record cancellation in audit log table
+            $sellerId = (int)$order['seller_id'];
+            $parentOrderId = (int)$order['parent_order_id'];
+            $sellerUpi = (string)($order['snapshotted_upi_id'] ?? '');
+
+            try {
+                $insCancel = $pdo->prepare("
+                    INSERT INTO order_cancellations (
+                        child_order_id, parent_order_id, buyer_id, seller_id, seller_upi_id, reason_code, reason_text, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ");
+                $insCancel->execute([
+                    $childOrderId,
+                    $parentOrderId,
+                    $buyerId,
+                    $sellerId,
+                    $sellerUpi,
+                    $code,
+                    $fullReason,
+                    $nowUtc
+                ]);
+
+                // Check Seller UPI Risk Flagging
+                // If multiple buyers cancel orders linked to this UPI ID or >=2 cancellations with upi_risk:
+                $riskStmt = $pdo->prepare("
+                    SELECT COUNT(DISTINCT buyer_id) as buyer_count,
+                           COUNT(*) as total_cancels,
+                           SUM(CASE WHEN reason_code = 'upi_risk' THEN 1 ELSE 0 END) as upi_risk_cancels
+                    FROM order_cancellations
+                    WHERE seller_upi_id = ?
+                ");
+                $riskStmt->execute([$sellerUpi]);
+                $riskStats = $riskStmt->fetch();
+
+                $distinctBuyers = (int)($riskStats['buyer_count'] ?? 0);
+                $upiRiskCancels = (int)($riskStats['upi_risk_cancels'] ?? 0);
+
+                if ($distinctBuyers >= 2 || $upiRiskCancels >= 2) {
+                    $flagStmt = $pdo->prepare("
+                        UPDATE users
+                        SET upi_risk_flag = 1,
+                            upi_risk_reason = 'Multiple buyers cancelled orders citing UPI risk / payment failure',
+                            upi_risk_flagged_at = ?
+                        WHERE id = ? OR upi_id = ?
+                    ");
+                    $flagStmt->execute([$nowUtc, $sellerId, $sellerUpi]);
+                }
+            } catch (Exception $eCancel) {
+                // Ignore audit log error if schema is still propagating
+            }
+
             $pdo->commit();
-            return ['success' => true, 'message' => 'Reservation cancelled. Tokens returned to buy pool.'];
+            return [
+                'success' => true,
+                'message' => 'Reservation cancelled. Tokens returned to buy pool.',
+                'cancellation_reason' => $fullReason
+            ];
         } catch (Exception $e) {
             $pdo->rollBack();
             return ['success' => false, 'error' => 'Failed to cancel reservation: ' . $e->getMessage()];
         }
+    }
+
+    /**
+     * Check if a seller's UPI ID has been flagged or has multiple buyer cancellations
+     */
+    public static function isSellerUpiAtRisk(PDO $pdo, int $sellerId, string $upiId): bool {
+        try {
+            $stmt = $pdo->prepare("SELECT upi_risk_flag FROM users WHERE id = ?");
+            $stmt->execute([$sellerId]);
+            $flag = (int)$stmt->fetchColumn();
+            if ($flag === 1) {
+                return true;
+            }
+
+            if (!empty($upiId)) {
+                $chk = $pdo->prepare("
+                    SELECT COUNT(DISTINCT buyer_id) as buyer_count,
+                           SUM(CASE WHEN reason_code = 'upi_risk' THEN 1 ELSE 0 END) as upi_risk_cancels
+                    FROM order_cancellations
+                    WHERE seller_upi_id = ?
+                ");
+                $chk->execute([$upiId]);
+                $res = $chk->fetch();
+                if ($res && ((int)$res['buyer_count'] >= 2 || (int)$res['upi_risk_cancels'] >= 2)) {
+                    return true;
+                }
+            }
+        } catch (Exception $e) {}
+
+        return false;
     }
 
     /**

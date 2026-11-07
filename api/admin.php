@@ -867,6 +867,18 @@ switch ($action) {
         jsonResponse(true, ['history' => $history]);
         break;
 
+    case 'toggle_upi_risk':
+        $targetUserId = (int)($input['user_id'] ?? 0);
+        $flag = isset($input['upi_risk_flag']) ? (int)$input['upi_risk_flag'] : 1;
+        $reason = $input['reason'] ?? ($flag ? 'Flagged for UPI risk by admin' : 'Cleared UPI risk flag by admin');
+        if ($targetUserId <= 0) jsonError('Target User ID required.');
+
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare("UPDATE users SET upi_risk_flag = ?, upi_risk_reason = ?, upi_risk_flagged_at = CURRENT_TIMESTAMP WHERE id = ?");
+        $stmt->execute([$flag, $reason, $targetUserId]);
+        jsonResponse(true, ['success' => true, 'user_id' => $targetUserId, 'upi_risk_flag' => $flag]);
+        break;
+
     default:
         jsonError("Unknown action '{$action}'.", 404);
 }

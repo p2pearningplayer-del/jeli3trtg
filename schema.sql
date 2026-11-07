@@ -36,6 +36,9 @@ CREATE TABLE `users` (
   `upi_id` VARCHAR(100) DEFAULT NULL,
   `account_holder_name` VARCHAR(100) DEFAULT NULL,
   `health_score` INT NOT NULL DEFAULT 100,
+  `upi_risk_flag` TINYINT(1) NOT NULL DEFAULT 0,
+  `upi_risk_reason` VARCHAR(255) DEFAULT NULL,
+  `upi_risk_flagged_at` DATETIME DEFAULT NULL,
   `totp_secret` TEXT DEFAULT NULL,
   `totp_enabled` TINYINT(1) NOT NULL DEFAULT 0,
   `totp_temp_secret` TEXT DEFAULT NULL,
@@ -112,6 +115,9 @@ CREATE TABLE `child_orders` (
   `picked_at` DATETIME DEFAULT NULL,
   `proof_submitted_at` DATETIME DEFAULT NULL,
   `completed_at` DATETIME DEFAULT NULL,
+  `cancellation_reason` VARCHAR(255) DEFAULT NULL,
+  `cancellation_reason_code` VARCHAR(50) DEFAULT NULL,
+  `cancelled_at` DATETIME DEFAULT NULL,
   `idempotency_key` VARCHAR(100) DEFAULT NULL,
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -435,6 +441,26 @@ CREATE TABLE IF NOT EXISTS `agent_audit_logs` (
   INDEX `idx_aal_agent` (`agent_id`),
   INDEX `idx_aal_action` (`action`),
   CONSTRAINT `fk_aal_agent` FOREIGN KEY (`agent_id`) REFERENCES `agents` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `order_cancellations` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `child_order_id` INT NOT NULL,
+  `parent_order_id` INT DEFAULT NULL,
+  `buyer_id` INT NOT NULL,
+  `seller_id` INT NOT NULL,
+  `seller_upi_id` VARCHAR(100) NOT NULL,
+  `reason_code` VARCHAR(50) NOT NULL,
+  `reason_text` TEXT DEFAULT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_oc_child` (`child_order_id`),
+  INDEX `idx_oc_seller` (`seller_id`),
+  INDEX `idx_oc_upi` (`seller_upi_id`),
+  INDEX `idx_oc_buyer` (`buyer_id`),
+  INDEX `idx_oc_reason` (`reason_code`),
+  CONSTRAINT `fk_oc_child_order` FOREIGN KEY (`child_order_id`) REFERENCES `child_orders` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_oc_buyer` FOREIGN KEY (`buyer_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_oc_seller` FOREIGN KEY (`seller_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ====================================================================

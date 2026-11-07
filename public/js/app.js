@@ -334,6 +334,24 @@ function periodicSync() {
 // TAB 1: BUY LOGIC (FR-006, FR-007, FR-008)
 // -------------------------------------------------------------
 
+let currentBuyPriceRange = { key: 'all', min: 0, max: 0 };
+
+function setBuyPriceFilter(rangeKey, min, max) {
+    currentBuyPriceRange = { key: rangeKey, min: min, max: max };
+
+    // Update active filter button classes
+    const buttons = document.querySelectorAll('.buy-filter-btn');
+    buttons.forEach(btn => {
+        if (btn.getAttribute('data-range') === rangeKey) {
+            btn.className = 'buy-filter-btn px-3.5 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap bg-indigo-600 text-white shadow-md shadow-indigo-600/30 cursor-pointer';
+        } else {
+            btn.className = 'buy-filter-btn px-3.5 py-1.5 rounded-xl text-xs font-semibold transition whitespace-nowrap bg-slate-900 text-slate-400 border border-slate-800 hover:text-white hover:border-slate-700 cursor-pointer';
+        }
+    });
+
+    loadBuyPool();
+}
+
 async function loadBuyPool(silent = false) {
     if (!currentUser) {
         renderGuestBuyPool();
@@ -341,7 +359,11 @@ async function loadBuyPool(silent = false) {
     }
 
     try {
-        const res = await fetch('/api/buy.php?action=pool');
+        let poolUrl = '/api/buy.php?action=pool';
+        if (currentBuyPriceRange.min > 0) poolUrl += `&min_amount=${currentBuyPriceRange.min}`;
+        if (currentBuyPriceRange.max > 0) poolUrl += `&max_amount=${currentBuyPriceRange.max}`;
+
+        const res = await fetch(poolUrl);
         const data = await res.json();
         const grid = document.getElementById('buyPoolGrid');
         if (!grid) return;
@@ -350,11 +372,20 @@ async function loadBuyPool(silent = false) {
         const visibleOrders = data.orders || [];
 
         if (!data.success || visibleOrders.length === 0) {
+            const rangeNotice = currentBuyPriceRange.key !== 'all'
+                ? `No available peer listings found in the selected price range (${document.querySelector(`[data-range="${currentBuyPriceRange.key}"]`)?.innerText || ''}). Try selecting 'All Tokens' or another range.`
+                : 'Be the first to list tokens or specify a custom allocation above.';
+
             grid.innerHTML = `
                 <div class="col-span-full bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center text-slate-400">
                     <svg class="w-12 h-12 mx-auto text-slate-600 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/></svg>
-                    <p class="font-bold text-white text-base">No Peer Sell Orders Available</p>
-                    <p class="text-xs text-slate-500 mt-1">Be the first to list tokens or specify a custom allocation above.</p>
+                    <p class="font-bold text-white text-base">No Matching Sell Orders Available</p>
+                    <p class="text-xs text-slate-500 mt-1">${rangeNotice}</p>
+                    ${currentBuyPriceRange.key !== 'all' ? `
+                        <button onclick="setBuyPriceFilter('all', 0, 0)" class="mt-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-4 py-2 rounded-xl text-xs uppercase tracking-wider transition">
+                            View All Available Listings
+                        </button>
+                    ` : ''}
                 </div>
             `;
             return;
@@ -362,15 +393,25 @@ async function loadBuyPool(silent = false) {
 
         grid.innerHTML = visibleOrders.map(order => {
             const pickArg = order.pick_token ? `'${escapeHtml(order.pick_token)}'` : (order.id || 0);
+            const upiRiskBadge = order.seller_upi_risk ? `
+                <span class="text-[10px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <svg class="w-3 h-3 text-amber-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                    UPI Risk Warning
+                </span>
+            ` : '';
+
             return `
-            <div class="bg-slate-900 border border-slate-800 hover:border-slate-700/80 rounded-2xl p-5 flex flex-col justify-between transition-all duration-200 shadow-sm">
+            <div class="bg-slate-900 border border-slate-800 hover:border-slate-700/80 rounded-2xl p-5 flex flex-col justify-between transition-all duration-200 shadow-sm ${order.seller_upi_risk ? 'border-amber-500/30' : ''}">
                 <div class="space-y-3">
-                    <div class="flex items-center justify-between">
+                    <div class="flex items-center justify-between flex-wrap gap-1">
                         <!-- Requirement 8: Order ID is strictly hidden pre-pickup; revealed upon reservation -->
                         <span class="text-[10px] font-mono uppercase px-2.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-semibold tracking-wider">Available Listing</span>
-                        <span class="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
-                            +${order.reward_rate}% Reward
-                        </span>
+                        <div class="flex items-center gap-1.5 flex-wrap">
+                            ${upiRiskBadge}
+                            <span class="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
+                                +${order.reward_rate}% Reward
+                            </span>
+                        </div>
                     </div>
 
                     <div>
@@ -397,6 +438,12 @@ async function loadBuyPool(silent = false) {
                         <span class="text-slate-400">Payment: <strong class="text-slate-300">UPI Transfer</strong></span>
                         <span class="text-emerald-500 font-semibold flex items-center gap-1">&bull; Instant UPI</span>
                     </div>
+
+                    ${order.seller_upi_risk ? `
+                        <p class="text-[10px] text-amber-400/90 bg-amber-500/10 border border-amber-500/20 rounded-lg p-2 leading-relaxed">
+                            ⚠️ Notice: This seller's UPI ID has experienced multiple buyer cancellations or payment failures.
+                        </p>
+                    ` : ''}
                 </div>
 
                 <button onclick="pickOrder(${pickArg})" class="mt-4 w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 rounded-xl transition text-xs uppercase tracking-wider shadow-md shadow-indigo-600/20 cursor-pointer">
@@ -634,6 +681,16 @@ async function openActiveOrderStatusModal(orderId) {
         if (upiEl) upiEl.innerText = sellerUpi;
         if (nameEl) nameEl.innerText = sellerName;
 
+        // Seller UPI Risk Warning Banner
+        const riskAlert = document.getElementById('activeDetailsUpiRiskAlert');
+        if (riskAlert) {
+            if (ord.seller_upi_risk) {
+                riskAlert.classList.remove('hidden');
+            } else {
+                riskAlert.classList.add('hidden');
+            }
+        }
+
         // Timer setup
         const timerLabel = document.getElementById('activeDetailsTimerLabel');
         const timerCount = document.getElementById('activeDetailsCountdown');
@@ -668,7 +725,7 @@ async function openActiveOrderStatusModal(orderId) {
                     <button type="button" onclick="cancelOrderFromStatusModal(${ord.id})" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-3 rounded-xl transition text-xs">
                         Cancel Reservation
                     </button>
-                    <button type="button" onclick="reopenActiveOrderPayment(${ord.id}, ${ord.amount}, '${escapeHtml(sellerUpi)}', '${escapeHtml(sellerName)}', ${remainingSecs})" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-emerald-600/30 transition text-xs flex items-center justify-center gap-1.5">
+                    <button type="button" onclick="reopenActiveOrderPayment(${ord.id}, ${ord.amount}, '${escapeHtml(sellerUpi)}', '${escapeHtml(sellerName)}', ${remainingSecs}, ${ord.seller_upi_risk ? 'true' : 'false'})" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-emerald-600/30 transition text-xs flex items-center justify-center gap-1.5">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
                         <span>Reopen Payment Screen</span>
                     </button>
@@ -735,44 +792,129 @@ function closeActiveOrderDetailsModal() {
     }
 }
 
-function reopenActiveOrderPayment(orderId, amount, upi, name, seconds) {
+function reopenActiveOrderPayment(orderId, amount, upi, name, seconds, sellerUpiRisk = false) {
     closeActiveOrderDetailsModal();
-    openProofModal(orderId, amount, upi, name, seconds);
+    openProofModal(orderId, amount, upi, name, seconds, sellerUpiRisk);
 }
 
-async function cancelOrderFromStatusModal(orderId) {
-    if (!confirm(`Cancel order reservation #${orderId}? Tokens will return to the live buy market.`)) return;
+// -------------------------------------------------------------
+// BUY ORDER CANCELLATION FLOW & MANDATORY REASON MODAL (Item 1)
+// -------------------------------------------------------------
+
+let pendingCancelOrderId = null;
+
+function openCancelReasonModal(orderId) {
+    pendingCancelOrderId = parseInt(orderId, 10);
+    const orderEl = document.getElementById('cancelModalOrderId');
+    if (orderEl) orderEl.innerText = formatOrderId(pendingCancelOrderId);
+
+    // Reset all radio inputs
+    const radios = document.querySelectorAll('input[name="cancel_reason_option"]');
+    radios.forEach(r => r.checked = false);
+
+    // Reset textarea and errors
+    const customText = document.getElementById('cancelReasonCustomText');
+    if (customText) customText.value = '';
+
+    const err = document.getElementById('cancelReasonError');
+    if (err) {
+        err.innerText = '';
+        err.classList.add('hidden');
+    }
+
+    const modal = document.getElementById('buyOrderCancelModal');
+    if (modal) modal.classList.remove('hidden');
+}
+
+function closeCancelReasonModal() {
+    pendingCancelOrderId = null;
+    const modal = document.getElementById('buyOrderCancelModal');
+    if (modal) modal.classList.add('hidden');
+}
+
+function handleCancelReasonChange(reasonCode) {
+    const err = document.getElementById('cancelReasonError');
+    if (err) err.classList.add('hidden');
+}
+
+async function submitBuyOrderCancellation() {
+    if (!pendingCancelOrderId) {
+        closeCancelReasonModal();
+        return;
+    }
+
+    const selectedRadio = document.querySelector('input[name="cancel_reason_option"]:checked');
+    const err = document.getElementById('cancelReasonError');
+    if (!selectedRadio) {
+        if (err) {
+            err.innerText = 'Please select a cancellation reason before proceeding.';
+            err.classList.remove('hidden');
+        } else {
+            alert('Please select a cancellation reason before proceeding.');
+        }
+        return;
+    }
+
+    const reasonCode = selectedRadio.value;
+    const customText = document.getElementById('cancelReasonCustomText')?.value || '';
+    const btn = document.getElementById('confirmCancelOrderBtn');
+    const originalText = btn ? btn.innerHTML : 'Confirm Cancellation';
+
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Cancelling...`;
+    }
+
     try {
         const res = await fetch('/api/buy.php?action=cancel', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ order_id: parseInt(orderId, 10) })
+            body: JSON.stringify({
+                order_id: pendingCancelOrderId,
+                reason_code: reasonCode,
+                reason_text: customText
+            })
         });
         const data = await res.json();
+
         if (data.success || data.already_cancelled) {
+            closeCancelReasonModal();
+            closeProofModal();
             closeActiveOrderDetailsModal();
+            currentHomeActiveOrderId = null;
+
+            alert('Reservation cancelled successfully. Tokens have been returned to the live buy market.');
             loadBuyPool();
             loadBuyPageHistory();
             syncHomeActiveOrder();
             fetchSession();
-            alert('Reservation cancelled. You can now select any new buy order.');
+            if (typeof loadWalletStats === 'function') loadWalletStats();
+            if (typeof loadMyPurchases === 'function') loadMyPurchases();
         } else {
-            if (data.error && (data.error.includes('not found') || data.error.includes('already') || data.error.includes('expired'))) {
-                closeActiveOrderDetailsModal();
-                syncHomeActiveOrder();
-                loadBuyPool();
-                loadBuyPageHistory();
-                fetchSession();
-                alert('Reservation is no longer active.');
+            if (err) {
+                err.innerText = data.error || 'Failed to cancel reservation.';
+                err.classList.remove('hidden');
             } else {
                 alert(data.error || 'Failed to cancel reservation.');
             }
         }
     } catch (e) {
-        closeActiveOrderDetailsModal();
-        syncHomeActiveOrder();
-        alert('Network error cancelling reservation.');
+        if (err) {
+            err.innerText = 'Network error while cancelling reservation.';
+            err.classList.remove('hidden');
+        } else {
+            alert('Network error while cancelling reservation.');
+        }
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
     }
+}
+
+function cancelOrderFromStatusModal(orderId) {
+    openCancelReasonModal(orderId);
 }
 
 // -------------------------------------------------------------
@@ -886,42 +1028,9 @@ function handleHomeActiveOrderView() {
     }
 }
 
-async function cancelOrderFromHomeBanner() {
+function cancelOrderFromHomeBanner() {
     if (!currentHomeActiveOrderId) return;
-    const targetId = currentHomeActiveOrderId;
-    if (!confirm(`Are you sure you want to cancel order reservation #${targetId}? Tokens will immediately return to the live sell queue.`)) return;
-
-    try {
-        const res = await fetch('/api/buy.php?action=cancel', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ order_id: targetId })
-        });
-        const data = await res.json();
-        if (data.success || data.already_cancelled) {
-            currentHomeActiveOrderId = null;
-            alert('Reservation cancelled. Tokens have returned to the live sell queue.');
-            syncHomeActiveOrder();
-            loadBuyPool();
-            loadBuyPageHistory();
-            loadWalletStats();
-        } else {
-            if (data.error && (data.error.includes('not found') || data.error.includes('already') || data.error.includes('expired'))) {
-                currentHomeActiveOrderId = null;
-                syncHomeActiveOrder();
-                loadBuyPool();
-                loadBuyPageHistory();
-                loadWalletStats();
-                alert('Reservation is no longer active.');
-            } else {
-                alert(data.error || 'Failed to cancel reservation.');
-            }
-        }
-    } catch (e) {
-        currentHomeActiveOrderId = null;
-        syncHomeActiveOrder();
-        alert('Network error while cancelling order.');
-    }
+    openCancelReasonModal(currentHomeActiveOrderId);
 }
 
 // -------------------------------------------------------------
@@ -1623,7 +1732,7 @@ async function loadMyPurchases(silent = false) {
     }
 }
 
-function openProofModal(orderId, amount, sellerUpi, sellerName, secondsRemaining = 600) {
+function openProofModal(orderId, amount, sellerUpi, sellerName, secondsRemaining = 600, sellerUpiRisk = false) {
     document.getElementById('proofModalOrderId').innerText = orderId;
     document.getElementById('proofOrderIdInput').value = orderId;
     document.getElementById('proofModalAmount').innerText = `₹${parseFloat(amount).toLocaleString('en-IN')}`;
@@ -1636,6 +1745,16 @@ function openProofModal(orderId, amount, sellerUpi, sellerName, secondsRemaining
     document.getElementById('uploadStatusText').innerText = 'Select clear screenshots showing UTR and success status';
     document.getElementById('proofError').classList.add('hidden');
 
+    // Toggle Seller UPI Risk Banner in Proof Modal (Item 2)
+    const riskAlert = document.getElementById('proofModalUpiRiskAlert');
+    if (riskAlert) {
+        if (sellerUpiRisk) {
+            riskAlert.classList.remove('hidden');
+        } else {
+            riskAlert.classList.add('hidden');
+        }
+    }
+
     proofModalSeconds = secondsRemaining > 0 ? secondsRemaining : 600;
     const cd = document.getElementById('proofModalCountdown');
     if (cd) cd.innerText = formatSeconds(proofModalSeconds);
@@ -1647,48 +1766,13 @@ function closeProofModal() {
     document.getElementById('proofModal').classList.add('hidden');
 }
 
-async function cancelCurrentReservation() {
+function cancelCurrentReservation() {
     const orderId = document.getElementById('proofOrderIdInput').value;
     if (!orderId) {
         closeProofModal();
         return;
     }
-    if (!confirm(`Are you sure you want to cancel order reservation #${orderId}? Tokens will be released back to the market pool.`)) {
-        return;
-    }
-    try {
-        const res = await fetch('/api/buy.php?action=cancel', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ order_id: parseInt(orderId, 10) })
-        });
-        const data = await res.json();
-        if (data.success || data.already_cancelled) {
-            alert('Reservation cancelled. The order portion is back in the market pool.');
-            closeProofModal();
-            loadMyPurchases();
-            loadBuyPool();
-            loadBuyPageHistory();
-            syncHomeActiveOrder();
-            fetchSession();
-        } else {
-            if (data.error && (data.error.includes('not found') || data.error.includes('already') || data.error.includes('expired'))) {
-                closeProofModal();
-                syncHomeActiveOrder();
-                loadMyPurchases();
-                loadBuyPool();
-                loadBuyPageHistory();
-                fetchSession();
-                alert('Reservation is no longer active.');
-            } else {
-                alert(data.error || 'Failed to cancel reservation.');
-            }
-        }
-    } catch (e) {
-        closeProofModal();
-        syncHomeActiveOrder();
-        alert('Network error cancelling reservation.');
-    }
+    openCancelReasonModal(orderId);
 }
 
 async function handleFileUpload(fileInput, type) {
@@ -2391,36 +2475,105 @@ async function loadReferrals() {
         document.getElementById('l1Count').innerText = `${data.tree.level_1_count} Users`;
         document.getElementById('l2Count').innerText = `${data.tree.level_2_count} Users`;
 
-        // Render L1
+        // Granular Metrics: Today's Earnings, Active Team Size, Total Commissions (Item 4)
+        const todayEl = document.getElementById('referralTodayEarnings');
+        if (todayEl) {
+            todayEl.innerText = `₹${parseFloat(data.tree.today_earnings || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        }
+        const activeCountEl = document.getElementById('referralActiveTeamCount');
+        if (activeCountEl) {
+            activeCountEl.innerText = data.tree.active_team_size || 0;
+        }
+        const totalCountEl = document.getElementById('referralTotalTeamCount');
+        if (totalCountEl) {
+            totalCountEl.innerText = data.tree.total_team_count || (data.tree.level_1_count + data.tree.level_2_count) || 0;
+        }
+        const totalEarnedEl = document.getElementById('referralTotalEarned');
+        if (totalEarnedEl) {
+            totalEarnedEl.innerText = `₹${parseFloat(data.tree.total_commissions_earned || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        }
+
+        // Specific Day Performance Breakdown (e.g. Wednesday earnings)
+        const dayGrid = document.getElementById('referralDayOfWeekGrid');
+        const dayBadge = document.getElementById('referralDayHighlightBadge');
+        if (dayGrid) {
+            const currentDayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+            if (dayBadge) {
+                const todayVal = parseFloat(data.tree.today_earnings || 0).toFixed(2);
+                dayBadge.innerText = `Today (${currentDayName}): ₹${todayVal}`;
+            }
+
+            const dayMap = data.tree.day_of_week_earnings || {};
+            const daysOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+            const shortDays = { 'Monday': 'Mon', 'Tuesday': 'Tue', 'Wednesday': 'Wed', 'Thursday': 'Thu', 'Friday': 'Fri', 'Saturday': 'Sat', 'Sunday': 'Sun' };
+
+            dayGrid.innerHTML = daysOrder.map(day => {
+                const amt = parseFloat(dayMap[day] || 0);
+                const isToday = (day.toLowerCase() === currentDayName.toLowerCase());
+                const cardBorder = isToday ? 'border-emerald-500/60 bg-emerald-500/10 shadow-lg shadow-emerald-500/10' : 'border-slate-800 bg-slate-950/80';
+                const textAmt = amt > 0 ? `+₹${amt.toFixed(2)}` : '₹0.00';
+                const textAmtColor = amt > 0 ? 'text-emerald-400 font-bold' : 'text-slate-400 font-medium';
+
+                return `
+                    <div class="border ${cardBorder} rounded-xl p-3 text-center space-y-1 transition hover:border-slate-700">
+                        <span class="text-[10px] uppercase font-bold tracking-wider block ${isToday ? 'text-emerald-300 font-black' : 'text-slate-400'}">
+                            ${shortDays[day] || day}
+                        </span>
+                        <div class="text-xs sm:text-sm font-mono ${textAmtColor}">${textAmt}</div>
+                        ${isToday ? '<span class="text-[9px] text-emerald-400 font-semibold block leading-none">Today</span>' : ''}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Render L1 with Active Activity Badge
         const l1El = document.getElementById('l1NetworkList');
         if (data.tree.level_1_network.length === 0) {
             l1El.innerHTML = `<p class="text-xs text-slate-500 p-4 text-center">No Level 1 direct referrals yet.</p>`;
         } else {
-            l1El.innerHTML = data.tree.level_1_network.map(m => `
+            l1El.innerHTML = data.tree.level_1_network.map(m => {
+                const activeTag = m.is_active
+                    ? `<span class="px-2 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">Active Trader</span>`
+                    : `<span class="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-500 font-medium">Registered</span>`;
+
+                return `
                 <div class="bg-slate-950 p-3 rounded-xl flex items-center justify-between text-xs font-mono">
-                    <div>
-                        <span class="text-white font-bold">${m.phone_masked}</span>
+                    <div class="space-y-0.5">
+                        <div class="flex items-center gap-2">
+                            <span class="text-white font-bold">${m.phone_masked}</span>
+                            ${activeTag}
+                        </div>
                         <span class="text-slate-500 block text-[10px]">Joined: ${m.joined_at}</span>
                     </div>
                     <span class="text-emerald-400 font-bold">+₹${parseFloat(m.earned).toFixed(2)}</span>
                 </div>
-            `).join('');
+            `;
+            }).join('');
         }
 
-        // Render L2
+        // Render L2 with Active Activity Badge
         const l2El = document.getElementById('l2NetworkList');
         if (data.tree.level_2_network.length === 0) {
             l2El.innerHTML = `<p class="text-xs text-slate-500 p-4 text-center">No Level 2 indirect referrals yet.</p>`;
         } else {
-            l2El.innerHTML = data.tree.level_2_network.map(m => `
+            l2El.innerHTML = data.tree.level_2_network.map(m => {
+                const activeTag = m.is_active
+                    ? `<span class="px-2 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">Active</span>`
+                    : `<span class="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-500 font-medium">Registered</span>`;
+
+                return `
                 <div class="bg-slate-950 p-3 rounded-xl flex items-center justify-between text-xs font-mono">
-                    <div>
-                        <span class="text-white font-bold">${m.phone_masked}</span>
+                    <div class="space-y-0.5">
+                        <div class="flex items-center gap-2">
+                            <span class="text-white font-bold">${m.phone_masked}</span>
+                            ${activeTag}
+                        </div>
                         <span class="text-slate-500 block text-[10px]">Joined: ${m.joined_at}</span>
                     </div>
                     <span class="text-violet-400 text-[10px] font-sans font-semibold">0.5% Tier</span>
                 </div>
-            `).join('');
+            `;
+            }).join('');
         }
     } catch (e) {
         console.error('Failed to load referrals:', e);

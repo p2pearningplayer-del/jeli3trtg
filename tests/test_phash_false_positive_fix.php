@@ -121,13 +121,15 @@ $p2 = ImageAnalysisService::computePerceptualHash($file2, 'image/png');
 $dist = ImageAnalysisService::hammingDistance($p1, $p2);
 assertCondition($dist <= 5, "Perceptual Hamming distance is {$dist} <= 5 (typical for standard PhonePe/GPay layouts)");
 
+$runId = rand(100000, 999999);
+
 // Submit proof for Order 1 with valid UTR
-$utr1 = '428900000001';
+$utr1 = '4289' . $runId . '01';
 $res1 = StateMachine::submitPaymentProof($order1, $buyer1Id, $utr1, $file1, 'Payment 1 via PhonePe');
 assertCondition($res1['success'] === true, "Order 1 payment proof submitted successfully");
 
 // Submit proof for Order 2 with a different, valid UTR and file 2
-$utr2 = '428900000002';
+$utr2 = '4289' . $runId . '02';
 $res2 = StateMachine::submitPaymentProof($order2, $buyer2Id, $utr2, $file2, 'Payment 2 via PhonePe');
 assertCondition($res2['success'] === true, "Order 2 payment proof submitted successfully without pHash false-positive rejection");
 
@@ -141,7 +143,7 @@ assertCondition($chkOrder2['status'] === 'Seller Confirmation Pending', "Order 2
 echo "\n[Test 3] Exact Cryptographic Duplicate File (SHA-256) is Still Blocked\n";
 
 $order3 = createTestChildOrder($pdo, $sellerId, $buyer1Id, 500.0);
-$utr3 = '428900000003';
+$utr3 = '4289' . $runId . '03';
 
 // Attempt to re-upload the EXACT file1 from Order 1
 $resDupFile = StateMachine::submitPaymentProof($order3, $buyer1Id, $utr3, $file1, 'Re-uploading same file');
@@ -175,7 +177,7 @@ $order5 = createTestChildOrder($pdo, $sellerId, $buyer2Id, 500.0);
 $file5 = $tempDir . '/proof_order5_' . uniqid() . '.png';
 file_put_contents($file5, $basePng . "\n" . "PhonePe Payment Success Receipt Order 5 - Unique Salt " . uniqid());
 
-$utr5 = '428900000005';
+$utr5 = '4289' . $runId . '05';
 $res5 = StateMachine::submitPaymentProof($order5, $buyer2Id, $utr5, $file5, 'Payment 5');
 assertCondition($res5['success'] === true, "Valid order is allowed to proceed even when pHash similarity is detected");
 

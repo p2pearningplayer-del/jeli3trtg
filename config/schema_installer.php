@@ -61,6 +61,9 @@ class SchemaInstaller {
             upi_id TEXT,
             account_holder_name TEXT,
             health_score INTEGER NOT NULL DEFAULT 100,
+            upi_risk_flag INTEGER NOT NULL DEFAULT 0,
+            upi_risk_reason TEXT DEFAULT NULL,
+            upi_risk_flagged_at TEXT DEFAULT NULL,
             totp_secret TEXT DEFAULT NULL,
             totp_enabled INTEGER NOT NULL DEFAULT 0,
             totp_temp_secret TEXT DEFAULT NULL,
@@ -117,6 +120,9 @@ class SchemaInstaller {
             picked_at TEXT,
             proof_submitted_at TEXT,
             completed_at TEXT,
+            cancellation_reason TEXT,
+            cancellation_reason_code TEXT,
+            cancelled_at TEXT,
             idempotency_key TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -440,6 +446,26 @@ class SchemaInstaller {
         );
         CREATE INDEX IF NOT EXISTS idx_hsal_user ON health_score_audit_logs(user_id);
         CREATE INDEX IF NOT EXISTS idx_hsal_created ON health_score_audit_logs(created_at);
+
+        CREATE TABLE IF NOT EXISTS order_cancellations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            child_order_id INTEGER NOT NULL,
+            parent_order_id INTEGER,
+            buyer_id INTEGER NOT NULL,
+            seller_id INTEGER NOT NULL,
+            seller_upi_id TEXT NOT NULL,
+            reason_code TEXT NOT NULL,
+            reason_text TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (child_order_id) REFERENCES child_orders(id) ON DELETE CASCADE,
+            FOREIGN KEY (buyer_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (seller_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_oc_child ON order_cancellations(child_order_id);
+        CREATE INDEX IF NOT EXISTS idx_oc_seller ON order_cancellations(seller_id);
+        CREATE INDEX IF NOT EXISTS idx_oc_upi ON order_cancellations(seller_upi_id);
+        CREATE INDEX IF NOT EXISTS idx_oc_buyer ON order_cancellations(buyer_id);
+        CREATE INDEX IF NOT EXISTS idx_oc_reason ON order_cancellations(reason_code);
         ";
 
         $pdo->exec($schema);
@@ -478,7 +504,10 @@ class SchemaInstaller {
             'sell_cooldown_seconds' => 'INTEGER NOT NULL DEFAULT 0',
             'last_sell_order_at' => 'TEXT DEFAULT NULL',
             'risk_review_status' => "TEXT NOT NULL DEFAULT 'none'",
-            'risk_notes' => 'TEXT DEFAULT NULL'
+            'risk_notes' => 'TEXT DEFAULT NULL',
+            'upi_risk_flag' => 'INTEGER NOT NULL DEFAULT 0',
+            'upi_risk_reason' => 'TEXT DEFAULT NULL',
+            'upi_risk_flagged_at' => 'TEXT DEFAULT NULL'
         ];
 
         $dispCols = [
@@ -517,7 +546,10 @@ class SchemaInstaller {
                 'sell_cooldown_seconds' => 'INT NOT NULL DEFAULT 0',
                 'last_sell_order_at' => 'DATETIME DEFAULT NULL',
                 'risk_review_status' => "VARCHAR(30) NOT NULL DEFAULT 'none'",
-                'risk_notes' => 'TEXT DEFAULT NULL'
+                'risk_notes' => 'TEXT DEFAULT NULL',
+                'upi_risk_flag' => 'TINYINT(1) NOT NULL DEFAULT 0',
+                'upi_risk_reason' => 'VARCHAR(255) DEFAULT NULL',
+                'upi_risk_flagged_at' => 'DATETIME DEFAULT NULL'
             ];
             $dispCols = [
                 'additional_evidence_requested' => 'TINYINT(1) NOT NULL DEFAULT 0',
@@ -590,7 +622,9 @@ class SchemaInstaller {
         $orderSnapCols = [
             'snapshotted_upi_id' => ($driver === 'mysql' ? 'VARCHAR(100) DEFAULT NULL' : 'TEXT DEFAULT NULL'),
             'snapshotted_account_holder' => ($driver === 'mysql' ? 'VARCHAR(100) DEFAULT NULL' : 'TEXT DEFAULT NULL'),
-            'cancelled_at' => ($driver === 'mysql' ? 'DATETIME DEFAULT NULL' : 'TEXT DEFAULT NULL')
+            'cancelled_at' => ($driver === 'mysql' ? 'DATETIME DEFAULT NULL' : 'TEXT DEFAULT NULL'),
+            'cancellation_reason' => ($driver === 'mysql' ? 'VARCHAR(255) DEFAULT NULL' : 'TEXT DEFAULT NULL'),
+            'cancellation_reason_code' => ($driver === 'mysql' ? 'VARCHAR(50) DEFAULT NULL' : 'TEXT DEFAULT NULL')
         ];
         foreach ($orderSnapCols as $col => $type) {
             try {
@@ -1245,6 +1279,76 @@ class SchemaInstaller {
                         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
                     ");
                 } catch (Exception $e3) {}
+            }
+
+            // Order Cancellations & Seller UPI Risk Tracking Table
+            if ($driver === 'sqlite') {
+                $pdo->exec("
+                    CREATE TABLE IF NOT EXISTS order_cancellations (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        child_order_id INTEGER NOT NULL,
+                        parent_order_id INTEGER,
+                        buyer_id INTEGER NOT NULL,
+                        seller_id INTEGER NOT NULL,
+                        seller_upi_id TEXT NOT NULL,
+                        reason_code TEXT NOT NULL,
+                        reason_text TEXT,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (child_order_id) REFERENCES child_orders(id) ON DELETE CASCADE,
+                        FOREIGN KEY (buyer_id) REFERENCES users(id) ON DELETE CASCADE,
+                        FOREIGN KEY (seller_id) REFERENCES users(id) ON DELETE CASCADE
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_oc_child ON order_cancellations(child_order_id);
+                    CREATE INDEX IF NOT EXISTS idx_oc_seller ON order_cancellations(seller_id);
+                    CREATE INDEX IF NOT EXISTS idx_oc_upi ON order_cancellations(seller_upi_id);
+                    CREATE INDEX IF NOT EXISTS idx_oc_buyer ON order_cancellations(buyer_id);
+                    CREATE INDEX IF NOT EXISTS idx_oc_reason ON order_cancellations(reason_code);
+                ");
+            } else {
+                try {
+                    $pdo->exec("
+                        CREATE TABLE IF NOT EXISTS `order_cancellations` (
+                            `id` INT AUTO_INCREMENT PRIMARY KEY,
+                            `child_order_id` INT NOT NULL,
+                            `parent_order_id` INT DEFAULT NULL,
+                            `buyer_id` INT NOT NULL,
+                            `seller_id` INT NOT NULL,
+                            `seller_upi_id` VARCHAR(100) NOT NULL,
+                            `reason_code` VARCHAR(50) NOT NULL,
+                            `reason_text` TEXT DEFAULT NULL,
+                            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                            INDEX `idx_oc_child` (`child_order_id`),
+                            INDEX `idx_oc_seller` (`seller_id`),
+                            INDEX `idx_oc_upi` (`seller_upi_id`),
+                            INDEX `idx_oc_buyer` (`buyer_id`),
+                            INDEX `idx_oc_reason` (`reason_code`),
+                            CONSTRAINT `fk_oc_child_order` FOREIGN KEY (`child_order_id`) REFERENCES `child_orders` (`id`) ON DELETE CASCADE,
+                            CONSTRAINT `fk_oc_buyer` FOREIGN KEY (`buyer_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+                            CONSTRAINT `fk_oc_seller` FOREIGN KEY (`seller_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                    ");
+                } catch (Exception $e4) {
+                    try {
+                        $pdo->exec("
+                            CREATE TABLE IF NOT EXISTS `order_cancellations` (
+                                `id` INT AUTO_INCREMENT PRIMARY KEY,
+                                `child_order_id` INT NOT NULL,
+                                `parent_order_id` INT DEFAULT NULL,
+                                `buyer_id` INT NOT NULL,
+                                `seller_id` INT NOT NULL,
+                                `seller_upi_id` VARCHAR(100) NOT NULL,
+                                `reason_code` VARCHAR(50) NOT NULL,
+                                `reason_text` TEXT DEFAULT NULL,
+                                `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                                INDEX `idx_oc_child` (`child_order_id`),
+                                INDEX `idx_oc_seller` (`seller_id`),
+                                INDEX `idx_oc_upi` (`seller_upi_id`),
+                                INDEX `idx_oc_buyer` (`buyer_id`),
+                                INDEX `idx_oc_reason` (`reason_code`)
+                            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                        ");
+                    } catch (Exception $e5) {}
+                }
             }
         } catch (Exception $e) {
             // Tables already exist or migration handled

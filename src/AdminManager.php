@@ -448,6 +448,7 @@ class AdminManager {
             SELECT u.id, u.phone, u.email, u.role, u.admin_role, u.account_status, u.is_demo, u.is_flagged, u.flag_reason,
                    u.referral_code, u.referred_by_id, u.upi_id, u.account_holder_name, u.created_at,
                    u.health_score, u.sell_restricted, u.risk_review_status,
+                   COALESCE(u.upi_risk_flag, 0) as upi_risk_flag, u.upi_risk_reason, u.upi_risk_flagged_at,
                    w.available_balance, w.reserved_balance, w.total_rewards_earned, w.total_commissions_earned
             FROM users u
             LEFT JOIN wallets w ON u.id = w.user_id

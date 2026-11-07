@@ -637,14 +637,26 @@ endif;
 
             <!-- Live Market Buy Pool Listing (FR-006) -->
             <div class="pt-2 border-t border-slate-800">
-                <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center justify-between mb-2">
                     <div>
                         <h3 class="text-lg font-bold text-white">List of Tokens</h3>
+                        <p class="text-xs text-slate-400">Browse peer listings or filter by price budget</p>
                     </div>
                     <button onclick="loadBuyPool()" class="p-2 text-slate-400 hover:text-white bg-slate-900 border border-slate-800 rounded-lg transition" title="Refresh Pool">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                     </button>
                 </div>
+
+                <!-- Price Range Filter Bar (Item 3) -->
+                <div class="flex items-center gap-2 overflow-x-auto pb-3 pt-1 scrollbar-none mb-3" id="buyPriceRangeFilters">
+                    <button type="button" onclick="setBuyPriceFilter('all', 0, 0)" class="buy-filter-btn px-3.5 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap bg-indigo-600 text-white shadow-md shadow-indigo-600/30 cursor-pointer" data-range="all">All Tokens</button>
+                    <button type="button" onclick="setBuyPriceFilter('100-200', 100, 200)" class="buy-filter-btn px-3.5 py-1.5 rounded-xl text-xs font-semibold transition whitespace-nowrap bg-slate-900 text-slate-400 border border-slate-800 hover:text-white hover:border-slate-700 cursor-pointer" data-range="100-200">₹100 – ₹200</button>
+                    <button type="button" onclick="setBuyPriceFilter('200-500', 200, 500)" class="buy-filter-btn px-3.5 py-1.5 rounded-xl text-xs font-semibold transition whitespace-nowrap bg-slate-900 text-slate-400 border border-slate-800 hover:text-white hover:border-slate-700 cursor-pointer" data-range="200-500">₹200 – ₹500</button>
+                    <button type="button" onclick="setBuyPriceFilter('500-1000', 500, 1000)" class="buy-filter-btn px-3.5 py-1.5 rounded-xl text-xs font-semibold transition whitespace-nowrap bg-slate-900 text-slate-400 border border-slate-800 hover:text-white hover:border-slate-700 cursor-pointer" data-range="500-1000">₹500 – ₹1,000</button>
+                    <button type="button" onclick="setBuyPriceFilter('1000-10000', 1000, 10000)" class="buy-filter-btn px-3.5 py-1.5 rounded-xl text-xs font-semibold transition whitespace-nowrap bg-slate-900 text-slate-400 border border-slate-800 hover:text-white hover:border-slate-700 cursor-pointer" data-range="1000-10000">₹1,000 – ₹10,000</button>
+                    <button type="button" onclick="setBuyPriceFilter('10000plus', 10000, 0)" class="buy-filter-btn px-3.5 py-1.5 rounded-xl text-xs font-semibold transition whitespace-nowrap bg-slate-900 text-slate-400 border border-slate-800 hover:text-white hover:border-slate-700 cursor-pointer" data-range="10000plus">₹10,000+</button>
+                </div>
+
                 <div id="buyPoolGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                     <!-- Populated dynamically via JS -->
                 </div>
@@ -787,6 +799,62 @@ endif;
                     <button onclick="copyInviteLink()" class="bg-violet-600 hover:bg-violet-500 text-white font-bold px-5 py-2.5 rounded-xl text-xs uppercase tracking-wider transition">
                         Copy Link
                     </button>
+                </div>
+            </div>
+
+            <!-- Granular Referral Metrics & Performance Overview (Item 4) -->
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <!-- Today's Earnings -->
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-1 relative overflow-hidden">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs uppercase font-bold text-emerald-400 tracking-wider">Today's Earnings</span>
+                        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    </div>
+                    <div class="text-2xl font-black text-white font-mono mt-1" id="referralTodayEarnings">₹0.00</div>
+                    <p class="text-[11px] text-slate-500">Commissions credited today</p>
+                </div>
+
+                <!-- Total Active Team Size -->
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-1 relative overflow-hidden">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs uppercase font-bold text-violet-400 tracking-wider">Active Team Size</span>
+                        <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-500/10 text-violet-300 border border-violet-500/20">L1 + L2</span>
+                    </div>
+                    <div class="text-2xl font-black text-white font-mono mt-1">
+                        <span id="referralActiveTeamCount">0</span> <span class="text-sm font-semibold text-slate-400 font-sans">Active</span>
+                    </div>
+                    <p class="text-[11px] text-slate-500">Out of <span id="referralTotalTeamCount" class="font-bold text-slate-400 font-mono">0</span> total registered network peers</p>
+                </div>
+
+                <!-- Total Lifetime Commissions -->
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-1 relative overflow-hidden">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs uppercase font-bold text-indigo-400 tracking-wider">Lifetime Commissions</span>
+                        <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">Wallet Credit</span>
+                    </div>
+                    <div class="text-2xl font-black text-white font-mono mt-1" id="referralTotalEarned">₹0.00</div>
+                    <p class="text-[11px] text-slate-500">Total earned from network trading volume</p>
+                </div>
+            </div>
+
+            <!-- Specific Day Performance Panel (Item 4) -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 space-y-4">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+                    <div>
+                        <h3 class="text-base font-bold text-white flex items-center gap-2">
+                            <span>Day-of-Week Performance</span>
+                            <span class="text-[11px] font-normal text-slate-400">(Weekly breakdown)</span>
+                        </h3>
+                        <p class="text-xs text-slate-500 mt-0.5">Granular commission earnings by specific day (e.g. Wednesday earnings)</p>
+                    </div>
+                    <div id="referralDayHighlightBadge" class="text-xs font-mono font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 rounded-full self-start sm:self-auto">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+
+                <!-- 7-Day Performance Grid -->
+                <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3" id="referralDayOfWeekGrid">
+                    <!-- Populated dynamically via JS: Mon-Sun cards with earnings -->
                 </div>
             </div>
 
@@ -1616,6 +1684,15 @@ endif;
                     </div>
                     <p class="text-[11px] text-slate-500">Account Holder: <strong class="text-slate-300" id="activeDetailsSellerName">--</strong></p>
                 </div>
+
+                <!-- Seller UPI Risk Warning (Item 2) -->
+                <div id="activeDetailsUpiRiskAlert" class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-xs text-amber-300 hidden flex items-start gap-2.5">
+                    <svg class="w-5 h-5 text-amber-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                    <div>
+                        <p class="font-bold text-amber-200">Seller UPI Risk Notice</p>
+                        <p class="text-[11px] text-amber-300/80 mt-0.5">Multiple buyers previously reported payment failure or cancelled orders with this seller's UPI ID. Please exercise caution and double-check before transferring.</p>
+                    </div>
+                </div>
             </div>
 
             <div id="activeDetailsInfoBox" class="text-xs text-slate-400 leading-relaxed bg-indigo-500/10 border border-indigo-500/20 rounded-xl p-3">
@@ -1700,6 +1777,15 @@ endif;
                 </div>
             </div>
 
+            <!-- Seller UPI Risk Warning Banner (Item 2) -->
+            <div id="proofModalUpiRiskAlert" class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-xs text-amber-300 hidden flex items-start gap-2.5">
+                <svg class="w-5 h-5 text-amber-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                <div>
+                    <p class="font-bold text-amber-200">Seller UPI Risk Warning</p>
+                    <p class="text-[11px] text-amber-300/80 mt-0.5">Multiple buyers previously reported payment failure or cancelled orders with this seller's UPI. Please verify payee details in your UPI app before completing transfer.</p>
+                </div>
+            </div>
+
             <form id="proofForm" onsubmit="handleProofSubmit(event)" class="space-y-4">
                 <input type="hidden" id="proofOrderIdInput">
                 <input type="hidden" id="proofScreenshotPath">
@@ -1728,6 +1814,80 @@ endif;
                     </button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- 2B. Buy Order Cancellation Reason Modal (Item 1) -->
+    <div id="buyOrderCancelModal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden" onclick="if(event.target === this) closeCancelReasonModal();">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 sm:p-7 shadow-2xl relative space-y-4">
+            <button onclick="closeCancelReasonModal()" class="absolute right-4 top-4 text-slate-400 hover:text-white transition">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+            <div class="border-b border-slate-800 pb-3 pr-8">
+                <div class="flex items-center gap-2">
+                    <span class="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse"></span>
+                    <span class="text-xs uppercase font-bold text-rose-400 tracking-wider">Cancel Reservation</span>
+                </div>
+                <h3 class="text-xl font-bold text-white mt-1">Order Cancellation Reason</h3>
+                <p class="text-xs text-slate-400 mt-0.5">Please indicate why you are cancelling Order #<span id="cancelModalOrderId" class="font-mono text-white font-bold">--</span>. Tokens will return to the live buy market.</p>
+            </div>
+
+            <!-- Reason Selector Options -->
+            <div class="space-y-2.5 text-xs" id="cancelReasonOptionsList">
+                <label class="flex items-start gap-3 p-3 rounded-xl border border-slate-800 bg-slate-950/70 hover:border-slate-700 hover:bg-slate-950 cursor-pointer transition">
+                    <input type="radio" name="cancel_reason_option" value="upi_risk" class="mt-0.5 text-indigo-600 focus:ring-indigo-500" onchange="handleCancelReasonChange(this.value)">
+                    <div>
+                        <span class="text-slate-200 font-bold block">UPI Risk / Payment Failure</span>
+                        <span class="text-slate-400 text-[11px] block mt-0.5">Payment declined by bank, UPI app warning, QR not working, or unable to pay seller.</span>
+                    </div>
+                </label>
+                <label class="flex items-start gap-3 p-3 rounded-xl border border-slate-800 bg-slate-950/70 hover:border-slate-700 hover:bg-slate-950 cursor-pointer transition">
+                    <input type="radio" name="cancel_reason_option" value="insufficient_funds" class="mt-0.5 text-indigo-600 focus:ring-indigo-500" onchange="handleCancelReasonChange(this.value)">
+                    <div>
+                        <span class="text-slate-200 font-bold block">Insufficient Funds</span>
+                        <span class="text-slate-400 text-[11px] block mt-0.5">Not enough balance in bank account right now.</span>
+                    </div>
+                </label>
+                <label class="flex items-start gap-3 p-3 rounded-xl border border-slate-800 bg-slate-950/70 hover:border-slate-700 hover:bg-slate-950 cursor-pointer transition">
+                    <input type="radio" name="cancel_reason_option" value="seller_inactive" class="mt-0.5 text-indigo-600 focus:ring-indigo-500" onchange="handleCancelReasonChange(this.value)">
+                    <div>
+                        <span class="text-slate-200 font-bold block">Seller UPI Inactive / Name Mismatch</span>
+                        <span class="text-slate-400 text-[11px] block mt-0.5">Seller UPI ID not found, account inactive, or name does not match.</span>
+                    </div>
+                </label>
+                <label class="flex items-start gap-3 p-3 rounded-xl border border-slate-800 bg-slate-950/70 hover:border-slate-700 hover:bg-slate-950 cursor-pointer transition">
+                    <input type="radio" name="cancel_reason_option" value="placed_by_mistake" class="mt-0.5 text-indigo-600 focus:ring-indigo-500" onchange="handleCancelReasonChange(this.value)">
+                    <div>
+                        <span class="text-slate-200 font-bold block">Changed Mind / Placed by Mistake</span>
+                        <span class="text-slate-400 text-[11px] block mt-0.5">Accidentally reserved or decided to select another token listing.</span>
+                    </div>
+                </label>
+                <label class="flex items-start gap-3 p-3 rounded-xl border border-slate-800 bg-slate-950/70 hover:border-slate-700 hover:bg-slate-950 cursor-pointer transition">
+                    <input type="radio" name="cancel_reason_option" value="other" class="mt-0.5 text-indigo-600 focus:ring-indigo-500" onchange="handleCancelReasonChange(this.value)">
+                    <div>
+                        <span class="text-slate-200 font-bold block">Other Reason</span>
+                        <span class="text-slate-400 text-[11px] block mt-0.5">Specify custom reason below.</span>
+                    </div>
+                </label>
+            </div>
+
+            <!-- Optional Custom Reason Text -->
+            <div id="cancelReasonCustomBox" class="space-y-1">
+                <label class="text-[11px] font-semibold text-slate-400 block">Additional Details (Optional)</label>
+                <textarea id="cancelReasonCustomText" rows="2" placeholder="Provide extra details for admin record..." class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-indigo-500 resize-none"></textarea>
+            </div>
+
+            <div id="cancelReasonError" class="text-xs text-rose-400 font-semibold hidden"></div>
+
+            <!-- Action Buttons -->
+            <div class="grid grid-cols-2 gap-3 pt-2">
+                <button type="button" onclick="closeCancelReasonModal()" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2.5 rounded-xl transition text-xs">
+                    Keep Reservation
+                </button>
+                <button type="button" id="confirmCancelOrderBtn" onclick="submitBuyOrderCancellation()" class="w-full bg-rose-600 hover:bg-rose-500 text-white font-bold py-2.5 rounded-xl shadow-lg shadow-rose-600/30 transition text-xs flex items-center justify-center gap-1.5 cursor-pointer">
+                    Confirm Cancellation
+                </button>
+            </div>
         </div>
     </div>
 

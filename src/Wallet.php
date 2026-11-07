@@ -216,7 +216,7 @@ class Wallet {
     /**
      * Credit referral commission (FR-019)
      */
-    public static function creditReferral(int $userId, float $amount, int $level, string $referenceId): array {
+    public static function creditReferral(int $userId, float $amount, int $level, string $referenceId, ?int $actorId = null): array {
         if ($amount <= 0) return ['success' => true];
 
         $pdo = Database::getConnection();
@@ -237,6 +237,8 @@ class Wallet {
         $update->execute([$newAvailable, $newCommissions, $newVersion, $userId, $wallet['version']]);
 
         $type = ($level === 1) ? 'REFERRAL_L1' : 'REFERRAL_L2';
+        $finalActorId = ($actorId !== null && $actorId > 0) ? $actorId : $userId;
+
         Ledger::record(
             $userId,
             $type,
@@ -245,7 +247,7 @@ class Wallet {
             $newAvailable,
             'available',
             $referenceId,
-            $userId,
+            $finalActorId,
             'system',
             "Level {$level} referral commission from order #{$referenceId}"
         );

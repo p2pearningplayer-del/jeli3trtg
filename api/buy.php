@@ -26,16 +26,35 @@ switch ($action) {
         // Display available child portions to buyers (Requirement 8 Privacy)
         // Seller details AND Order IDs are strictly hidden pre-pickup from public browsable cards.
         $pdo = Database::getConnection();
-        $stmt = $pdo->prepare("
+
+        // Price range filter support
+        $minAmount = isset($_GET['min_amount']) && is_numeric($_GET['min_amount']) ? (float)$_GET['min_amount'] : 0.0;
+        $maxAmount = isset($_GET['max_amount']) && is_numeric($_GET['max_amount']) ? (float)$_GET['max_amount'] : 0.0;
+
+        $sql = "
             SELECT c.id, c.amount, c.snapshotted_reward_rate,
                    c.snapshotted_reward_amount, (c.amount + c.snapshotted_reward_amount) as total_credit,
-                   c.created_at, c.seller_id
+                   c.created_at, c.seller_id, c.snapshotted_upi_id,
+                   COALESCE(u.upi_risk_flag, 0) as upi_risk_flag
             FROM child_orders c
+            LEFT JOIN users u ON c.seller_id = u.id
             WHERE c.status = 'Available' AND c.seller_id != ?
-            ORDER BY c.amount ASC, c.id ASC
-            LIMIT 50
-        ");
-        $stmt->execute([(int)$user['id']]);
+        ";
+        $params = [(int)$user['id']];
+
+        if ($minAmount > 0) {
+            $sql .= " AND c.amount >= ?";
+            $params[] = $minAmount;
+        }
+        if ($maxAmount > 0) {
+            $sql .= " AND c.amount <= ?";
+            $params[] = $maxAmount;
+        }
+
+        $sql .= " ORDER BY c.amount ASC, c.id ASC LIMIT 100";
+
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
         $orders = $stmt->fetchAll();
 
         $poolList = [];
@@ -46,12 +65,16 @@ switch ($action) {
             $tokenPayload = $childId . ':' . hash_hmac('sha256', (string)$childId, $secret);
             $pickToken = base64_encode($tokenPayload);
 
+            $hasUpiRisk = ((int)($ord['upi_risk_flag'] ?? 0) === 1) ||
+                          StateMachine::isSellerUpiAtRisk($pdo, (int)$ord['seller_id'], (string)($ord['snapshotted_upi_id'] ?? ''));
+
             $poolList[] = [
                 'pick_token' => $pickToken,
                 'amount' => (float)$ord['amount'],
                 'reward_rate' => (float)$ord['snapshotted_reward_rate'],
                 'reward_amount' => (float)$ord['snapshotted_reward_amount'],
-                'total_credit' => (float)$ord['total_credit']
+                'total_credit' => (float)$ord['total_credit'],
+                'seller_upi_risk' => $hasUpiRisk
             ];
         }
 
@@ -106,7 +129,14 @@ switch ($action) {
             jsonError('Invalid order ID.');
         }
 
-        $res = StateMachine::cancelReservation($orderId, $user['id']);
+        $reasonCode = trim((string)($input['reason_code'] ?? $input['reason'] ?? ''));
+        $reasonText = trim((string)($input['reason_text'] ?? ''));
+
+        if (empty($reasonCode)) {
+            jsonError('Please select a cancellation reason before cancelling the order.', 400);
+        }
+
+        $res = StateMachine::cancelReservation($orderId, $user['id'], $reasonCode, $reasonText);
         if ($res['success']) {
             jsonResponse(true, $res);
         } else {
@@ -246,6 +276,10 @@ function formatChildOrderResponse(array $p, int $now): array {
     $p['seller_upi'] = $p['snapshotted_upi_id'] ?? '';
     $p['seller_name'] = $p['snapshotted_account_holder'] ?? '';
     $p['seller_name_masked'] = Validator::maskName($p['seller_account_holder']);
+
+    // Check Seller UPI Risk Flag
+    $pdo = Database::getConnection();
+    $p['seller_upi_risk'] = !empty($p['seller_id']) ? StateMachine::isSellerUpiAtRisk($pdo, (int)$p['seller_id'], (string)($p['snapshotted_upi_id'] ?? '')) : false;
 
     if ($p['status'] === 'Reserved' && !empty($p['payment_deadline'])) {
         $deadline = strtotime($p['payment_deadline'] . ' UTC');
