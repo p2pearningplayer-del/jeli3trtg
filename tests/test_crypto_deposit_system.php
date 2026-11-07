@@ -138,6 +138,35 @@ runCheck(
     "SVG contains: " . substr($user1ManualAddr['qr_svg'] ?? '', 0, 30)
 );
 
+// Verify admin dynamic update of the 1 master address
+$customMaster = 'TNEWMASTERWALLET1234567890123456';
+AdminManager::updateSetting('usdt_master_wallet', $customMaster, 1, 'Admin customized master address');
+
+$user1Updated = CryptoDepositManager::getUserDepositAddress(1);
+$user2Updated = CryptoDepositManager::getUserDepositAddress(2);
+$guestUpdated = CryptoDepositManager::getUserDepositAddress(0);
+
+runCheck(
+    "When admin changes master address, User 1 immediately receives updated address",
+    $user1Updated['address'] === $customMaster,
+    "Got: " . ($user1Updated['address'] ?? 'none')
+);
+
+runCheck(
+    "When admin changes master address, User 2 receives that exact same updated address",
+    $user2Updated['address'] === $customMaster,
+    "Got: " . ($user2Updated['address'] ?? 'none')
+);
+
+runCheck(
+    "When admin changes master address, Guest visitor receives that exact same updated address",
+    $guestUpdated['address'] === $customMaster,
+    "Got: " . ($guestUpdated['address'] ?? 'none')
+);
+
+// Revert to official platform master wallet for subsequent deposit tests
+AdminManager::updateSetting('usdt_master_wallet', 'TPuZpFS91NcE8VqUV3AtMYXyNx4tWWw8dV', 1, 'Reverted to official platform master address');
+
 // =========================================================================
 // TEST GROUP 3: MANUAL DEPOSIT SUBMISSION & STRICT MINIMUM LIMIT (< 100 USDT)
 // =========================================================================

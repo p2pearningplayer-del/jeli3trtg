@@ -10,9 +10,16 @@ require_once __DIR__ . '/config/config.php';
 require_once __DIR__ . '/config/schema_installer.php';
 require_once __DIR__ . '/src/Auth.php';
 require_once __DIR__ . '/src/StateMachine.php';
+require_once __DIR__ . '/src/Crypto/CryptoDepositManager.php';
+require_once __DIR__ . '/src/Security/QRCodeGenerator.php';
 
 // Ensure schema is prepared
 SchemaInstaller::ensureSchema();
+
+$platformMasterWallet = \Crypto\CryptoDepositManager::getMasterWallet();
+$platformExchangeRate = \Crypto\CryptoDepositManager::getExchangeRate();
+$platformMinDeposit = \Crypto\CryptoDepositManager::getMinDeposit();
+$platformInitialQrSvg = \Security\QRCodeGenerator::generateSvg($platformMasterWallet, 240, '#ffffff', '#020617');
 
 // Sync expired orders
 StateMachine::checkAndExpireOrders();
@@ -2320,13 +2327,13 @@ endif;
                     
                     <!-- Dynamic QR Container -->
                     <div id="cryptoDepositQrContainer" class="flex justify-center items-center py-2 min-h-[160px]">
-                        <div class="animate-pulse text-slate-500 text-xs">Loading official TRC20 deposit address...</div>
+                        <?= $platformInitialQrSvg ?: '<div class="animate-pulse text-slate-500 text-xs">Loading official TRC20 deposit address...</div>' ?>
                     </div>
 
                     <!-- Address & Copy Button -->
                     <div class="space-y-1.5">
                         <div class="bg-slate-900 border border-slate-800 rounded-xl p-2.5 flex items-center justify-between gap-2">
-                            <span id="cryptoDepositAddressText" class="font-mono text-xs text-emerald-400 break-all select-all font-semibold">Loading...</span>
+                            <span id="cryptoDepositAddressText" class="font-mono text-xs text-emerald-400 break-all select-all font-semibold"><?= htmlspecialchars($platformMasterWallet) ?></span>
                             <button type="button" id="cryptoCopyAddressBtn" onclick="copyCryptoDepositAddress()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold text-xs flex-shrink-0 transition flex items-center gap-1 shadow-sm cursor-pointer">
                                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
                                 <span id="cryptoCopyBtnLabel">Copy</span>
@@ -2429,7 +2436,7 @@ endif;
 
             <!-- Modal Footer -->
             <div class="p-3 sm:p-4 border-t border-slate-800 bg-slate-950/60 flex items-center justify-between">
-                <span class="text-[10px] text-slate-500">Master Vault: <span class="font-mono text-slate-400">TPuZp...8dV</span></span>
+                <span class="text-[10px] text-slate-500">Official Master Address: <span id="cryptoModalFooterMasterWallet" class="font-mono text-slate-400 font-semibold select-all"><?= htmlspecialchars($platformMasterWallet) ?></span></span>
                 <button type="button" onclick="closeCryptoDepositModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition cursor-pointer">
                     Close
                 </button>

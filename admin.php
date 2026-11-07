@@ -7,6 +7,7 @@
 require_once __DIR__ . '/config/config.php';
 require_once __DIR__ . '/config/schema_installer.php';
 require_once __DIR__ . '/src/Auth.php';
+require_once __DIR__ . '/src/Crypto/CryptoDepositManager.php';
 
 SchemaInstaller::ensureSchema();
 
@@ -17,6 +18,10 @@ if (!$currentUser || ($currentUser['role'] !== 'admin' && empty($currentUser['re
 }
 
 $adminRole = $currentUser['admin_role'] ?? 'super_admin';
+$adminMasterWallet = \Crypto\CryptoDepositManager::getMasterWallet();
+$adminExchangeRate = \Crypto\CryptoDepositManager::getExchangeRate();
+$adminMinDeposit = \Crypto\CryptoDepositManager::getMinDeposit();
+$adminProvider = \Crypto\CryptoDepositManager::getGatewayProvider();
 ?>
 <!DOCTYPE html>
 <html lang="en" class="h-full bg-slate-950">
@@ -1448,12 +1453,12 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                         <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">TRON TRC-20 Master Address</span>
                     </div>
                     <div class="flex items-center gap-2">
-                        <span class="font-mono text-xs sm:text-sm text-white font-bold select-all bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800" id="adminCryptoMasterWalletText">TPuZpFS91NcE8VqUV3AtMYXyNx4tWWw8dV</span>
-                        <a id="adminCryptoMasterTronScanLink" href="https://tronscan.org/#/address/TPuZpFS91NcE8VqUV3AtMYXyNx4tWWw8dV" target="_blank" rel="noopener noreferrer" class="p-2 bg-slate-800 hover:bg-slate-700 text-indigo-400 rounded-xl border border-slate-700 transition" title="View on TronScan">
+                        <span class="font-mono text-xs sm:text-sm text-white font-bold select-all bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800" id="adminCryptoMasterWalletText"><?= htmlspecialchars($adminMasterWallet) ?></span>
+                        <a id="adminCryptoMasterTronScanLink" href="https://tronscan.org/#/address/<?= urlencode($adminMasterWallet) ?>" target="_blank" rel="noopener noreferrer" class="p-2 bg-slate-800 hover:bg-slate-700 text-indigo-400 rounded-xl border border-slate-700 transition" title="View on TronScan">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
                         </a>
                     </div>
-                    <p class="text-xs text-slate-400">All users send USDT directly to this 1 address. Submitted TXIDs are verified on-chain or approved by admin.</p>
+                    <p class="text-xs text-slate-400">All users send USDT directly to this 1 address set by admin. Submitted TXIDs are verified on-chain or approved by admin.</p>
                 </div>
                 <div class="flex items-center gap-2.5 w-full md:w-auto">
                     <button type="button" onclick="openAdminCryptoCreditModal()" class="flex-1 md:flex-none px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-900/30 transition flex items-center justify-center gap-1.5 cursor-pointer">
@@ -1481,23 +1486,23 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                     <div>
                         <label class="block text-slate-400 mb-1 font-semibold">Gateway Provider</label>
                         <select id="cryptoSettingProvider" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:border-amber-500 focus:outline-none">
-                            <option value="manual">Manual Gateway (1 Address - Master Wallet)</option>
-                            <option value="nowpayments">NOWPayments (Automated Sweeps & IPN)</option>
-                            <option value="trongrid">TronGrid Direct On-Chain Node</option>
+                            <option value="manual" <?= $adminProvider === 'manual' ? 'selected' : '' ?>>Manual Gateway (1 Address - Master Wallet)</option>
+                            <option value="nowpayments" <?= $adminProvider === 'nowpayments' ? 'selected' : '' ?>>NOWPayments (Automated Sweeps & IPN)</option>
+                            <option value="trongrid" <?= $adminProvider === 'trongrid' ? 'selected' : '' ?>>TronGrid Direct On-Chain Node</option>
                         </select>
                     </div>
                     <div>
                         <label class="block text-slate-400 mb-1 font-semibold">Exchange Rate (Coins per 1 USDT)</label>
-                        <input type="number" id="cryptoSettingRate" step="0.01" value="115.00" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono font-bold focus:border-amber-500 focus:outline-none">
+                        <input type="number" id="cryptoSettingRate" step="0.01" value="<?= htmlspecialchars((string)$adminExchangeRate) ?>" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono font-bold focus:border-amber-500 focus:outline-none">
                     </div>
                     <div>
                         <label class="block text-slate-400 mb-1 font-semibold">Minimum Deposit (USDT)</label>
-                        <input type="number" id="cryptoSettingMinDeposit" step="1" value="100.00" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono font-bold focus:border-amber-500 focus:outline-none">
+                        <input type="number" id="cryptoSettingMinDeposit" step="1" value="<?= htmlspecialchars((string)$adminMinDeposit) ?>" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono font-bold focus:border-amber-500 focus:outline-none">
                     </div>
                     <div class="md:col-span-3">
                         <label class="block text-slate-400 mb-1 font-semibold">Official 1 Deposit Address (TRON TRC-20 Master Wallet)</label>
-                        <input type="text" id="cryptoSettingMasterWallet" value="TPuZpFS91NcE8VqUV3AtMYXyNx4tWWw8dV" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono text-xs focus:border-amber-500 focus:outline-none">
-                        <span class="text-[11px] text-slate-500 mt-1 block">All users in manual gateway mode will see this single address with its vector QR code for deposits.</span>
+                        <input type="text" id="cryptoSettingMasterWallet" value="<?= htmlspecialchars($adminMasterWallet) ?>" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono text-xs focus:border-amber-500 focus:outline-none">
+                        <span class="text-[11px] text-slate-500 mt-1 block">All users across the platform will see this single address with its vector QR code for deposits.</span>
                     </div>
                     <div>
                         <label class="block text-slate-400 mb-1 font-semibold">NOWPayments API Key (Optional)</label>

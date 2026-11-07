@@ -4983,6 +4983,9 @@ async function loadCryptoDepositInfo() {
             if (rateEl) rateEl.innerText = `${window._currentUsdtExchangeRate.toFixed(2)} Coins`;
             if (calcRateEl) calcRateEl.innerText = window._currentUsdtExchangeRate.toFixed(0);
 
+            const footerAddrEl = document.getElementById('cryptoModalFooterMasterWallet');
+            if (footerAddrEl) footerAddrEl.innerText = json.address;
+
             updateCryptoConversionCalc();
         } else {
             addrEl.innerText = 'Unable to generate deposit address. Please retry.';
@@ -4995,8 +4998,9 @@ async function loadCryptoDepositInfo() {
 }
 
 function copyCryptoDepositAddress() {
-    if (!window._currentUserCryptoAddress) return;
-    navigator.clipboard.writeText(window._currentUserCryptoAddress).then(() => {
+    const targetAddr = window._currentUserCryptoAddress || document.getElementById('cryptoDepositAddressText')?.innerText?.trim();
+    if (!targetAddr || targetAddr === 'Loading...') return;
+    navigator.clipboard.writeText(targetAddr).then(() => {
         const btnLabel = document.getElementById('cryptoCopyBtnLabel');
         if (btnLabel) {
             btnLabel.innerText = 'Copied!';
@@ -5005,7 +5009,7 @@ function copyCryptoDepositAddress() {
     }).catch(() => {
         // Fallback for older browsers
         const temp = document.createElement('textarea');
-        temp.value = window._currentUserCryptoAddress;
+        temp.value = targetAddr;
         document.body.appendChild(temp);
         temp.select();
         document.execCommand('copy');
