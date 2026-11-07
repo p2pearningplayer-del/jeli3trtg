@@ -19,7 +19,8 @@ if (!$user) {
 // Opportunistically sync expired orders
 StateMachine::checkAndExpireOrders();
 
-$action = $_GET['action'] ?? $_POST['action'] ?? 'summary';
+$input = getJsonInput();
+$action = $_GET['action'] ?? $input['action'] ?? $_POST['action'] ?? 'summary';
 
 switch ($action) {
     case 'summary':
@@ -135,6 +136,35 @@ switch ($action) {
         $stmt = $pdo->prepare("UPDATE notifications SET is_read = 1 WHERE user_id = ?");
         $stmt->execute([$user['id']]);
         jsonResponse(true, ['message' => 'Notifications marked as read.']);
+        break;
+
+    case 'usdt_deposit_info':
+        require_once __DIR__ . '/../src/Crypto/CryptoDepositManager.php';
+        $info = \Crypto\CryptoDepositManager::getUserDepositAddress((int)$user['id']);
+        jsonResponse(true, $info);
+        break;
+
+    case 'usdt_deposit_history':
+        require_once __DIR__ . '/../src/Crypto/CryptoDepositManager.php';
+        $limit = max(1, min(100, (int)($_GET['limit'] ?? $input['limit'] ?? 20)));
+        $offset = max(0, (int)($_GET['offset'] ?? $input['offset'] ?? 0));
+        $history = \Crypto\CryptoDepositManager::getDepositLogs($limit, $offset, (int)$user['id']);
+        jsonResponse(true, $history);
+        break;
+
+    case 'usdt_submit_txid':
+        require_once __DIR__ . '/../src/Crypto/CryptoDepositManager.php';
+        $txid = trim((string)($input['txid'] ?? $_POST['txid'] ?? ''));
+        $amount = isset($input['amount']) ? (float)$input['amount'] : (isset($_POST['amount']) ? (float)$_POST['amount'] : null);
+        if (empty($txid)) {
+            jsonError('Transaction Hash (TXID) is required.');
+        }
+        $res = \Crypto\CryptoDepositManager::verifyAndProcessTxid((int)$user['id'], $txid, $amount);
+        if (!empty($res['success'])) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error'] ?? 'Transaction could not be verified on blockchain.', 400, $res);
+        }
         break;
 
     default:

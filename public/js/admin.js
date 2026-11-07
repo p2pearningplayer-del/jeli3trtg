@@ -53,7 +53,7 @@ window.setBadge = setBadge;
 window.setTxt = setTxt;
 
 function switchAdminTab(tabId, filterOptions = null) {
-    const validTabs = ['dashboard', 'users', 'orders', 'disputes', 'fraud', 'rewards', 'content', 'reports', 'audit', 'admins', 'agents', 'risk'];
+    const validTabs = ['dashboard', 'users', 'orders', 'disputes', 'fraud', 'rewards', 'content', 'reports', 'audit', 'admins', 'agents', 'risk', 'crypto'];
     if (!validTabs.includes(tabId)) {
         tabId = 'dashboard';
     }
@@ -130,6 +130,7 @@ function switchAdminTab(tabId, filterOptions = null) {
     if (tabId === 'admins') loadAdminDirectory();
     if (tabId === 'agents') loadAdminAgents();
     if (tabId === 'risk') loadAdminRiskUsers();
+    if (tabId === 'crypto') loadAdminCryptoDeposits();
 }
 
 function periodicAdminSync() {
@@ -3811,5 +3812,273 @@ async function loadAdminRiskUsers() {
         }).join('');
     } catch (e) {
         console.error('loadAdminRiskUsers error:', e);
+    }
+}
+
+// ==========================================
+// VIEW 13: USDT CRYPTO DEPOSITS (ADMIN)
+// ==========================================
+let cryptoSearchDebounceTimer = null;
+
+function debounceCryptoSearch() {
+    clearTimeout(cryptoSearchDebounceTimer);
+    cryptoSearchDebounceTimer = setTimeout(() => {
+        loadAdminCryptoDeposits();
+    }, 300);
+}
+
+async function loadAdminCryptoDeposits(silent = false) {
+    const tableBody = document.getElementById('adminCryptoTableBody');
+    const totalUsdtEl = document.getElementById('adminCryptoTotalUsdt');
+    const totalCoinsEl = document.getElementById('adminCryptoTotalCoins');
+    const totalCountEl = document.getElementById('adminCryptoTotalCount');
+    const belowMinEl = document.getElementById('adminCryptoBelowMinCount');
+    const masterWalletEl = document.getElementById('adminCryptoMasterWalletText');
+    const masterTronScanLink = document.getElementById('adminCryptoMasterTronScanLink');
+    const statusFilter = document.getElementById('adminCryptoStatusFilter')?.value || 'all';
+    const searchQuery = document.getElementById('adminCryptoSearchInput')?.value.trim() || '';
+
+    if (!tableBody) return;
+    if (!silent) {
+        tableBody.innerHTML = '<tr><td colspan="9" class="p-8 text-center text-slate-500 font-sans">Loading crypto deposits...</td></tr>';
+    }
+
+    try {
+        let url = `/api/admin.php?action=crypto_deposits&limit=50`;
+        if (statusFilter && statusFilter !== 'all') url += `&status=${encodeURIComponent(statusFilter)}`;
+        if (searchQuery && /^\d+$/.test(searchQuery)) url += `&user_id=${encodeURIComponent(searchQuery)}`;
+
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (!data.success) {
+            tableBody.innerHTML = `<tr><td colspan="9" class="p-8 text-center text-rose-400 font-sans">${escapeHtml(data.error || 'Failed to load crypto deposits')}</td></tr>`;
+            return;
+        }
+
+        const totals = data.totals || {};
+        if (totalUsdtEl) totalUsdtEl.innerText = `${parseFloat(totals.total_usdt_completed || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT`;
+        if (totalCoinsEl) totalCoinsEl.innerText = parseFloat(totals.total_coins_credited || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        if (totalCountEl) totalCountEl.innerText = (totals.total_deposits_count || 0).toString();
+        if (belowMinEl) belowMinEl.innerText = (totals.total_below_minimum_count || 0).toString();
+
+        if (data.master_wallet && masterWalletEl) {
+            masterWalletEl.innerText = data.master_wallet;
+            if (masterTronScanLink) {
+                masterTronScanLink.href = `https://tronscan.org/#/address/${encodeURIComponent(data.master_wallet)}`;
+            }
+        }
+
+        if (document.getElementById('cryptoSettingRate')) {
+            document.getElementById('cryptoSettingRate').value = data.exchange_rate || 115.00;
+        }
+        if (document.getElementById('cryptoSettingMinDeposit')) {
+            document.getElementById('cryptoSettingMinDeposit').value = data.min_deposit || 100.00;
+        }
+        if (document.getElementById('cryptoSettingMasterWallet') && data.master_wallet) {
+            document.getElementById('cryptoSettingMasterWallet').value = data.master_wallet;
+        }
+
+        let deposits = data.deposits || [];
+        if (searchQuery && !/^\d+$/.test(searchQuery)) {
+            const sq = searchQuery.toLowerCase();
+            deposits = deposits.filter(d => 
+                (d.txid && d.txid.toLowerCase().includes(sq)) || 
+                (d.user_phone && d.user_phone.toLowerCase().includes(sq)) || 
+                (d.address && d.address.toLowerCase().includes(sq))
+            );
+        }
+
+        if (deposits.length === 0) {
+            tableBody.innerHTML = '<tr><td colspan="9" class="p-8 text-center text-slate-500 font-sans">No crypto deposit records match your criteria.</td></tr>';
+            return;
+        }
+
+        tableBody.innerHTML = deposits.map(d => {
+            const isCompleted = (d.status === 'completed');
+            const statusBadge = isCompleted
+                ? '<span class="px-2.5 py-1 rounded text-[10px] font-bold uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">Credited</span>'
+                : '<span class="px-2.5 py-1 rounded text-[10px] font-bold uppercase bg-rose-500/10 text-rose-400 border border-rose-500/20 font-mono">Below Min (&lt;100)</span>';
+
+            const sweepBadge = (d.sweep_status === 'swept')
+                ? '<span class="px-2 py-0.5 rounded text-[10px] font-mono text-emerald-400 bg-emerald-500/10">Swept</span>'
+                : '<span class="px-2 py-0.5 rounded text-[10px] font-mono text-slate-400 bg-slate-800">Uncredited</span>';
+
+            const txShort = d.txid ? `${d.txid.substring(0, 8)}...${d.txid.substring(d.txid.length - 8)}` : '-';
+            const tronscanUrl = `https://tronscan.org/#/transaction/${encodeURIComponent(d.txid || '')}`;
+
+            return `
+                <tr class="hover:bg-slate-900/80 transition text-xs">
+                    <td class="p-3.5 text-slate-400">#${d.id}</td>
+                    <td class="p-3.5">
+                        <span class="text-white font-bold block cursor-pointer hover:underline" onclick="openUserDossier(${d.user_id})">User #${d.user_id}</span>
+                        <span class="text-slate-400 font-sans block">${escapeHtml(d.user_phone || '-')}</span>
+                        <span class="text-[10px] text-slate-500 font-sans block">${escapeHtml(d.user_name || '')}</span>
+                    </td>
+                    <td class="p-3.5">
+                        <div class="flex items-center gap-1.5">
+                            <a href="${tronscanUrl}" target="_blank" rel="noopener noreferrer" class="text-indigo-400 hover:text-indigo-300 font-bold underline font-mono select-all" title="${escapeHtml(d.txid)}">
+                                ${txShort}
+                            </a>
+                            <svg class="w-3.5 h-3.5 text-slate-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                        </div>
+                    </td>
+                    <td class="p-3.5 text-right font-bold text-white">${parseFloat(d.amount_usdt).toFixed(2)} USDT</td>
+                    <td class="p-3.5 text-right text-slate-400 font-mono">1:${parseFloat(d.exchange_rate).toFixed(0)}</td>
+                    <td class="p-3.5 text-right font-black text-emerald-400">${parseFloat(d.coins_credited).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td class="p-3.5 text-center">${sweepBadge}</td>
+                    <td class="p-3.5 text-center">${statusBadge}</td>
+                    <td class="p-3.5 text-right text-slate-400 text-[11px] font-mono">${d.completed_at || d.created_at || '-'}</td>
+                </tr>
+            `;
+        }).join('');
+    } catch (err) {
+        console.error('loadAdminCryptoDeposits error:', err);
+        tableBody.innerHTML = '<tr><td colspan="9" class="p-8 text-center text-rose-400 font-sans">Error loading crypto deposits.</td></tr>';
+    }
+}
+
+function toggleCryptoGatewaySettings() {
+    const panel = document.getElementById('adminCryptoSettingsPanel');
+    if (panel) panel.classList.toggle('hidden');
+}
+
+async function saveCryptoGatewaySettings(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    const btn = document.getElementById('cryptoSaveSettingsBtn');
+    const rate = document.getElementById('cryptoSettingRate')?.value;
+    const minDep = document.getElementById('cryptoSettingMinDeposit')?.value;
+    const master = document.getElementById('cryptoSettingMasterWallet')?.value;
+    const provider = document.getElementById('cryptoSettingProvider')?.value;
+    const apiKey = document.getElementById('cryptoSettingApiKey')?.value;
+    const ipnSecret = document.getElementById('cryptoSettingIpnSecret')?.value;
+
+    if (!rate || !minDep || !master) {
+        alert('Exchange Rate, Minimum Deposit, and Master Wallet address are required.');
+        return;
+    }
+
+    if (btn) btn.disabled = true;
+
+    try {
+        const payload = {
+            action: 'save_crypto_settings',
+            usdt_exchange_rate: rate,
+            usdt_min_deposit: minDep,
+            usdt_master_wallet: master,
+            crypto_gateway_provider: provider
+        };
+        if (apiKey) payload.nowpayments_api_key = apiKey;
+        if (ipnSecret) payload.nowpayments_ipn_secret = ipnSecret;
+
+        const res = await fetch('/api/admin.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            alert('USDT Crypto Gateway settings saved successfully.');
+            toggleCryptoGatewaySettings();
+            loadAdminCryptoDeposits(true);
+        } else {
+            alert(data.error || 'Failed to save settings.');
+        }
+    } catch (err) {
+        console.error('saveCryptoGatewaySettings error:', err);
+        alert('Network error saving crypto settings.');
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+function openAdminCryptoCreditModal() {
+    const modal = document.getElementById('adminCryptoCreditModal');
+    const uInput = document.getElementById('adminCryptoCreditUserId');
+    const txInput = document.getElementById('adminCryptoCreditTxid');
+    const aInput = document.getElementById('adminCryptoCreditAmount');
+    const nInput = document.getElementById('adminCryptoCreditNotes');
+    const sEl = document.getElementById('adminCryptoCreditStatus');
+
+    if (!modal) return;
+    if (uInput) uInput.value = '';
+    if (txInput) txInput.value = '';
+    if (aInput) aInput.value = '';
+    if (nInput) nInput.value = '';
+    if (sEl) {
+        sEl.className = 'text-[11px] hidden';
+        sEl.innerText = '';
+    }
+
+    modal.classList.remove('hidden');
+    if (uInput) uInput.focus();
+}
+
+function closeAdminCryptoCreditModal() {
+    const modal = document.getElementById('adminCryptoCreditModal');
+    if (modal) modal.classList.add('hidden');
+}
+
+async function submitAdminCryptoCredit(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    const btn = document.getElementById('adminCryptoCreditSubmitBtn');
+    const sEl = document.getElementById('adminCryptoCreditStatus');
+    const userId = document.getElementById('adminCryptoCreditUserId')?.value;
+    const txid = document.getElementById('adminCryptoCreditTxid')?.value.trim();
+    const amount = document.getElementById('adminCryptoCreditAmount')?.value;
+    const notes = document.getElementById('adminCryptoCreditNotes')?.value.trim();
+
+    if (!userId || !txid || !amount) {
+        if (sEl) {
+            sEl.innerText = 'User ID, TXID, and USDT Amount are required.';
+            sEl.className = 'text-[11px] text-rose-400 block';
+        }
+        return;
+    }
+
+    if (btn) btn.disabled = true;
+    if (sEl) {
+        sEl.innerText = 'Processing manual crypto verification & ledger credit...';
+        sEl.className = 'text-[11px] text-slate-400 block';
+    }
+
+    try {
+        const res = await fetch('/api/admin.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'admin_crypto_credit',
+                user_id: parseInt(userId, 10),
+                txid: txid,
+                amount_usdt: parseFloat(amount),
+                notes: notes || 'Admin verified Tron deposit'
+            })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            if (sEl) {
+                sEl.innerText = `Success: Credited ${data.coins_credited} Coins to User #${userId}!`;
+                sEl.className = 'text-[11px] text-emerald-400 block font-bold';
+            }
+            setTimeout(() => {
+                closeAdminCryptoCreditModal();
+                loadAdminCryptoDeposits(true);
+            }, 1200);
+        } else {
+            if (sEl) {
+                sEl.innerText = data.error || 'Failed to credit deposit.';
+                sEl.className = 'text-[11px] text-rose-400 block font-semibold';
+            }
+        }
+    } catch (err) {
+        console.error('submitAdminCryptoCredit error:', err);
+        if (sEl) {
+            sEl.innerText = 'Network error during manual crediting.';
+            sEl.className = 'text-[11px] text-rose-400 block';
+        }
+    } finally {
+        if (btn) btn.disabled = false;
     }
 }

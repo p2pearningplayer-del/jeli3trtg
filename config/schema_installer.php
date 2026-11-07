@@ -478,6 +478,45 @@ class SchemaInstaller {
         );
         CREATE INDEX IF NOT EXISTS idx_ipb_ip ON ip_bans(ip_address);
         CREATE INDEX IF NOT EXISTS idx_ipb_until ON ip_bans(banned_until);
+
+        CREATE TABLE IF NOT EXISTS user_crypto_addresses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL UNIQUE,
+            currency TEXT NOT NULL DEFAULT 'USDT',
+            network TEXT NOT NULL DEFAULT 'TRC20',
+            address TEXT NOT NULL UNIQUE,
+            provider TEXT NOT NULL DEFAULT 'nowpayments',
+            provider_payment_id TEXT DEFAULT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_uca_user ON user_crypto_addresses(user_id);
+        CREATE INDEX IF NOT EXISTS idx_uca_addr ON user_crypto_addresses(address);
+
+        CREATE TABLE IF NOT EXISTS crypto_deposits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            address TEXT NOT NULL,
+            txid TEXT NOT NULL UNIQUE,
+            amount_usdt REAL NOT NULL,
+            exchange_rate REAL NOT NULL DEFAULT 115.00,
+            coins_credited REAL NOT NULL,
+            network TEXT NOT NULL DEFAULT 'TRC20',
+            currency TEXT NOT NULL DEFAULT 'USDT',
+            status TEXT NOT NULL DEFAULT 'completed',
+            sweep_status TEXT NOT NULL DEFAULT 'swept',
+            sweep_txid TEXT DEFAULT NULL,
+            master_wallet TEXT NOT NULL DEFAULT 'TPuZpFS91NcE8VqUV3AtMYXyNx4tWWw8dV',
+            raw_payload TEXT DEFAULT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            completed_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_cd_user ON crypto_deposits(user_id);
+        CREATE INDEX IF NOT EXISTS idx_cd_txid ON crypto_deposits(txid);
+        CREATE INDEX IF NOT EXISTS idx_cd_addr ON crypto_deposits(address);
+        CREATE INDEX IF NOT EXISTS idx_cd_status ON crypto_deposits(status);
         ";
 
         $pdo->exec($schema);
@@ -1394,6 +1433,99 @@ class SchemaInstaller {
                         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
                     ");
                 } catch (Exception $eBans) {}
+
+                // Crypto Deposits & User Addresses
+                try {
+                    $pdo->exec("
+                        CREATE TABLE IF NOT EXISTS `user_crypto_addresses` (
+                            `id` INT AUTO_INCREMENT PRIMARY KEY,
+                            `user_id` INT NOT NULL,
+                            `currency` VARCHAR(20) NOT NULL DEFAULT 'USDT',
+                            `network` VARCHAR(20) NOT NULL DEFAULT 'TRC20',
+                            `address` VARCHAR(100) NOT NULL,
+                            `provider` VARCHAR(50) NOT NULL DEFAULT 'nowpayments',
+                            `provider_payment_id` VARCHAR(100) DEFAULT NULL,
+                            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                            `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                            UNIQUE KEY `uk_uca_user` (`user_id`),
+                            UNIQUE KEY `uk_uca_address` (`address`),
+                            INDEX `idx_uca_user` (`user_id`),
+                            INDEX `idx_uca_addr` (`address`),
+                            CONSTRAINT `fk_uca_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                    ");
+                } catch (Exception $eUca) {
+                    try {
+                        $pdo->exec("
+                            CREATE TABLE IF NOT EXISTS `user_crypto_addresses` (
+                                `id` INT AUTO_INCREMENT PRIMARY KEY,
+                                `user_id` INT NOT NULL,
+                                `currency` VARCHAR(20) NOT NULL DEFAULT 'USDT',
+                                `network` VARCHAR(20) NOT NULL DEFAULT 'TRC20',
+                                `address` VARCHAR(100) NOT NULL,
+                                `provider` VARCHAR(50) NOT NULL DEFAULT 'nowpayments',
+                                `provider_payment_id` VARCHAR(100) DEFAULT NULL,
+                                `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                                `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                                UNIQUE KEY `uk_uca_user` (`user_id`),
+                                UNIQUE KEY `uk_uca_address` (`address`)
+                            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                        ");
+                    } catch (Exception $eUca2) {}
+                }
+
+                try {
+                    $pdo->exec("
+                        CREATE TABLE IF NOT EXISTS `crypto_deposits` (
+                            `id` INT AUTO_INCREMENT PRIMARY KEY,
+                            `user_id` INT NOT NULL,
+                            `address` VARCHAR(100) NOT NULL,
+                            `txid` VARCHAR(120) NOT NULL,
+                            `amount_usdt` DECIMAL(18, 6) NOT NULL,
+                            `exchange_rate` DECIMAL(10, 2) NOT NULL DEFAULT 115.00,
+                            `coins_credited` DECIMAL(18, 2) NOT NULL,
+                            `network` VARCHAR(20) NOT NULL DEFAULT 'TRC20',
+                            `currency` VARCHAR(20) NOT NULL DEFAULT 'USDT',
+                            `status` VARCHAR(30) NOT NULL DEFAULT 'completed',
+                            `sweep_status` VARCHAR(30) NOT NULL DEFAULT 'swept',
+                            `sweep_txid` VARCHAR(120) DEFAULT NULL,
+                            `master_wallet` VARCHAR(100) NOT NULL DEFAULT 'TPuZpFS91NcE8VqUV3AtMYXyNx4tWWw8dV',
+                            `raw_payload` TEXT DEFAULT NULL,
+                            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                            `completed_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                            UNIQUE KEY `uk_cd_txid` (`txid`),
+                            INDEX `idx_cd_user` (`user_id`),
+                            INDEX `idx_cd_txid` (`txid`),
+                            INDEX `idx_cd_addr` (`address`),
+                            INDEX `idx_cd_status` (`status`),
+                            CONSTRAINT `fk_cd_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                    ");
+                } catch (Exception $eCd) {
+                    try {
+                        $pdo->exec("
+                            CREATE TABLE IF NOT EXISTS `crypto_deposits` (
+                                `id` INT AUTO_INCREMENT PRIMARY KEY,
+                                `user_id` INT NOT NULL,
+                                `address` VARCHAR(100) NOT NULL,
+                                `txid` VARCHAR(120) NOT NULL,
+                                `amount_usdt` DECIMAL(18, 6) NOT NULL,
+                                `exchange_rate` DECIMAL(10, 2) NOT NULL DEFAULT 115.00,
+                                `coins_credited` DECIMAL(18, 2) NOT NULL,
+                                `network` VARCHAR(20) NOT NULL DEFAULT 'TRC20',
+                                `currency` VARCHAR(20) NOT NULL DEFAULT 'USDT',
+                                `status` VARCHAR(30) NOT NULL DEFAULT 'completed',
+                                `sweep_status` VARCHAR(30) NOT NULL DEFAULT 'swept',
+                                `sweep_txid` VARCHAR(120) DEFAULT NULL,
+                                `master_wallet` VARCHAR(100) NOT NULL DEFAULT 'TPuZpFS91NcE8VqUV3AtMYXyNx4tWWw8dV',
+                                `raw_payload` TEXT DEFAULT NULL,
+                                `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                                `completed_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                                UNIQUE KEY `uk_cd_txid` (`txid`)
+                            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                        ");
+                    } catch (Exception $eCd2) {}
+                }
             }
         } catch (Exception $e) {
             // Tables already exist or migration handled
@@ -1440,7 +1572,14 @@ class SchemaInstaller {
             ['allow_sell_listings', '1', 'Allow peer users to list new sell orders (1=Active, 0=Disabled)'],
             ['allow_buy_orders', '1', 'Allow peer buyers to pick and allocate orders (1=Active, 0=Disabled)'],
             ['platform_logo_url', '/public/images/logo.svg', 'Official brand vector logo URL'],
-            ['platform_favicon_url', '/favicon.svg', 'Official brand vector favicon URL']
+            ['platform_favicon_url', '/favicon.svg', 'Official brand vector favicon URL'],
+            ['usdt_exchange_rate', '115.00', 'Exchange rate: 1 USDT equals platform token coins (default: 115)'],
+            ['usdt_min_deposit', '100.00', 'Minimum deposit limit in USDT TRC20 (default: 100)'],
+            ['usdt_master_wallet', 'TPuZpFS91NcE8VqUV3AtMYXyNx4tWWw8dV', 'Central master TRON TRC-20 wallet address for automated sweeping'],
+            ['crypto_gateway_provider', 'nowpayments', 'Crypto gateway provider (nowpayments, trongrid, manual)'],
+            ['nowpayments_api_key', '', 'NOWPayments merchant API key'],
+            ['nowpayments_ipn_secret', '', 'NOWPayments IPN HMAC secret key'],
+            ['trongrid_api_key', '', 'Optional TronGrid API key for direct blockchain querying']
         ];
 
         $stmt = $pdo->prepare("SELECT setting_key FROM platform_settings WHERE setting_key = ?");

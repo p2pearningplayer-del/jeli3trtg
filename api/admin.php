@@ -962,6 +962,51 @@ switch ($action) {
         jsonResponse(true, ['success' => true, 'user_id' => $targetUserId, 'upi_risk_flag' => $flag]);
         break;
 
+    case 'crypto_deposits':
+        require_once __DIR__ . '/../src/Crypto/CryptoDepositManager.php';
+        $limit = max(1, min(100, (int)($_GET['limit'] ?? $input['limit'] ?? 50)));
+        $offset = max(0, (int)($_GET['offset'] ?? $input['offset'] ?? 0));
+        $targetUserId = isset($_GET['user_id']) && (int)$_GET['user_id'] > 0 ? (int)$_GET['user_id'] : null;
+        $status = $_GET['status'] ?? null;
+        $res = \Crypto\CryptoDepositManager::getDepositLogs($limit, $offset, $targetUserId, $status);
+        jsonResponse(true, $res);
+        break;
+
+    case 'admin_crypto_credit':
+        require_once __DIR__ . '/../src/Crypto/CryptoDepositManager.php';
+        $targetUserId = (int)($input['user_id'] ?? 0);
+        $txid = trim((string)($input['txid'] ?? ''));
+        $amountUsdt = (float)($input['amount_usdt'] ?? 0);
+        $notes = trim((string)($input['notes'] ?? 'Admin manual crypto credit'));
+        if ($targetUserId <= 0) jsonError('Target User ID required.');
+        if (empty($txid)) jsonError('Transaction Hash (TXID) is required.');
+        if ($amountUsdt <= 0) jsonError('Amount in USDT must be greater than zero.');
+        $res = \Crypto\CryptoDepositManager::adminManualCredit($adminId, $targetUserId, $txid, $amountUsdt, $notes);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error'] ?? 'Manual credit failed.', 400, $res);
+        }
+        break;
+
+    case 'save_crypto_settings':
+        $settings = [
+            'usdt_exchange_rate' => isset($input['usdt_exchange_rate']) ? (string)$input['usdt_exchange_rate'] : null,
+            'usdt_min_deposit' => isset($input['usdt_min_deposit']) ? (string)$input['usdt_min_deposit'] : null,
+            'usdt_master_wallet' => isset($input['usdt_master_wallet']) ? trim((string)$input['usdt_master_wallet']) : null,
+            'crypto_gateway_provider' => isset($input['crypto_gateway_provider']) ? trim((string)$input['crypto_gateway_provider']) : null,
+            'nowpayments_api_key' => isset($input['nowpayments_api_key']) ? trim((string)$input['nowpayments_api_key']) : null,
+            'nowpayments_ipn_secret' => isset($input['nowpayments_ipn_secret']) ? trim((string)$input['nowpayments_ipn_secret']) : null,
+            'trongrid_api_key' => isset($input['trongrid_api_key']) ? trim((string)$input['trongrid_api_key']) : null,
+        ];
+        foreach ($settings as $key => $val) {
+            if ($val !== null) {
+                AdminManager::updateSetting($key, (string)$val, $adminId, 'Updated crypto gateway settings');
+            }
+        }
+        jsonResponse(true, ['message' => 'Crypto gateway settings updated successfully.']);
+        break;
+
     default:
         jsonError("Unknown action '{$action}'.", 404);
 }

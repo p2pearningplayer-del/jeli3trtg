@@ -4930,3 +4930,213 @@ document.addEventListener('keydown', (e) => {
         if (e.key === 'ArrowRight') navigateUserLightbox(1);
     }
 });
+
+// ==========================================
+// USDT (TRC-20) CRYPTO DEPOSIT SYSTEM
+// ==========================================
+window._currentUsdtExchangeRate = 115.00;
+window._currentUserCryptoAddress = '';
+
+function openCryptoDepositModal() {
+    if (!currentUser) {
+        openAuthModal('signin');
+        return;
+    }
+
+    const modal = document.getElementById('cryptoDepositModal');
+    if (!modal) return;
+
+    modal.classList.remove('hidden');
+    loadCryptoDepositInfo();
+    loadUserCryptoDepositHistory();
+}
+
+function closeCryptoDepositModal() {
+    const modal = document.getElementById('cryptoDepositModal');
+    if (modal) modal.classList.add('hidden');
+}
+
+async function loadCryptoDepositInfo() {
+    const addrEl = document.getElementById('cryptoDepositAddressText');
+    const qrContainer = document.getElementById('cryptoDepositQrContainer');
+    const rateEl = document.getElementById('cryptoModalRateDisplay');
+    const calcRateEl = document.getElementById('cryptoCalcRate');
+
+    if (!addrEl || !qrContainer) return;
+
+    try {
+        const res = await fetch('/api/wallet.php?action=usdt_deposit_info');
+        const json = await res.json();
+
+        if (json.success && json.address) {
+            window._currentUserCryptoAddress = json.address;
+            window._currentUsdtExchangeRate = parseFloat(json.exchange_rate) || 115.00;
+
+            addrEl.innerText = json.address;
+            qrContainer.innerHTML = json.qr_svg || '<div class="text-xs text-slate-500">QR code unavailable</div>';
+
+            if (rateEl) rateEl.innerText = `${window._currentUsdtExchangeRate.toFixed(2)} Coins`;
+            if (calcRateEl) calcRateEl.innerText = window._currentUsdtExchangeRate.toFixed(0);
+
+            updateCryptoConversionCalc();
+        } else {
+            addrEl.innerText = 'Unable to generate deposit address. Please retry.';
+            qrContainer.innerHTML = '<div class="text-xs text-rose-400">Failed to load deposit address</div>';
+        }
+    } catch (err) {
+        console.error('Error loading crypto deposit info:', err);
+        addrEl.innerText = 'Network error fetching deposit address.';
+    }
+}
+
+function copyCryptoDepositAddress() {
+    if (!window._currentUserCryptoAddress) return;
+    navigator.clipboard.writeText(window._currentUserCryptoAddress).then(() => {
+        const btnLabel = document.getElementById('cryptoCopyBtnLabel');
+        if (btnLabel) {
+            btnLabel.innerText = 'Copied!';
+            setTimeout(() => { btnLabel.innerText = 'Copy'; }, 2500);
+        }
+    }).catch(() => {
+        // Fallback for older browsers
+        const temp = document.createElement('textarea');
+        temp.value = window._currentUserCryptoAddress;
+        document.body.appendChild(temp);
+        temp.select();
+        document.execCommand('copy');
+        document.body.removeChild(temp);
+        const btnLabel = document.getElementById('cryptoCopyBtnLabel');
+        if (btnLabel) {
+            btnLabel.innerText = 'Copied!';
+            setTimeout(() => { btnLabel.innerText = 'Copy'; }, 2500);
+        }
+    });
+}
+
+function updateCryptoConversionCalc() {
+    const input = document.getElementById('cryptoCalcInput');
+    const resultEl = document.getElementById('cryptoCalcResult');
+    if (!input || !resultEl) return;
+
+    const usdt = parseFloat(input.value) || 0;
+    const rate = window._currentUsdtExchangeRate || 115.00;
+    const coins = (usdt * rate);
+
+    resultEl.innerText = coins.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function setCryptoCalcPreset(amount) {
+    const input = document.getElementById('cryptoCalcInput');
+    if (input) {
+        input.value = amount;
+        updateCryptoConversionCalc();
+    }
+}
+
+async function submitCryptoTxidVerification() {
+    const txidInput = document.getElementById('cryptoSubmitTxidInput');
+    const amountInput = document.getElementById('cryptoSubmitAmountInput');
+    const msgEl = document.getElementById('cryptoSubmitStatusMsg');
+    const btn = document.getElementById('cryptoSubmitTxidBtn');
+
+    if (!txidInput || !msgEl || !btn) return;
+
+    const txid = txidInput.value.trim();
+    const amount = amountInput ? parseFloat(amountInput.value) : null;
+
+    if (!txid) {
+        msgEl.innerText = 'Please enter your 64-character Tron transaction hash (TXID).';
+        msgEl.className = 'text-[11px] text-rose-400 block';
+        msgEl.classList.remove('hidden');
+        return;
+    }
+
+    btn.disabled = true;
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<span>Verifying on Blockchain...</span>';
+    msgEl.className = 'text-[11px] text-slate-400 block';
+    msgEl.innerText = 'Scanning Tron blockchain network and smart contracts...';
+    msgEl.classList.remove('hidden');
+
+    try {
+        const payload = { action: 'usdt_submit_txid', txid: txid };
+        if (amount && amount >= 100) payload.amount = amount;
+
+        const res = await fetch('/api/wallet.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const json = await res.json();
+
+        if (json.success) {
+            msgEl.className = 'text-[11px] text-emerald-400 block font-semibold';
+            msgEl.innerText = json.message || `Successfully credited ${json.coins_credited || ''} Coins!`;
+            txidInput.value = '';
+            if (amountInput) amountInput.value = '';
+            
+            // Refresh wallet overview and crypto deposit history
+            if (typeof loadWalletSummary === 'function') loadWalletSummary();
+            loadUserCryptoDepositHistory();
+        } else {
+            msgEl.className = 'text-[11px] text-rose-400 block font-semibold';
+            msgEl.innerText = json.error || 'Unable to verify transaction. Please ensure it has at least 1 confirmation on TronScan.';
+        }
+    } catch (err) {
+        console.error('Error submitting TXID:', err);
+        msgEl.className = 'text-[11px] text-rose-400 block';
+        msgEl.innerText = 'Network error during transaction verification. Please retry.';
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
+async function loadUserCryptoDepositHistory() {
+    const listEl = document.getElementById('cryptoUserHistoryList');
+    if (!listEl) return;
+
+    try {
+        const res = await fetch('/api/wallet.php?action=usdt_deposit_history&limit=15');
+        const json = await res.json();
+
+        if (!json.success || !json.deposits || json.deposits.length === 0) {
+            listEl.innerHTML = '<div class="text-slate-500 text-center py-3 text-xs">No crypto deposits recorded yet.</div>';
+            return;
+        }
+
+        listEl.innerHTML = json.deposits.map(d => {
+            const isCompleted = (d.status === 'completed');
+            const statusBadge = isCompleted 
+                ? '<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Credited</span>'
+                : '<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-rose-500/10 text-rose-400 border border-rose-500/20">Below Min (&lt;100)</span>';
+
+            const txShort = d.txid ? `${d.txid.substring(0, 10)}...${d.txid.substring(d.txid.length - 8)}` : '-';
+            const tronscanUrl = `https://tronscan.org/#/transaction/${encodeURIComponent(d.txid || '')}`;
+
+            return `
+                <div class="bg-slate-900 border border-slate-800/80 rounded-xl p-2.5 flex items-center justify-between text-xs">
+                    <div class="space-y-0.5">
+                        <div class="flex items-center gap-2">
+                            <span class="font-mono font-bold text-white">${parseFloat(d.amount_usdt).toFixed(2)} USDT</span>
+                            <span class="text-slate-500">&rarr;</span>
+                            <span class="font-mono font-bold text-emerald-400">${parseFloat(d.coins_credited).toLocaleString('en-IN', { minimumFractionDigits: 2 })} Coins</span>
+                            ${statusBadge}
+                        </div>
+                        <div class="flex items-center gap-2 text-[10px] text-slate-500 font-mono">
+                            <span>TX: <a href="${tronscanUrl}" target="_blank" rel="noopener noreferrer" class="text-indigo-400 hover:underline">${txShort}</a></span>
+                            <span>&bull;</span>
+                            <span>${d.completed_at || d.created_at || ''} UTC</span>
+                        </div>
+                    </div>
+                    <a href="${tronscanUrl}" target="_blank" rel="noopener noreferrer" class="text-[10px] text-slate-400 hover:text-white p-1 rounded hover:bg-slate-800 transition" title="View on TronScan">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                    </a>
+                </div>
+            `;
+        }).join('');
+    } catch (err) {
+        console.error('Error loading crypto history:', err);
+        listEl.innerHTML = '<div class="text-slate-500 text-center py-3 text-xs">Unable to load deposit records.</div>';
+    }
+}
