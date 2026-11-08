@@ -39,6 +39,12 @@ switch ($action) {
             jsonError('Order creation is disabled in Admin Support Mode.', 403);
         }
 
+        // Rate limit order creation: 15 per minute
+        $rateKeyCreate = "create_sell_{$user['id']}";
+        if (!RateLimiter::checkWithBan($rateKeyCreate, 'create_sell_order', 15, 60, $clientIp)) {
+            jsonError('Too many sell order requests. Please wait a minute before creating new orders.', 429);
+        }
+
         $amount = (float)($input['amount'] ?? 0);
         $tpin = (string)($input['tpin'] ?? '');
         $accountHolderName = isset($input['account_holder_name']) ? trim((string)$input['account_holder_name']) : null;

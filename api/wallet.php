@@ -9,41 +9,20 @@ require_once __DIR__ . '/../src/Wallet.php';
 require_once __DIR__ . '/../src/Ledger.php';
 require_once __DIR__ . '/../src/Validator.php';
 require_once __DIR__ . '/../src/StateMachine.php';
+require_once __DIR__ . '/../src/Security/IPBanManager.php';
 require_once __DIR__ . '/response.php';
+
+// IP Ban Enforcement
+$clientIp = \Security\IPBanManager::getClientIp();
+if (\Security\IPBanManager::isBanned($clientIp)) {
+    jsonError('Access Denied: Your IP address is temporarily banned due to security policy violations.', 403);
+}
 
 // Opportunistically sync expired orders
 StateMachine::checkAndExpireOrders();
 
 $input = getJsonInput();
 $action = $_GET['action'] ?? $input['action'] ?? $_POST['action'] ?? 'summary';
-
-// Public endpoints accessible to all users & guests (e.g. Master Address info)
-if ($action === 'usdt_deposit_info') {
-    require_once __DIR__ . '/../src/Crypto/CryptoDepositManager.php';
-    $user = Auth::getCurrentUser();
-    $userId = $user ? (int)$user['id'] : 0;
-    $info = \Crypto\CryptoDepositManager::getUserDepositAddress($userId);
-    jsonResponse(true, $info);
-    exit;
-}
-
-if ($action === 'usdt_deposit_history') {
-    require_once __DIR__ . '/../src/Crypto/CryptoDepositManager.php';
-    $user = Auth::getCurrentUser();
-    if (!$user) {
-        jsonResponse(true, [
-            'deposits' => [],
-            'totals' => ['total_usdt_completed' => 0, 'total_pending_count' => 0],
-            'is_guest' => true
-        ]);
-        exit;
-    }
-    $limit = max(1, min(100, (int)($_GET['limit'] ?? $input['limit'] ?? 20)));
-    $offset = max(0, (int)($_GET['offset'] ?? $input['offset'] ?? 0));
-    $history = \Crypto\CryptoDepositManager::getDepositLogs($limit, $offset, (int)$user['id']);
-    jsonResponse(true, $history);
-    exit;
-}
 
 $user = Auth::getCurrentUser();
 if (!$user) {
@@ -164,38 +143,6 @@ switch ($action) {
         $stmt = $pdo->prepare("UPDATE notifications SET is_read = 1 WHERE user_id = ?");
         $stmt->execute([$user['id']]);
         jsonResponse(true, ['message' => 'Notifications marked as read.']);
-        break;
-
-    case 'usdt_submit_txid':
-        if (!empty($user['is_impersonating'])) {
-            jsonError('Deposit submissions are disabled in Admin Support Mode.', 403);
-        }
-        require_once __DIR__ . '/../src/Security/IPBanManager.php';
-        require_once __DIR__ . '/../src/RateLimiter.php';
-        $clientIp = \Security\IPBanManager::getClientIp();
-        $rateKeyUser = "usdt_sub_{$user['id']}";
-        $rateKeyIp = "usdt_sub_ip_{$clientIp}";
-        if (!RateLimiter::checkWithBan($rateKeyUser, 'usdt_deposit', 5, 600, $clientIp) ||
-            !RateLimiter::checkWithBan($rateKeyIp, 'usdt_deposit', 5, 600, $clientIp)) {
-            jsonError('Too many deposit submissions. Please wait 10 minutes before submitting again.', 429);
-        }
-
-        require_once __DIR__ . '/../src/Crypto/CryptoDepositManager.php';
-        $txid = trim((string)($input['txid'] ?? $_POST['txid'] ?? ''));
-        $amount = isset($input['amount']) ? (float)$input['amount'] : (isset($_POST['amount']) ? (float)$_POST['amount'] : 0.0);
-        $proofScreenshot = !empty($input['proof_screenshot']) ? trim((string)$input['proof_screenshot']) : (!empty($_POST['proof_screenshot']) ? trim((string)$_POST['proof_screenshot']) : null);
-        if (empty($txid)) {
-            jsonError('Transaction Hash (TXID) is required.');
-        }
-        if ($amount <= 0) {
-            jsonError('Please specify the USDT amount deposited.');
-        }
-        $res = \Crypto\CryptoDepositManager::submitManualDeposit((int)$user['id'], $txid, $amount, $proofScreenshot);
-        if (!empty($res['success'])) {
-            jsonResponse(true, $res);
-        } else {
-            jsonError($res['error'] ?? 'Transaction could not be verified on blockchain.', 400, $res);
-        }
         break;
 
     default:

@@ -182,6 +182,12 @@ switch ($action) {
             jsonError('Order allocation is disabled in Admin Support Mode.', 403);
         }
 
+        // Rate limit custom allocation requests
+        $rateKeyAlloc = "custom_alloc_{$user['id']}";
+        if (!RateLimiter::checkWithBan($rateKeyAlloc, 'custom_allocation', 15, 60, $clientIp)) {
+            jsonError('Too many allocation requests. Please wait a minute before trying again.', 429);
+        }
+
         $amount = (float)($input['amount'] ?? 0);
         $res = OrderEngine::allocateCustomBuy($user['id'], $amount);
         if ($res['success']) {

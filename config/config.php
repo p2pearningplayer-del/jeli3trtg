@@ -73,6 +73,13 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
+// Global Protective Security Headers
+if (!headers_sent()) {
+    header('X-Content-Type-Options: nosniff');
+    header('X-Frame-Options: SAMEORIGIN');
+    header('Referrer-Policy: strict-origin-when-cross-origin');
+}
+
 // Autoloader for Fraud and Security namespaces
 spl_autoload_register(function ($class) {
     if (str_starts_with($class, 'Fraud\\')) {

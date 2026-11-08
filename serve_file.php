@@ -86,10 +86,13 @@ if (!$isAdmin) {
     }
 }
 
-// Serve file
+// Serve file with strict protective security headers
 $mime = mime_content_type($fullPath) ?: 'application/octet-stream';
 header('Content-Type: ' . $mime);
 header('Content-Length: ' . filesize($fullPath));
 header('Cache-Control: private, max-age=86400');
+header('X-Content-Type-Options: nosniff');
+header('Content-Security-Policy: default-src \'none\'');
+header('X-Frame-Options: SAMEORIGIN');
 readfile($fullPath);
 exit;

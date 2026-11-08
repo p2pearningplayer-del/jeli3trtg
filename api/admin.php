@@ -54,8 +54,7 @@ if (!$adminId) {
 $stateModifyingActions = [
     'manual_adjustment', 'dispute_decision', 'set_user_status', 'toggle_flag',
     'mass_cancel_and_freeze', 'reverse_unauthorized_order', 'neutralize_exploiters',
-    'reverse_fraudulent_crypto_deposit', 'crypto_approve_deposit', 'crypto_reject_deposit',
-    'crypto_manual_credit', 'update_setting', 'force_cancel_order'
+    'reverse_fraudulent_crypto_deposit', 'update_setting', 'force_cancel_order'
 ];
 if (!empty($user['is_impersonating']) && in_array($action, $stateModifyingActions, true)) {
     jsonError('Financial and state-modifying actions are strictly locked while in Admin Support Mode. Please exit Support Mode before executing this action.', 403);
@@ -987,89 +986,6 @@ switch ($action) {
         $stmt = $pdo->prepare("UPDATE users SET upi_risk_flag = ?, upi_risk_reason = ?, upi_risk_flagged_at = CURRENT_TIMESTAMP WHERE id = ?");
         $stmt->execute([$flag, $reason, $targetUserId]);
         jsonResponse(true, ['success' => true, 'user_id' => $targetUserId, 'upi_risk_flag' => $flag]);
-        break;
-
-    case 'crypto_deposits':
-        require_once __DIR__ . '/../src/Crypto/CryptoDepositManager.php';
-        $limit = max(1, min(100, (int)($_GET['limit'] ?? $input['limit'] ?? 50)));
-        $offset = max(0, (int)($_GET['offset'] ?? $input['offset'] ?? 0));
-        $targetUserId = isset($_GET['user_id']) && (int)$_GET['user_id'] > 0 ? (int)$_GET['user_id'] : null;
-        $status = $_GET['status'] ?? null;
-        $res = \Crypto\CryptoDepositManager::getDepositLogs($limit, $offset, $targetUserId, $status);
-        jsonResponse(true, $res);
-        break;
-
-    case 'admin_crypto_credit':
-        require_once __DIR__ . '/../src/Crypto/CryptoDepositManager.php';
-        $targetUserId = (int)($input['user_id'] ?? 0);
-        $txid = trim((string)($input['txid'] ?? ''));
-        $amountUsdt = (float)($input['amount_usdt'] ?? 0);
-        $notes = trim((string)($input['notes'] ?? 'Admin manual crypto credit'));
-        if ($targetUserId <= 0) jsonError('Target User ID required.');
-        if (empty($txid)) jsonError('Transaction Hash (TXID) is required.');
-        if ($amountUsdt <= 0) jsonError('Amount in USDT must be greater than zero.');
-        $res = \Crypto\CryptoDepositManager::adminManualCredit($adminId, $targetUserId, $txid, $amountUsdt, $notes);
-        if ($res['success']) {
-            jsonResponse(true, $res);
-        } else {
-            jsonError($res['error'] ?? 'Manual credit failed.', 400, $res);
-        }
-        break;
-
-    case 'admin_crypto_approve':
-        require_once __DIR__ . '/../src/Crypto/CryptoDepositManager.php';
-        $depositId = (int)($input['deposit_id'] ?? $_POST['deposit_id'] ?? 0);
-        $notes = trim((string)($input['notes'] ?? $_POST['notes'] ?? 'Approved by administrator'));
-        if ($depositId <= 0) jsonError('Deposit ID is required.');
-        $res = \Crypto\CryptoDepositManager::approveManualDeposit($adminId, $depositId, $notes);
-        if (!empty($res['success'])) {
-            jsonResponse(true, $res);
-        } else {
-            jsonError($res['error'] ?? 'Approval failed.', 400, $res);
-        }
-        break;
-
-    case 'admin_crypto_reject':
-        require_once __DIR__ . '/../src/Crypto/CryptoDepositManager.php';
-        $depositId = (int)($input['deposit_id'] ?? $_POST['deposit_id'] ?? 0);
-        $reason = trim((string)($input['reason'] ?? $_POST['reason'] ?? 'Deposit rejected by administrator'));
-        if ($depositId <= 0) jsonError('Deposit ID is required.');
-        $res = \Crypto\CryptoDepositManager::rejectManualDeposit($adminId, $depositId, $reason);
-        if (!empty($res['success'])) {
-            jsonResponse(true, $res);
-        } else {
-            jsonError($res['error'] ?? 'Rejection failed.', 400, $res);
-        }
-        break;
-
-    case 'admin_crypto_verify_onchain':
-        require_once __DIR__ . '/../src/Crypto/CryptoDepositManager.php';
-        $depositId = (int)($input['deposit_id'] ?? $_POST['deposit_id'] ?? 0);
-        if ($depositId <= 0) jsonError('Deposit ID is required.');
-        $res = \Crypto\CryptoDepositManager::verifyOnChainDeposit($adminId, $depositId);
-        if (!empty($res['success'])) {
-            jsonResponse(true, $res);
-        } else {
-            jsonError($res['error'] ?? 'On-chain verification failed.', 400, $res);
-        }
-        break;
-
-    case 'save_crypto_settings':
-        $settings = [
-            'usdt_exchange_rate' => isset($input['usdt_exchange_rate']) ? (string)$input['usdt_exchange_rate'] : null,
-            'usdt_min_deposit' => isset($input['usdt_min_deposit']) ? (string)$input['usdt_min_deposit'] : null,
-            'usdt_master_wallet' => isset($input['usdt_master_wallet']) ? trim((string)$input['usdt_master_wallet']) : null,
-            'crypto_gateway_provider' => isset($input['crypto_gateway_provider']) ? trim((string)$input['crypto_gateway_provider']) : null,
-            'nowpayments_api_key' => isset($input['nowpayments_api_key']) ? trim((string)$input['nowpayments_api_key']) : null,
-            'nowpayments_ipn_secret' => isset($input['nowpayments_ipn_secret']) ? trim((string)$input['nowpayments_ipn_secret']) : null,
-            'trongrid_api_key' => isset($input['trongrid_api_key']) ? trim((string)$input['trongrid_api_key']) : null,
-        ];
-        foreach ($settings as $key => $val) {
-            if ($val !== null) {
-                AdminManager::updateSetting($key, (string)$val, $adminId, 'Updated crypto gateway settings');
-            }
-        }
-        jsonResponse(true, ['message' => 'Crypto gateway settings updated successfully.']);
         break;
 
     default:

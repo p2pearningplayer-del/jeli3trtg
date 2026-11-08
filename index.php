@@ -10,16 +10,8 @@ require_once __DIR__ . '/config/config.php';
 require_once __DIR__ . '/config/schema_installer.php';
 require_once __DIR__ . '/src/Auth.php';
 require_once __DIR__ . '/src/StateMachine.php';
-require_once __DIR__ . '/src/Crypto/CryptoDepositManager.php';
-require_once __DIR__ . '/src/Security/QRCodeGenerator.php';
-
 // Ensure schema is prepared
 SchemaInstaller::ensureSchema();
-
-$platformMasterWallet = \Crypto\CryptoDepositManager::getMasterWallet();
-$platformExchangeRate = \Crypto\CryptoDepositManager::getExchangeRate();
-$platformMinDeposit = \Crypto\CryptoDepositManager::getMinDeposit();
-$platformInitialQrSvg = \Security\QRCodeGenerator::generateSvg($platformMasterWallet, 240, '#ffffff', '#020617');
 
 // Sync expired orders
 StateMachine::checkAndExpireOrders();
@@ -265,12 +257,6 @@ endif;
 
                 <!-- Navigation Links / User Actions -->
                 <div class="flex items-center gap-3">
-                    <!-- Deposit USDT (TRC-20) Header Quick Action Button (Accessible to All Users & Guests) -->
-                    <button type="button" onclick="openCryptoDepositModal()" class="flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 rounded-xl text-xs font-bold transition shadow-sm cursor-pointer" title="Deposit USDT (TRC-20) - Official Gateway">
-                        <svg class="w-4 h-4 text-emerald-400 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 14.93V18h-2v-1.07A6.99 6.99 0 0 1 5.5 12h2.09a5 5 0 0 0 4.41 3.91V11.5H8.25V9.5H12V7.07A5 5 0 0 0 7.59 11H5.5a6.99 6.99 0 0 1 5.5-4.93V5h2v1.07A6.99 6.99 0 0 1 18.5 11h-2.09A5 5 0 0 0 12 7.09V9.5h3.75v2H12v4.41a5 5 0 0 0 4.41-3.91h2.09a6.99 6.99 0 0 1-5.5 4.93z"/></svg>
-                        <span class="hidden sm:inline">Deposit USDT</span>
-                    </button>
-
                     <?php if ($currentUser): ?>
                         <!-- Shared Wallet Balance Chip -->
                         <div class="flex items-center bg-slate-800/80 border border-slate-700/80 rounded-xl px-2.5 py-1.5 sm:px-3 sm:py-1.5 gap-2 cursor-pointer max-w-[160px] sm:max-w-xs min-w-0" onclick="switchTab('home')" title="Shared Available Wallet Balance">
@@ -548,32 +534,6 @@ endif;
                     <span class="text-[11px] sm:text-xs font-semibold text-slate-400 uppercase tracking-wider block truncate">Commissions</span>
                     <p class="text-lg xs:text-xl sm:text-2xl lg:text-3xl font-extrabold text-violet-400 tracking-tight mt-1 truncate" id="homeStatCommissions" title="₹0.00">₹0.00</p>
                     <span class="text-[10px] sm:text-[11px] text-slate-500 mt-1 block truncate">2-tier referral earnings</span>
-                </div>
-            </div>
-
-            <!-- USDT (TRC-20) Crypto Deposit Card -->
-            <div class="bg-gradient-to-r from-emerald-950/70 via-slate-900 to-teal-950/70 border border-emerald-500/30 rounded-2xl p-4 sm:p-5 shadow-lg flex flex-col sm:flex-row items-center justify-between gap-4">
-                <div class="flex items-center gap-3.5 w-full sm:w-auto">
-                    <div class="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center flex-shrink-0">
-                        <svg class="w-7 h-7" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 14.93V18h-2v-1.07A6.99 6.99 0 0 1 5.5 12h2.09a5 5 0 0 0 4.41 3.91V11.5H8.25V9.5H12V7.07A5 5 0 0 0 7.59 11H5.5a6.99 6.99 0 0 1 5.5-4.93V5h2v1.07A6.99 6.99 0 0 1 18.5 11h-2.09A5 5 0 0 0 12 7.09V9.5h3.75v2H12v4.41a5 5 0 0 0 4.41-3.91h2.09a6.99 6.99 0 0 1-5.5 4.93z"/>
-                        </svg>
-                    </div>
-                    <div class="min-w-0">
-                        <div class="flex items-center gap-2 flex-wrap">
-                            <span class="text-[11px] uppercase font-black text-emerald-400 tracking-wider">Automated Crypto Deposit</span>
-                            <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 font-mono">TRC-20</span>
-                            <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 font-mono">1 USDT = 115 Coins</span>
-                        </div>
-                        <h4 class="text-sm sm:text-base font-bold text-white mt-0.5 truncate">Deposit USDT &bull; Instant Balance Crediting</h4>
-                        <p class="text-xs text-slate-400">Official Platform TRC-20 Master Address. Deposits are automatically converted at 1:115 and credited directly to Available Balance.</p>
-                    </div>
-                </div>
-                <div class="flex items-center gap-2.5 w-full sm:w-auto">
-                    <button type="button" onclick="openCryptoDepositModal()" class="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-900/30 transition flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-                        <span>Deposit USDT (TRC-20)</span>
-                    </button>
                 </div>
             </div>
 
@@ -2274,174 +2234,6 @@ endif;
             <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
             <span class="text-xs tracking-wider">Support</span>
         </button>
-    </div>
-
-    <!-- ========================================== -->
-    <!-- USDT (TRC-20) CRYPTO DEPOSIT MODAL -->
-    <!-- ========================================== -->
-    <div id="cryptoDepositModal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-4 hidden" onclick="if(event.target === this) closeCryptoDepositModal();">
-        <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full max-h-[92vh] flex flex-col shadow-2xl relative overflow-hidden">
-            <!-- Modal Header -->
-            <div class="p-4 sm:p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
-                <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center flex-shrink-0">
-                        <svg class="w-6 h-6" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 14.93V18h-2v-1.07A6.99 6.99 0 0 1 5.5 12h2.09a5 5 0 0 0 4.41 3.91V11.5H8.25V9.5H12V7.07A5 5 0 0 0 7.59 11H5.5a6.99 6.99 0 0 1 5.5-4.93V5h2v1.07A6.99 6.99 0 0 1 18.5 11h-2.09A5 5 0 0 0 12 7.09V9.5h3.75v2H12v4.41a5 5 0 0 0 4.41-3.91h2.09a6.99 6.99 0 0 1-5.5 4.93z"/>
-                        </svg>
-                    </div>
-                    <div>
-                        <h3 class="text-base sm:text-lg font-bold text-white flex items-center gap-2">
-                            Deposit USDT (TRC-20)
-                            <span class="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">Automated</span>
-                        </h3>
-                        <p class="text-xs text-slate-400">1 USDT = <strong class="text-emerald-400 font-mono" id="cryptoModalRateDisplay">115 Coins</strong> &bull; Auto-credited to Available Balance</p>
-                    </div>
-                </div>
-                <button type="button" onclick="closeCryptoDepositModal()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition cursor-pointer">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-                </button>
-            </div>
-
-            <!-- Modal Body (Scrollable) -->
-            <div class="p-4 sm:p-5 overflow-y-auto space-y-4 text-xs">
-                <!-- Strict Minimum Deposit Callout (Requirement 4) -->
-                <div class="bg-rose-950/40 border border-rose-500/40 rounded-2xl p-3.5 space-y-1 text-rose-200">
-                    <div class="flex items-center gap-2 text-rose-400 font-bold uppercase tracking-wider text-[11px]">
-                        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
-                        <span>Strict Minimum Deposit Limit</span>
-                    </div>
-                    <p class="text-xs font-semibold leading-relaxed">
-                        Minimum deposit is <strong class="text-white underline">100 USDT</strong>. Deposits below this amount will <span class="text-rose-300 uppercase font-black">not be credited or refunded</span>.
-                    </p>
-                    <p class="text-[11px] text-rose-300/80">
-                        Network: <strong>TRON (TRC20) only</strong>. Do not send via ERC20, BEP20, or Polygon, or funds will be permanently lost.
-                    </p>
-                </div>
-
-                <!-- Official Platform TRC20 Deposit Address & QR Code -->
-                <div class="bg-slate-950 border border-slate-800 rounded-2xl p-4 text-center space-y-3">
-                    <div class="flex items-center justify-center gap-2">
-                        <span class="text-[11px] font-bold text-slate-300 uppercase tracking-wider block">Official Platform USDT (TRC-20) Address</span>
-                        <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Official Gateway</span>
-                    </div>
-                    
-                    <!-- Dynamic QR Container -->
-                    <div id="cryptoDepositQrContainer" class="flex justify-center items-center py-2 min-h-[160px]">
-                        <?= $platformInitialQrSvg ?: '<div class="animate-pulse text-slate-500 text-xs">Loading official TRC20 deposit address...</div>' ?>
-                    </div>
-
-                    <!-- Address & Copy Button -->
-                    <div class="space-y-1.5">
-                        <div class="bg-slate-900 border border-slate-800 rounded-xl p-2.5 flex items-center justify-between gap-2">
-                            <span id="cryptoDepositAddressText" class="font-mono text-xs text-emerald-400 break-all select-all font-semibold"><?= htmlspecialchars($platformMasterWallet) ?></span>
-                            <button type="button" id="cryptoCopyAddressBtn" onclick="copyCryptoDepositAddress()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold text-xs flex-shrink-0 transition flex items-center gap-1 shadow-sm cursor-pointer">
-                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
-                                <span id="cryptoCopyBtnLabel">Copy</span>
-                            </button>
-                        </div>
-                        <p class="text-[11px] text-slate-400">Transfer USDT (TRC-20) to this official address. After transfer, submit your TXID below for instant verification.</p>
-                    </div>
-                </div>
-
-                <!-- Live Conversion Calculator -->
-                <div class="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-3.5 space-y-2">
-                    <div class="flex items-center justify-between">
-                        <span class="text-[11px] font-bold text-indigo-400 uppercase tracking-wider">Live Conversion Calculator</span>
-                        <span class="text-[10px] text-slate-400 font-mono">1 USDT = <span id="cryptoCalcRate">115</span> Coins</span>
-                    </div>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 items-center">
-                        <div>
-                            <label class="text-[10px] text-slate-400 block mb-1">Deposit Amount (USDT)</label>
-                            <div class="relative">
-                                <input type="number" id="cryptoCalcInput" min="100" step="1" value="100" oninput="updateCryptoConversionCalc()" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono font-bold text-sm focus:border-indigo-500 focus:outline-none" placeholder="100">
-                                <span class="absolute right-3 top-2.5 text-xs text-slate-400 font-bold">USDT</span>
-                            </div>
-                        </div>
-                        <div>
-                            <label class="text-[10px] text-slate-400 block mb-1">Coins Credited (Balance)</label>
-                            <div class="bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-2 flex items-center justify-between">
-                                <span id="cryptoCalcResult" class="text-emerald-400 font-mono font-black text-sm">11,500.00</span>
-                                <span class="text-xs text-slate-400 font-bold">Coins</span>
-                            </div>
-                        </div>
-                    </div>
-                    <!-- Quick Presets -->
-                    <div class="flex items-center gap-1.5 pt-1">
-                        <span class="text-[10px] text-slate-500">Quick:</span>
-                        <button type="button" onclick="setCryptoCalcPreset(100)" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] font-mono text-slate-300 cursor-pointer">100 USDT</button>
-                        <button type="button" onclick="setCryptoCalcPreset(250)" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] font-mono text-slate-300 cursor-pointer">250 USDT</button>
-                        <button type="button" onclick="setCryptoCalcPreset(500)" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] font-mono text-slate-300 cursor-pointer">500 USDT</button>
-                        <button type="button" onclick="setCryptoCalcPreset(1000)" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] font-mono text-slate-300 cursor-pointer">1,000 USDT</button>
-                    </div>
-                </div>
-
-                <!-- Submit Transfer Details for Verification -->
-                <div class="border border-slate-800 rounded-2xl p-4 space-y-3 bg-slate-950/60 shadow-sm">
-                    <div class="flex items-center justify-between">
-                        <span class="text-[11px] font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                            <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                            Submit Transfer for Verification
-                        </span>
-                        <span class="text-[10px] text-slate-400">Step 2 of 2</span>
-                    </div>
-                    <p class="text-[11px] text-slate-400">After sending USDT from Binance, TrustWallet, or OKX, paste your transaction hash (TXID) below to trigger verification.</p>
-                    
-                    <!-- Guest Sign-in Alert -->
-                    <div id="cryptoGuestNotice" class="hidden bg-indigo-950/60 border border-indigo-500/40 rounded-xl p-2.5 text-[11px] text-indigo-300 flex items-center justify-between gap-2">
-                        <div class="flex items-center gap-2 min-w-0">
-                            <svg class="w-4 h-4 text-indigo-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                            <span class="truncate">Sign in to credit coins to your platform balance.</span>
-                        </div>
-                        <button type="button" onclick="openAuthModal('signin')" class="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold text-[10px] flex-shrink-0 transition cursor-pointer">
-                            Sign In
-                        </button>
-                    </div>
-
-                    <div class="space-y-2.5">
-                        <div>
-                            <label class="text-[10px] text-slate-400 block mb-1 font-semibold">Transaction Hash (TXID) *</label>
-                            <input type="text" id="cryptoSubmitTxidInput" placeholder="e.g. 7f8a9b4c2d3e... (64-character hash)" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono text-xs focus:border-indigo-500 focus:outline-none">
-                        </div>
-
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                            <div>
-                                <label class="text-[10px] text-slate-400 block mb-1 font-semibold">Amount Deposited (USDT) *</label>
-                                <input type="number" id="cryptoSubmitAmountInput" step="0.01" min="100" placeholder="Min 100.00" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono text-xs focus:border-indigo-500 focus:outline-none">
-                            </div>
-                            <div>
-                                <label class="text-[10px] text-slate-400 block mb-1 font-semibold">Transfer Receipt / Screenshot (Optional)</label>
-                                <input type="file" id="cryptoSubmitScreenshotInput" accept="image/*" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-slate-300 text-[11px] focus:outline-none file:mr-2 file:py-1 file:px-2 file:rounded-lg file:border-0 file:text-[10px] file:font-semibold file:bg-slate-800 file:text-slate-200">
-                            </div>
-                        </div>
-
-                        <button type="button" id="cryptoSubmitTxidBtn" onclick="submitCryptoTxidVerification()" class="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs rounded-xl px-4 py-2.5 transition flex items-center justify-center gap-1.5 shadow-md shadow-emerald-950/40 cursor-pointer">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-                            <span>Submit Deposit for Verification</span>
-                        </button>
-                        <p id="cryptoSubmitStatusMsg" class="text-[11px] hidden"></p>
-                    </div>
-                </div>
-
-                <!-- User Crypto Deposit History -->
-                <div class="space-y-2 pt-2 border-t border-slate-800">
-                    <div class="flex items-center justify-between">
-                        <h4 class="text-xs font-bold text-white uppercase tracking-wider">Your Recent Crypto Deposits</h4>
-                        <button type="button" onclick="loadUserCryptoDepositHistory()" class="text-[10px] text-indigo-400 hover:text-indigo-300 font-bold cursor-pointer">Refresh</button>
-                    </div>
-                    <div id="cryptoUserHistoryList" class="space-y-1.5 max-h-40 overflow-y-auto">
-                        <div class="text-slate-500 text-center py-3 text-xs">Loading deposit records...</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Modal Footer -->
-            <div class="p-3 sm:p-4 border-t border-slate-800 bg-slate-950/60 flex items-center justify-between">
-                <span class="text-[10px] text-slate-500">Official Master Address: <span id="cryptoModalFooterMasterWallet" class="font-mono text-slate-400 font-semibold select-all"><?= htmlspecialchars($platformMasterWallet) ?></span></span>
-                <button type="button" onclick="closeCryptoDepositModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition cursor-pointer">
-                    Close
-                </button>
-            </div>
-        </div>
     </div>
 
     <!-- iOS Add to Home Screen Instructions Modal (Part 9, Item 3) -->

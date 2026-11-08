@@ -1640,13 +1640,17 @@ class AdminManager {
                     $updParent->execute([$amount, $amount, $dispute['parent_order_id']]);
                 }
 
-                // Update dispute status
+                // Update dispute status with atomic concurrency protection
                 $updDisp = $pdo->prepare("
                     UPDATE disputes
                     SET status = 'resolved_buyer', resolution_notes = ?, resolved_by_admin_id = ?, resolved_at = ?
-                    WHERE id = ?
+                    WHERE id = ? AND status NOT IN ('resolved_buyer', 'resolved_seller')
                 ");
                 $updDisp->execute([trim($resolutionNotes), $adminId, $resolvedAt, $disputeId]);
+                if ($updDisp->rowCount() === 0) {
+                    $pdo->rollBack();
+                    return ['success' => false, 'error' => 'This dispute was already resolved by a concurrent request.'];
+                }
 
                 self::logAudit(
                     $adminId,
@@ -1672,13 +1676,17 @@ class AdminManager {
                 $updParent = $pdo->prepare("UPDATE parent_sell_orders SET reserved_amount = reserved_amount - ? WHERE id = ?");
                 $updParent->execute([$amount, $dispute['parent_order_id']]);
 
-                // Update dispute status
+                // Update dispute status with atomic concurrency protection
                 $updDisp = $pdo->prepare("
                     UPDATE disputes
                     SET status = 'resolved_seller', resolution_notes = ?, resolved_by_admin_id = ?, resolved_at = ?
-                    WHERE id = ?
+                    WHERE id = ? AND status NOT IN ('resolved_buyer', 'resolved_seller')
                 ");
                 $updDisp->execute([trim($resolutionNotes), $adminId, $resolvedAt, $disputeId]);
+                if ($updDisp->rowCount() === 0) {
+                    $pdo->rollBack();
+                    return ['success' => false, 'error' => 'This dispute was already resolved by a concurrent request.'];
+                }
 
                 self::logAudit(
                     $adminId,

@@ -36,6 +36,9 @@ class Wallet {
      * Reserve tokens for a sell listing (FR-004, FR-011)
      */
     public static function reserveForSell(int $userId, float $amount, string $referenceId): array {
+        if ($amount <= 0 || !is_finite($amount)) {
+            return ['success' => false, 'error' => 'Amount to reserve must be a positive finite number.'];
+        }
         $pdo = Database::getConnection();
         $wallet = self::getWallet($userId, true);
 
@@ -83,6 +86,9 @@ class Wallet {
      * Release reserved tokens back to available balance (FR-010, Timeout / Cancellation)
      */
     public static function releaseReserved(int $userId, float $amount, string $referenceId, string $reason = 'Order expired or cancelled'): array {
+        if ($amount <= 0 || !is_finite($amount)) {
+            return ['success' => false, 'error' => 'Amount to release must be a positive finite number.'];
+        }
         $pdo = Database::getConnection();
         $wallet = self::getWallet($userId, true);
 
@@ -123,6 +129,9 @@ class Wallet {
      * Settle completed sell order (deduct from reserved balance)
      */
     public static function settleSellOrder(int $sellerId, float $amount, string $referenceId): array {
+        if ($amount <= 0 || !is_finite($amount)) {
+            return ['success' => false, 'error' => 'Amount to settle must be a positive finite number.'];
+        }
         $pdo = Database::getConnection();
         $wallet = self::getWallet($sellerId, true);
 
@@ -158,6 +167,9 @@ class Wallet {
      * Credit buyer with purchased tokens + 9% promotional reward (FR-006, QA-001)
      */
     public static function creditBuyer(int $buyerId, float $baseAmount, float $rewardAmount, string $referenceId): array {
+        if ($baseAmount <= 0 || !is_finite($baseAmount) || $rewardAmount < 0 || !is_finite($rewardAmount)) {
+            return ['success' => false, 'error' => 'Credit amounts must be positive finite numbers.'];
+        }
         $pdo = Database::getConnection();
         $wallet = self::getWallet($buyerId, true);
 
@@ -259,8 +271,8 @@ class Wallet {
      * Admin manual balance adjustment with mandatory audit reason (FR-021)
      */
     public static function adminAdjust(int $userId, string $type, float $amount, string $reason, int $adminId): array {
-        if ($amount <= 0) {
-            return ['success' => false, 'error' => 'Adjustment amount must be greater than zero.'];
+        if ($amount <= 0 || !is_finite($amount)) {
+            return ['success' => false, 'error' => 'Adjustment amount must be a positive finite number.'];
         }
 
         if (empty(trim($reason))) {
