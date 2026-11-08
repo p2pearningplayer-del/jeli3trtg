@@ -424,12 +424,20 @@ class CryptoDepositManager {
     public static function handleNowPaymentsWebhook(array $payload, string $rawBody, ?string $signatureHeader = null): array {
         $pdo = Database::getConnection();
 
+        // 0. Enforce provider check: Automated webhooks are strictly disabled in 1-Address Manual Gateway mode
+        if (self::getGatewayProvider() === 'manual') {
+            return ['success' => false, 'error' => 'Automated webhooks are disabled in 1-Address Manual Gateway mode.'];
+        }
+
         // 1. Verify IPN Signature if secret is configured
         $stmt = $pdo->prepare("SELECT setting_value FROM platform_settings WHERE setting_key = 'nowpayments_ipn_secret'");
         $stmt->execute();
         $ipnSecret = trim((string)$stmt->fetchColumn());
 
-        if (!empty($ipnSecret) && !empty($signatureHeader)) {
+        if (!empty($ipnSecret)) {
+            if (empty($signatureHeader)) {
+                return ['success' => false, 'error' => 'Webhook signature header is strictly required.'];
+            }
             // NOWPayments sorts payload keys alphabetically and signs with HMAC-SHA512
             ksort($payload);
             $sortedJson = json_encode($payload, JSON_UNESCAPED_SLASHES);
@@ -616,22 +624,21 @@ class CryptoDepositManager {
             }
         }
 
-        // 4A. If instantly verified on blockchain, credit right away!
-        if ($onChainVerified && $confirmedAmount >= $minDeposit) {
-            $creditRes = self::processDeposit($userId, $masterWallet, $cleanTxid, $confirmedAmount, 'Auto-verified on TronScan blockchain explorer', $proofScreenshot);
-            if ($creditRes['success']) {
-                $creditRes['auto_verified'] = true;
-                $creditRes['message'] = "Transaction verified on Tron blockchain! " . number_format($creditRes['coins_credited'], 2) . " Coins credited to your Available Balance.";
-                return $creditRes;
-            }
-        }
+        // 4. Queue deposit submission into pending_approval for Administrator review & verification.
+        // Client-side TXID submissions can NEVER auto-credit Available Balance directly.
+        $scanPayload = json_encode([
+            'onchain_scanned' => $onChainVerified,
+            'confirmed_amount' => $confirmedAmount,
+            'claimed_amount' => $amountUsdt,
+            'master_wallet' => $masterWallet,
+            'submission_time' => $nowUtc
+        ]);
 
-        // 4B. If on-chain scan is pending confirmation / unindexed, queue as pending_approval
         $insPending = $pdo->prepare("
             INSERT INTO crypto_deposits (
                 user_id, address, txid, amount_usdt, exchange_rate, coins_credited,
                 network, currency, status, sweep_status, master_wallet, proof_screenshot, raw_payload, created_at, completed_at
-            ) VALUES (?, ?, ?, ?, ?, 0.00, 'TRC20', 'USDT', 'pending_approval', 'uncredited', ?, ?, 'Manual 1-address submission awaiting verification', ?, NULL)
+            ) VALUES (?, ?, ?, ?, ?, 0.00, 'TRC20', 'USDT', 'pending_approval', 'uncredited', ?, ?, ?, ?, NULL)
         ");
         $insPending->execute([
             $userId,
@@ -641,6 +648,7 @@ class CryptoDepositManager {
             $exchangeRate,
             $masterWallet,
             $proofScreenshot,
+            $scanPayload,
             $nowUtc
         ]);
         $depositId = (int)$pdo->lastInsertId();
@@ -1020,6 +1028,184 @@ class CryptoDepositManager {
             'master_wallet' => self::getMasterWallet(),
             'exchange_rate' => self::getExchangeRate(),
             'min_deposit' => self::getMinDeposit()
+        ];
+    }
+
+    /**
+     * Reverse a fraudulent crypto deposit, debiting coins from the user's available balance.
+     */
+    public static function reverseFraudulentCryptoDeposit(int $depositId, int $adminId, string $reason = 'Fraudulent crypto deposit reversed by Administrator'): array {
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare("SELECT * FROM crypto_deposits WHERE id = ?");
+        $stmt->execute([$depositId]);
+        $dep = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$dep) {
+            return ['success' => false, 'error' => "Crypto deposit #{$depositId} not found."];
+        }
+
+        if ($dep['status'] !== 'completed') {
+            return ['success' => false, 'error' => "Crypto deposit #{$depositId} status is '{$dep['status']}', not 'completed'."];
+        }
+
+        $userId = (int)$dep['user_id'];
+        $coinsToDebit = (float)$dep['coins_credited'];
+        $nowUtc = gmdate('Y-m-d H:i:s');
+
+        $pdo->beginTransaction();
+        try {
+            // 1. Mark deposit as reversed
+            $updDep = $pdo->prepare("
+                UPDATE crypto_deposits
+                SET status = 'reversed',
+                    sweep_status = 'reversed',
+                    admin_notes = ?,
+                    completed_at = ?
+                WHERE id = ?
+            ");
+            $updDep->execute([$reason, $nowUtc, $depositId]);
+
+            // 2. Debit user's available balance
+            $wallet = \Wallet::getWallet($userId, true);
+            $balBefore = (float)$wallet['available_balance'];
+            $balAfter = round(max(0, $balBefore - $coinsToDebit), 2);
+            $newVer = (int)$wallet['version'] + 1;
+
+            $updWallet = $pdo->prepare("UPDATE wallets SET available_balance = ?, version = ? WHERE user_id = ? AND version = ?");
+            $updWallet->execute([$balAfter, $newVer, $userId, $wallet['version']]);
+
+            // 3. Record in ledger
+            \Ledger::record(
+                $userId,
+                'USDT_DEPOSIT_REVERSED',
+                $coinsToDebit,
+                $balBefore,
+                $balAfter,
+                'available',
+                (string)$depositId,
+                $adminId,
+                'admin',
+                "Reversal of fraudulent crypto deposit #{$depositId}: debited {$coinsToDebit} Coins. Reason: {$reason}"
+            );
+
+            // 4. In-App Notification
+            \Auth::createNotification(
+                $userId,
+                'Crypto Deposit Reversed',
+                "Deposit #{$depositId} for {$dep['amount_usdt']} USDT was reversed by platform administration: {$reason}",
+                'warning',
+                (string)$depositId
+            );
+
+            $pdo->commit();
+
+            return [
+                'success' => true,
+                'deposit_id' => $depositId,
+                'user_id' => $userId,
+                'amount_usdt' => (float)$dep['amount_usdt'],
+                'coins_debited' => $coinsToDebit,
+                'new_available_balance' => $balAfter,
+                'message' => "Successfully reversed crypto deposit #{$depositId} and debited {$coinsToDebit} Coins."
+            ];
+        } catch (Exception $e) {
+            $pdo->rollBack();
+            return ['success' => false, 'error' => 'Database error reversing crypto deposit: ' . $e->getMessage()];
+        }
+    }
+
+    /**
+     * Monitors incoming USDT (TRC-20) transfers to the platform master wallet address.
+     * Checks TronScan / TronGrid API for recent transfers to TPuZpFS91NcE8VqUV3AtMYXyNx4tWWw8dV.
+     * Matches incoming transactions with pending deposits and enriches verification status.
+     */
+    public static function monitorMasterAddressIncomingTransactions(int $limit = 20): array {
+        $pdo = Database::getConnection();
+        $masterWallet = self::getMasterWallet();
+        $minDeposit = self::getMinDeposit();
+
+        $oldTimeout = ini_get('default_socket_timeout');
+        ini_set('default_socket_timeout', '2');
+        $apiUrl = "https://apilist.tronscanapi.com/api/transfer/trc20?address={$masterWallet}&trc20Id=" . self::USDT_TRC20_CONTRACT . "&direction=in&limit={$limit}&start=0";
+        $ctx = stream_context_create([
+            'http' => [
+                'timeout' => 2,
+                'user_agent' => 'JeliPay-TRC20-Monitor/1.0',
+                'ignore_errors' => true
+            ]
+        ]);
+
+        $res = @file_get_contents($apiUrl, false, $ctx);
+        ini_set('default_socket_timeout', $oldTimeout ?: '60');
+        if (!$res) {
+            return [
+                'success' => false,
+                'error' => 'Unable to connect to Tron blockchain explorer API.',
+                'master_wallet' => $masterWallet
+            ];
+        }
+
+        $data = json_decode($res, true);
+        $transfers = $data['data'] ?? $data['token_transfers'] ?? [];
+        $matched = [];
+        $unassociated = [];
+
+        foreach ($transfers as $tx) {
+            $txid = trim((string)($tx['transaction_id'] ?? $tx['hash'] ?? ''));
+            $fromAddr = trim((string)($tx['from_address'] ?? ''));
+            $toAddr = trim((string)($tx['to_address'] ?? ''));
+            $rawAmount = (float)($tx['quant'] ?? $tx['amount'] ?? 0);
+            $decimals = (int)($tx['tokenInfo']['tokenDecimal'] ?? $tx['decimals'] ?? 6);
+            $amountUsdt = $rawAmount / pow(10, $decimals);
+
+            if ($toAddr !== $masterWallet || empty($txid)) {
+                continue;
+            }
+
+            // Check if this TXID exists in our database
+            $stmt = $pdo->prepare("SELECT * FROM crypto_deposits WHERE txid = ?");
+            $stmt->execute([$txid]);
+            $existing = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if ($existing) {
+                // If it exists and is pending, update on-chain scan metadata
+                if ($existing['status'] === 'pending_approval') {
+                    $payloadInfo = [
+                        'onchain_verified' => true,
+                        'from_address' => $fromAddr,
+                        'to_address' => $toAddr,
+                        'amount_usdt' => $amountUsdt,
+                        'block_timestamp' => $tx['block_ts'] ?? time(),
+                        'scanned_at' => gmdate('Y-m-d H:i:s')
+                    ];
+                    $upd = $pdo->prepare("UPDATE crypto_deposits SET raw_payload = ? WHERE id = ?");
+                    $upd->execute([json_encode($payloadInfo), $existing['id']]);
+                    $matched[] = [
+                        'deposit_id' => (int)$existing['id'],
+                        'user_id' => (int)$existing['user_id'],
+                        'txid' => $txid,
+                        'amount_usdt' => $amountUsdt,
+                        'from_address' => $fromAddr,
+                        'status' => 'pending_approval_verified'
+                    ];
+                }
+            } else {
+                $unassociated[] = [
+                    'txid' => $txid,
+                    'amount_usdt' => $amountUsdt,
+                    'from_address' => $fromAddr,
+                    'is_valid_amount' => ($amountUsdt >= $minDeposit)
+                ];
+            }
+        }
+
+        return [
+            'success' => true,
+            'master_wallet' => $masterWallet,
+            'total_transfers_scanned' => count($transfers),
+            'matched_pending' => $matched,
+            'unassociated_transfers' => $unassociated,
+            'timestamp' => gmdate('Y-m-d H:i:s')
         ];
     }
 }

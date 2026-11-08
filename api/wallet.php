@@ -167,6 +167,19 @@ switch ($action) {
         break;
 
     case 'usdt_submit_txid':
+        if (!empty($user['is_impersonating'])) {
+            jsonError('Deposit submissions are disabled in Admin Support Mode.', 403);
+        }
+        require_once __DIR__ . '/../src/Security/IPBanManager.php';
+        require_once __DIR__ . '/../src/RateLimiter.php';
+        $clientIp = \Security\IPBanManager::getClientIp();
+        $rateKeyUser = "usdt_sub_{$user['id']}";
+        $rateKeyIp = "usdt_sub_ip_{$clientIp}";
+        if (!RateLimiter::checkWithBan($rateKeyUser, 'usdt_deposit', 5, 600, $clientIp) ||
+            !RateLimiter::checkWithBan($rateKeyIp, 'usdt_deposit', 5, 600, $clientIp)) {
+            jsonError('Too many deposit submissions. Please wait 10 minutes before submitting again.', 429);
+        }
+
         require_once __DIR__ . '/../src/Crypto/CryptoDepositManager.php';
         $txid = trim((string)($input['txid'] ?? $_POST['txid'] ?? ''));
         $amount = isset($input['amount']) ? (float)$input['amount'] : (isset($_POST['amount']) ? (float)$_POST['amount'] : 0.0);

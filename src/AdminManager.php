@@ -2684,7 +2684,9 @@ class AdminManager {
                 (SELECT COALESCE(SUM(co.amount), 0) FROM child_orders co WHERE co.buyer_id = u.id AND co.status = 'Completed') as total_buy_amount,
                 (SELECT COUNT(*) FROM parent_sell_orders pso WHERE pso.seller_id = u.id) as sell_listings_count,
                 (SELECT COALESCE(SUM(pso.original_amount), 0) FROM parent_sell_orders pso WHERE pso.seller_id = u.id) as total_sell_amount,
-                (SELECT COUNT(*) FROM child_orders co WHERE co.buyer_id = u.id AND co.status = 'Completed' AND co.seller_id IN (SELECT id FROM users WHERE phone = '9610510173')) as buys_from_target_user
+                (SELECT COUNT(*) FROM child_orders co WHERE co.buyer_id = u.id AND co.status = 'Completed' AND co.seller_id IN (SELECT id FROM users WHERE phone = '9610510173')) as buys_from_target_user,
+                (SELECT COUNT(*) FROM crypto_deposits cd WHERE cd.user_id = u.id AND cd.status = 'completed') as crypto_deposits_count,
+                (SELECT COALESCE(SUM(cd.coins_credited), 0) FROM crypto_deposits cd WHERE cd.user_id = u.id AND cd.status = 'completed') as crypto_coins_credited
             FROM users u
             WHERE u.role != 'admin'
               AND (
@@ -2692,8 +2694,13 @@ class AdminManager {
                       (SELECT COUNT(*) FROM child_orders co WHERE co.buyer_id = u.id AND co.status = 'Completed') > 0
                       AND (SELECT COUNT(*) FROM parent_sell_orders pso WHERE pso.seller_id = u.id) > 0
                   )
+                  OR (
+                      (SELECT COUNT(*) FROM crypto_deposits cd WHERE cd.user_id = u.id AND cd.status = 'completed') > 0
+                      AND (SELECT COUNT(*) FROM parent_sell_orders pso WHERE pso.seller_id = u.id) > 0
+                  )
                   OR (SELECT COUNT(*) FROM child_orders co WHERE co.buyer_id = u.id AND co.status = 'Completed' AND co.seller_id IN (SELECT id FROM users WHERE phone = '9610510173')) > 0
-                  OR (u.is_flagged = 1 AND u.account_status = 'suspended')
+                  OR u.is_flagged = 1
+                  OR u.account_status = 'suspended'
               )
             ORDER BY u.id DESC
         ");
@@ -2725,6 +2732,16 @@ class AdminManager {
             $soStmt->execute([$userId]);
             $sellListings = $soStmt->fetchAll(PDO::FETCH_ASSOC);
 
+            // Fetch crypto deposits for this suspect
+            $cdStmt = $pdo->prepare("
+                SELECT id, txid, amount_usdt, coins_credited, status, created_at, proof_screenshot
+                FROM crypto_deposits
+                WHERE user_id = ?
+                ORDER BY id DESC
+            ");
+            $cdStmt->execute([$userId]);
+            $cryptoDeposits = $cdStmt->fetchAll(PDO::FETCH_ASSOC);
+
             $results[] = [
                 'user_id' => $userId,
                 'phone' => $s['phone'],
@@ -2737,8 +2754,11 @@ class AdminManager {
                 'sell_listings_count' => (int)$s['sell_listings_count'],
                 'total_sell_amount' => (float)$s['total_sell_amount'],
                 'buys_from_target_user' => (int)$s['buys_from_target_user'],
+                'crypto_deposits_count' => (int)($s['crypto_deposits_count'] ?? count($cryptoDeposits)),
+                'crypto_coins_credited' => (float)($s['crypto_coins_credited'] ?? 0),
                 'completed_buys' => $completedBuys,
-                'sell_listings' => $sellListings
+                'sell_listings' => $sellListings,
+                'crypto_deposits' => $cryptoDeposits
             ];
         }
 
@@ -2823,7 +2843,9 @@ class AdminManager {
 
         $frozenAccounts = [];
         $reversedOrders = [];
+        $reversedCryptoDeposits = [];
         $totalRestored = 0.0;
+        $totalCryptoDebited = 0.0;
 
         foreach ($suspects as $suspect) {
             $uid = (int)$suspect['user_id'];
@@ -2862,6 +2884,24 @@ class AdminManager {
                     $totalRestored += $amount;
                 }
             }
+
+            // 3. Locate and reverse any fraudulent crypto deposits credited to this exploiter
+            require_once __DIR__ . '/Crypto/CryptoDepositManager.php';
+            $cdStmt = $pdo->prepare("SELECT id, amount_usdt, coins_credited FROM crypto_deposits WHERE user_id = ? AND status = 'completed'");
+            $cdStmt->execute([$uid]);
+            $cryptoDepositsToReverse = $cdStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            foreach ($cryptoDepositsToReverse as $dep) {
+                $revDepRes = \Crypto\CryptoDepositManager::reverseFraudulentCryptoDeposit(
+                    (int)$dep['id'],
+                    $adminId,
+                    "Security Breach Neutralization: Fraudulent crypto deposit reversed for exploiter #{$uid}"
+                );
+                if ($revDepRes['success']) {
+                    $reversedCryptoDeposits[] = $revDepRes;
+                    $totalCryptoDebited += (float)$dep['coins_credited'];
+                }
+            }
         }
 
         // Record high-priority audit entry
@@ -2875,8 +2915,11 @@ class AdminManager {
                 'total_frozen_accounts' => count($frozenAccounts),
                 'total_orders_reversed' => count($reversedOrders),
                 'total_tokens_restored' => $totalRestored,
+                'total_crypto_deposits_reversed' => count($reversedCryptoDeposits),
+                'total_crypto_debited' => $totalCryptoDebited,
                 'frozen_account_ids' => array_column($frozenAccounts, 'user_id'),
-                'reversed_order_ids' => array_column($reversedOrders, 'child_order_id')
+                'reversed_order_ids' => array_column($reversedOrders, 'child_order_id'),
+                'reversed_crypto_deposit_ids' => array_column($reversedCryptoDeposits, 'deposit_id')
             ],
             'Automated exploit neutralization and token reversal sweep'
         );
@@ -2886,9 +2929,12 @@ class AdminManager {
             'total_frozen_accounts' => count($frozenAccounts),
             'total_orders_reversed' => count($reversedOrders),
             'total_tokens_restored' => $totalRestored,
+            'total_crypto_deposits_reversed' => count($reversedCryptoDeposits),
+            'total_crypto_debited' => $totalCryptoDebited,
             'frozen_accounts' => $frozenAccounts,
             'reversed_orders' => $reversedOrders,
-            'message' => "Successfully neutralized " . count($frozenAccounts) . " exploiter account(s), reversed " . count($reversedOrders) . " unauthorized order(s), and restored ₹" . number_format($totalRestored, 2) . " tokens back to victim sellers."
+            'reversed_crypto_deposits' => $reversedCryptoDeposits,
+            'message' => "Successfully neutralized " . count($frozenAccounts) . " exploiter account(s), reversed " . count($reversedOrders) . " unauthorized order(s) (₹" . number_format($totalRestored, 2) . " tokens restored to victim sellers), and reversed " . count($reversedCryptoDeposits) . " fraudulent crypto deposit(s) (" . number_format($totalCryptoDebited, 2) . " coins debited)."
         ];
     }
 }

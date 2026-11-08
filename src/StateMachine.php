@@ -463,6 +463,23 @@ class StateMachine {
         $rewardAmount = (float)$order['snapshotted_reward_amount'];
         $buyerId = (int)$order['buyer_id'];
 
+        if ($buyerId <= 0 || $buyerId === $sellerId) {
+            return ['success' => false, 'error' => 'Invalid trade parties. Settlement cannot proceed.'];
+        }
+
+        // Strictly block settlement if seller account is suspended
+        $sellerStmt = $pdo->prepare("SELECT account_status FROM users WHERE id = ?");
+        $sellerStmt->execute([$sellerId]);
+        $sellerStatus = (string)$sellerStmt->fetchColumn();
+        if ($sellerStatus === 'suspended') {
+            return ['success' => false, 'error' => 'Seller account is suspended. Transactions are frozen.'];
+        }
+
+        // Strictly block settlement if in impersonation / support mode
+        if (session_status() === PHP_SESSION_ACTIVE && !empty($_SESSION['is_impersonating'])) {
+            return ['success' => false, 'error' => 'Settlement execution is disabled in Admin Support Mode.'];
+        }
+
         $pdo->beginTransaction();
         try {
             $lockOrder = $pdo->prepare("

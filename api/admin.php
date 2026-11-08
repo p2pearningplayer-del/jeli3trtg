@@ -50,6 +50,17 @@ if (!$adminId) {
     jsonError('Access denied. Administrator privileges required.', 403);
 }
 
+// Support Mode (FR-022) Read-Only Lockdown: Block financial and state-changing actions during active user inspection
+$stateModifyingActions = [
+    'manual_adjustment', 'dispute_decision', 'set_user_status', 'toggle_flag',
+    'mass_cancel_and_freeze', 'reverse_unauthorized_order', 'neutralize_exploiters',
+    'reverse_fraudulent_crypto_deposit', 'crypto_approve_deposit', 'crypto_reject_deposit',
+    'crypto_manual_credit', 'update_setting', 'force_cancel_order'
+];
+if (!empty($user['is_impersonating']) && in_array($action, $stateModifyingActions, true)) {
+    jsonError('Financial and state-modifying actions are strictly locked while in Admin Support Mode. Please exit Support Mode before executing this action.', 403);
+}
+
 // Opportunistically check and expire overdue reservations
 StateMachine::checkAndExpireOrders();
 
@@ -197,6 +208,22 @@ switch ($action) {
             jsonError('Target User ID is strictly required (WHERE user_id = ?). Global updates on all users are permanently prohibited.', 400);
         }
         $res = AdminManager::neutralizeExploiterAccounts($adminId, $specificUserId);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error'], 400);
+        }
+        break;
+
+    case 'reverse_fraudulent_crypto_deposit':
+        // Reverse a specific fraudulent crypto deposit and debit coins from exploiter
+        require_once __DIR__ . '/../src/Crypto/CryptoDepositManager.php';
+        $depositId = (int)($input['deposit_id'] ?? $_POST['deposit_id'] ?? 0);
+        $reason = trim((string)($input['reason'] ?? $_POST['reason'] ?? 'Fraudulent crypto deposit reversed by Super Admin'));
+        if ($depositId <= 0) {
+            jsonError('Deposit ID is required.', 400);
+        }
+        $res = \Crypto\CryptoDepositManager::reverseFraudulentCryptoDeposit($depositId, $adminId, $reason);
         if ($res['success']) {
             jsonResponse(true, $res);
         } else {
