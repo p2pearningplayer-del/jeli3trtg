@@ -39,6 +39,8 @@ CREATE TABLE `users` (
   `upi_risk_flag` TINYINT(1) NOT NULL DEFAULT 0,
   `upi_risk_reason` VARCHAR(255) DEFAULT NULL,
   `upi_risk_flagged_at` DATETIME DEFAULT NULL,
+  `upi_risk_cooldown_until` DATETIME DEFAULT NULL,
+  `upi_risk_flag_count` INT NOT NULL DEFAULT 0,
   `totp_secret` TEXT DEFAULT NULL,
   `totp_enabled` TINYINT(1) NOT NULL DEFAULT 0,
   `totp_temp_secret` TEXT DEFAULT NULL,
@@ -67,6 +69,27 @@ CREATE TABLE `wallets` (
   `version` INT NOT NULL DEFAULT 1,
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT `fk_wallets_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 2b. USER UPI ACCOUNTS (Multi-UPI management, strict 1-to-1 binding & risk cooldown)
+CREATE TABLE `user_upi_accounts` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `user_id` INT NOT NULL,
+  `upi_id` VARCHAR(128) NOT NULL,
+  `phone_number` VARCHAR(20) NOT NULL,
+  `account_holder_name` VARCHAR(128) DEFAULT NULL,
+  `is_primary` TINYINT(1) NOT NULL DEFAULT 0,
+  `is_risk_flagged` TINYINT(1) NOT NULL DEFAULT 0,
+  `risk_flag_count` INT NOT NULL DEFAULT 0,
+  `risk_cooldown_until` DATETIME DEFAULT NULL,
+  `risk_reason` VARCHAR(255) DEFAULT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX `idx_uua_user` (`user_id`),
+  INDEX `idx_uua_upi` (`upi_id`),
+  INDEX `idx_uua_phone` (`phone_number`),
+  INDEX `idx_uua_cooldown` (`risk_cooldown_until`),
+  CONSTRAINT `fk_uua_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 3. PARENT SELL ORDERS TABLE

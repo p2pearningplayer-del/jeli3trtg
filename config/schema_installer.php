@@ -479,6 +479,26 @@ class SchemaInstaller {
         CREATE INDEX IF NOT EXISTS idx_ipb_ip ON ip_bans(ip_address);
         CREATE INDEX IF NOT EXISTS idx_ipb_until ON ip_bans(banned_until);
 
+        CREATE TABLE IF NOT EXISTS user_upi_accounts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            upi_id TEXT NOT NULL,
+            phone_number TEXT NOT NULL,
+            account_holder_name TEXT DEFAULT NULL,
+            is_primary INTEGER NOT NULL DEFAULT 0,
+            is_risk_flagged INTEGER NOT NULL DEFAULT 0,
+            risk_flag_count INTEGER NOT NULL DEFAULT 0,
+            risk_cooldown_until TEXT DEFAULT NULL,
+            risk_reason TEXT DEFAULT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_uua_user ON user_upi_accounts(user_id);
+        CREATE INDEX IF NOT EXISTS idx_uua_upi ON user_upi_accounts(upi_id);
+        CREATE INDEX IF NOT EXISTS idx_uua_phone ON user_upi_accounts(phone_number);
+        CREATE INDEX IF NOT EXISTS idx_uua_cooldown ON user_upi_accounts(risk_cooldown_until);
+
         CREATE TABLE IF NOT EXISTS user_crypto_addresses (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL UNIQUE,
@@ -560,7 +580,9 @@ class SchemaInstaller {
             'risk_notes' => 'TEXT DEFAULT NULL',
             'upi_risk_flag' => 'INTEGER NOT NULL DEFAULT 0',
             'upi_risk_reason' => 'TEXT DEFAULT NULL',
-            'upi_risk_flagged_at' => 'TEXT DEFAULT NULL'
+            'upi_risk_flagged_at' => 'TEXT DEFAULT NULL',
+            'upi_risk_cooldown_until' => 'TEXT DEFAULT NULL',
+            'upi_risk_flag_count' => 'INTEGER NOT NULL DEFAULT 0'
         ];
 
         $dispCols = [
@@ -602,7 +624,9 @@ class SchemaInstaller {
                 'risk_notes' => 'TEXT DEFAULT NULL',
                 'upi_risk_flag' => 'TINYINT(1) NOT NULL DEFAULT 0',
                 'upi_risk_reason' => 'VARCHAR(255) DEFAULT NULL',
-                'upi_risk_flagged_at' => 'DATETIME DEFAULT NULL'
+                'upi_risk_flagged_at' => 'DATETIME DEFAULT NULL',
+                'upi_risk_cooldown_until' => 'DATETIME DEFAULT NULL',
+                'upi_risk_flag_count' => 'INT NOT NULL DEFAULT 0'
             ];
             $dispCols = [
                 'additional_evidence_requested' => 'TINYINT(1) NOT NULL DEFAULT 0',
@@ -1441,6 +1465,26 @@ class SchemaInstaller {
                     );
                     CREATE INDEX IF NOT EXISTS idx_ipb_ip ON ip_bans(ip_address);
                     CREATE INDEX IF NOT EXISTS idx_ipb_until ON ip_bans(banned_until);
+
+                    CREATE TABLE IF NOT EXISTS user_upi_accounts (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        upi_id TEXT NOT NULL,
+                        phone_number TEXT NOT NULL,
+                        account_holder_name TEXT DEFAULT NULL,
+                        is_primary INTEGER NOT NULL DEFAULT 0,
+                        is_risk_flagged INTEGER NOT NULL DEFAULT 0,
+                        risk_flag_count INTEGER NOT NULL DEFAULT 0,
+                        risk_cooldown_until TEXT DEFAULT NULL,
+                        risk_reason TEXT DEFAULT NULL,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_uua_user ON user_upi_accounts(user_id);
+                    CREATE INDEX IF NOT EXISTS idx_uua_upi ON user_upi_accounts(upi_id);
+                    CREATE INDEX IF NOT EXISTS idx_uua_phone ON user_upi_accounts(phone_number);
+                    CREATE INDEX IF NOT EXISTS idx_uua_cooldown ON user_upi_accounts(risk_cooldown_until);
                 ");
             } else {
                 try {
@@ -1458,6 +1502,30 @@ class SchemaInstaller {
                         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
                     ");
                 } catch (Exception $eBans) {}
+
+                try {
+                    $pdo->exec("
+                        CREATE TABLE IF NOT EXISTS `user_upi_accounts` (
+                            `id` INT AUTO_INCREMENT PRIMARY KEY,
+                            `user_id` INT NOT NULL,
+                            `upi_id` VARCHAR(128) NOT NULL,
+                            `phone_number` VARCHAR(20) NOT NULL,
+                            `account_holder_name` VARCHAR(128) DEFAULT NULL,
+                            `is_primary` TINYINT(1) NOT NULL DEFAULT 0,
+                            `is_risk_flagged` TINYINT(1) NOT NULL DEFAULT 0,
+                            `risk_flag_count` INT NOT NULL DEFAULT 0,
+                            `risk_cooldown_until` DATETIME DEFAULT NULL,
+                            `risk_reason` VARCHAR(255) DEFAULT NULL,
+                            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                            `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                            INDEX `idx_uua_user` (`user_id`),
+                            INDEX `idx_uua_upi` (`upi_id`),
+                            INDEX `idx_uua_phone` (`phone_number`),
+                            INDEX `idx_uua_cooldown` (`risk_cooldown_until`),
+                            FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                    ");
+                } catch (Exception $eUua) {}
 
                 // Crypto Deposits & User Addresses
                 try {

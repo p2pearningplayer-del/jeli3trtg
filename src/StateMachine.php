@@ -11,6 +11,7 @@ require_once __DIR__ . '/Validator.php';
 require_once __DIR__ . '/Wallet.php';
 require_once __DIR__ . '/ReferralEngine.php';
 require_once __DIR__ . '/AgentManager.php';
+require_once __DIR__ . '/UpiManager.php';
 
 class StateMachine {
     /**
@@ -53,6 +54,11 @@ class StateMachine {
             return ['success' => false, 'error' => 'Order is no longer available.'];
         }
 
+        // FR-Item 1: Ensure UPI is not in cooldown
+        if (UpiManager::isUpiInCooldown($order['snapshotted_upi_id'])) {
+            return ['success' => false, 'error' => 'This order is temporarily unavailable. Please pick a different order.'];
+        }
+
         $nowUtc = gmdate('Y-m-d H:i:s');
         $deadlineUtc = gmdate('Y-m-d H:i:s', time() + BUYER_PAYMENT_WINDOW_SECONDS);
 
@@ -90,7 +96,7 @@ class StateMachine {
                 'amount' => (float)$order['amount'],
                 'seller_upi' => $order['snapshotted_upi_id'],
                 'seller_name' => $order['snapshotted_account_holder'],
-                'seller_upi_risk' => self::isSellerUpiAtRisk($pdo, (int)$order['seller_id'], (string)$order['snapshotted_upi_id']),
+                'seller_upi_risk' => false, // FR-Item 1: Risk alerts hidden from buyers
                 'payment_deadline' => $deadlineUtc,
                 'seconds_remaining' => BUYER_PAYMENT_WINDOW_SECONDS
             ];
@@ -221,17 +227,11 @@ class StateMachine {
                 $riskStats = $riskStmt->fetch();
 
                 $distinctBuyers = (int)($riskStats['buyer_count'] ?? 0);
+                $totalCancels = (int)($riskStats['total_cancels'] ?? 0);
                 $upiRiskCancels = (int)($riskStats['upi_risk_cancels'] ?? 0);
 
-                if ($distinctBuyers >= 2 || $upiRiskCancels >= 2) {
-                    $flagStmt = $pdo->prepare("
-                        UPDATE users
-                        SET upi_risk_flag = 1,
-                            upi_risk_reason = 'Multiple buyers cancelled orders citing UPI risk / payment failure',
-                            upi_risk_flagged_at = ?
-                        WHERE id = ? OR upi_id = ?
-                    ");
-                    $flagStmt->execute([$nowUtc, $sellerId, $sellerUpi]);
+                if ($distinctBuyers >= 2 || $totalCancels >= 2 || $upiRiskCancels >= 2) {
+                    UpiManager::flagUpiForRisk($pdo, (string)$sellerUpi, $sellerId, 'Multiple buyers cancelled orders citing UPI risk / payment failure');
                 }
             } catch (Exception $eCancel) {
                 // Ignore audit log error if schema is still propagating
@@ -253,24 +253,18 @@ class StateMachine {
      * Check if a seller's UPI ID has been flagged or has multiple buyer cancellations
      */
     public static function isSellerUpiAtRisk(PDO $pdo, int $sellerId, string $upiId): bool {
+        if (!empty($upiId) && UpiManager::isUpiInCooldown($upiId)) {
+            return true;
+        }
         try {
-            $stmt = $pdo->prepare("SELECT upi_risk_flag FROM users WHERE id = ?");
+            $stmt = $pdo->prepare("SELECT upi_risk_flag, upi_risk_cooldown_until FROM users WHERE id = ?");
             $stmt->execute([$sellerId]);
-            $flag = (int)$stmt->fetchColumn();
-            if ($flag === 1) {
-                return true;
-            }
-
-            if (!empty($upiId)) {
-                $chk = $pdo->prepare("
-                    SELECT COUNT(DISTINCT buyer_id) as buyer_count,
-                           SUM(CASE WHEN reason_code = 'upi_risk' THEN 1 ELSE 0 END) as upi_risk_cancels
-                    FROM order_cancellations
-                    WHERE seller_upi_id = ?
-                ");
-                $chk->execute([$upiId]);
-                $res = $chk->fetch();
-                if ($res && ((int)$res['buyer_count'] >= 2 || (int)$res['upi_risk_cancels'] >= 2)) {
+            $row = $stmt->fetch();
+            if ($row) {
+                if (!empty($row['upi_risk_cooldown_until'])) {
+                    return strtotime($row['upi_risk_cooldown_until'] . ' UTC') > time();
+                }
+                if ((int)($row['upi_risk_flag'] ?? 0) === 1) {
                     return true;
                 }
             }

@@ -10,6 +10,7 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/Validator.php';
 require_once __DIR__ . '/Wallet.php';
 require_once __DIR__ . '/Auth.php';
+require_once __DIR__ . '/UpiManager.php';
 
 class OrderEngine {
     /**
@@ -136,21 +137,74 @@ class OrderEngine {
         // Step 3: Handle Account Holder Name and UPI ID (Sell Flow)
         if ($accountHolderName !== null || $upiId !== null) {
             $accountHolderName = trim((string)$accountHolderName);
-            $upiId = trim((string)$upiId);
+            $cleanUpi = strtolower(trim((string)$upiId));
 
             if (empty($accountHolderName) || mb_strlen($accountHolderName) < 2) {
                 return ['success' => false, 'error' => 'Please enter a valid Account Holder Name (minimum 2 characters).'];
             }
 
-            if (!Validator::validateUpiId($upiId)) {
+            if (!Validator::validateUpiId($cleanUpi)) {
                 return ['success' => false, 'error' => 'Invalid UPI ID format. Example: user@okhdfcbank or 9876543210@paytm.'];
             }
 
-            // Persist valid banking details to user account for future reference
-            $updateUser = $pdo->prepare("UPDATE users SET account_holder_name = ?, upi_id = ? WHERE id = ?");
-            $updateUser->execute([$accountHolderName, $upiId, $sellerId]);
+            // FR-Item 3: Strict 1-to-1 Binding Anti-Fraud Validation
+            $chkUpiAcc = $pdo->prepare("SELECT user_id FROM user_upi_accounts WHERE LOWER(upi_id) = ? AND user_id != ? LIMIT 1");
+            $chkUpiAcc->execute([$cleanUpi, $sellerId]);
+            if ($chkUpiAcc->fetchColumn()) {
+                return ['success' => false, 'error' => 'This UPI is already bound to another account.'];
+            }
 
-            $snapUpi = $upiId;
+            $chkUpiUser = $pdo->prepare("SELECT id FROM users WHERE LOWER(upi_id) = ? AND id != ? LIMIT 1");
+            $chkUpiUser->execute([$cleanUpi, $sellerId]);
+            if ($chkUpiUser->fetchColumn()) {
+                return ['success' => false, 'error' => 'This UPI is already bound to another account.'];
+            }
+
+            // FR-Item 1: Check if selected UPI is currently restricted by cooldown
+            if (UpiManager::isUpiInCooldown($cleanUpi)) {
+                return [
+                    'success' => false,
+                    'error' => 'This UPI ID is temporarily restricted due to recent buyer cancellations. Please select or add a different, working UPI ID.'
+                ];
+            }
+
+            // Persist valid banking details to user account for future reference, syncing risk fields with chosen UPI
+            $cooldownInfo = UpiManager::getUpiCooldownInfo($cleanUpi);
+            $updateUser = $pdo->prepare("
+                UPDATE users
+                SET account_holder_name = ?,
+                    upi_id = ?,
+                    upi_risk_flag = ?,
+                    upi_risk_cooldown_until = ?,
+                    upi_risk_flag_count = ?,
+                    upi_risk_reason = ?
+                WHERE id = ?
+            ");
+            $updateUser->execute([
+                $accountHolderName,
+                $cleanUpi,
+                $cooldownInfo['is_in_cooldown'] ? 1 : 0,
+                $cooldownInfo['cooldown_until'],
+                $cooldownInfo['risk_flag_count'],
+                $cooldownInfo['risk_reason'],
+                $sellerId
+            ]);
+
+            // Sync with user_upi_accounts
+            try {
+                $uStmt = $pdo->prepare("SELECT phone FROM users WHERE id = ?");
+                $uStmt->execute([$sellerId]);
+                $uPhone = (string)$uStmt->fetchColumn();
+
+                $chkSaved = $pdo->prepare("SELECT id FROM user_upi_accounts WHERE user_id = ? AND LOWER(upi_id) = ?");
+                $chkSaved->execute([$sellerId, $cleanUpi]);
+                if (!$chkSaved->fetchColumn()) {
+                    $pdo->prepare("INSERT INTO user_upi_accounts (user_id, upi_id, phone_number, account_holder_name, is_primary) VALUES (?, ?, ?, ?, 0)")
+                        ->execute([$sellerId, $cleanUpi, $uPhone, $accountHolderName]);
+                }
+            } catch (Exception $eSync) {}
+
+            $snapUpi = $cleanUpi;
             $snapHolder = $accountHolderName;
         } else {
             // Fallback for existing automated tests or internal calls
@@ -162,8 +216,16 @@ class OrderEngine {
                 return ['success' => false, 'error' => 'Please provide your valid Account Holder Name and UPI ID when listing tokens for sale.'];
             }
 
-            $snapUpi = $seller['upi_id'];
+            $snapUpi = strtolower(trim($seller['upi_id']));
             $snapHolder = $seller['account_holder_name'];
+
+            // Check if fallback UPI ID is in cooldown
+            if (UpiManager::isUpiInCooldown($snapUpi)) {
+                return [
+                    'success' => false,
+                    'error' => 'This UPI ID is temporarily restricted due to recent buyer cancellations. Please select or add a different, working UPI ID.'
+                ];
+            }
         }
 
         // Step 4: Fetch active Purchase Reward Rate from platform settings
@@ -271,27 +333,37 @@ class OrderEngine {
             ];
         }
 
-        // Look for exact match first
+        // Look for exact match first (excluding UPIs in cooldown)
         $exactStmt = $pdo->prepare("
             SELECT * FROM child_orders
             WHERE status = 'Available' AND amount = ? AND seller_id != ?
-            ORDER BY id ASC LIMIT 1
+            ORDER BY id ASC
         ");
         $exactStmt->execute([$amount, $buyerId]);
-        $exact = $exactStmt->fetch();
+        $exactOrders = $exactStmt->fetchAll();
 
-        if ($exact) {
-            return StateMachine::pickOrder((int)$exact['id'], $buyerId);
+        foreach ($exactOrders as $exact) {
+            if (!UpiManager::isUpiInCooldown($exact['snapshotted_upi_id'] ?? '')) {
+                return StateMachine::pickOrder((int)$exact['id'], $buyerId);
+            }
         }
 
-        // Search for a larger unpicked child order that can be split
+        // Search for a larger unpicked child order that can be split (excluding UPIs in cooldown)
         $largerStmt = $pdo->prepare("
             SELECT * FROM child_orders
             WHERE status = 'Available' AND amount > ? AND (amount - ?) >= 100 AND seller_id != ?
-            ORDER BY amount ASC, id ASC LIMIT 1
+            ORDER BY amount ASC, id ASC
         ");
         $largerStmt->execute([$amount, $amount, $buyerId]);
-        $candidate = $largerStmt->fetch();
+        $candidates = $largerStmt->fetchAll();
+
+        $candidate = null;
+        foreach ($candidates as $cand) {
+            if (!UpiManager::isUpiInCooldown($cand['snapshotted_upi_id'] ?? '')) {
+                $candidate = $cand;
+                break;
+            }
+        }
 
         if (!$candidate) {
             return [
@@ -372,6 +444,15 @@ class OrderEngine {
         $parents = $stmt->fetchAll();
 
         foreach ($parents as &$parent) {
+            $parentUpi = (string)($parent['snapshotted_upi_id'] ?? '');
+            $cooldownInfo = UpiManager::getUpiCooldownInfo($parentUpi);
+            $parent['is_upi_risk'] = (bool)$cooldownInfo['is_in_cooldown'];
+            $parent['upi_risk_reason'] = $cooldownInfo['risk_reason'];
+            $parent['cooldown_until'] = $cooldownInfo['cooldown_until'];
+            $parent['cooldown_remaining_seconds'] = (int)$cooldownInfo['cooldown_remaining_seconds'];
+            $parent['cooldown_remaining_formatted'] = $cooldownInfo['cooldown_remaining_formatted'];
+            $parent['flagged_upi'] = $parentUpi;
+
             $childStmt = $pdo->prepare("
                 SELECT c.*,
                        p.utr_number, p.screenshot_path, p.created_at as proof_uploaded_at

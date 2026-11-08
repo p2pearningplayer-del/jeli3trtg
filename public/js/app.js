@@ -132,6 +132,7 @@ async function fetchSession() {
                 currentUser = data.user;
                 updateHeaderBalances(data.wallet);
                 updateProfilePreviews(data.user);
+                loadUserUpiAccounts();
                 return currentUser;
             } else if (res.status === 401 || (data && data.error === 'Authentication required.')) {
                 currentUser = null;
@@ -311,10 +312,10 @@ function switchTab(tabId) {
     // Trigger tab data load
     if (tabId === 'home') { loadWalletStats(); loadLedger(); syncHomeActiveOrder(); }
     if (tabId === 'buy') { loadBuyPool(); loadBuyPageHistory(); }
-    if (tabId === 'sell') { loadWalletStats(); loadSellerDashboard(); }
+    if (tabId === 'sell') { loadWalletStats(); loadSellerDashboard(); loadUserUpiAccounts(); }
     if (tabId === 'appeals') { loadDisputesCenter(); }
     if (tabId === 'refer') loadReferrals();
-    if (tabId === 'profile') { loadWalletStats(); loadLedger(); }
+    if (tabId === 'profile') { loadWalletStats(); loadLedger(); loadUserUpiAccounts(); }
     if (tabId === 'admin') loadAdminDashboard();
 }
 
@@ -393,21 +394,14 @@ async function loadBuyPool(silent = false) {
 
         grid.innerHTML = visibleOrders.map(order => {
             const pickArg = order.pick_token ? `'${escapeHtml(order.pick_token)}'` : (order.id || 0);
-            const upiRiskBadge = order.seller_upi_risk ? `
-                <span class="text-[10px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full flex items-center gap-1">
-                    <svg class="w-3 h-3 text-amber-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
-                    UPI Risk Warning
-                </span>
-            ` : '';
 
             return `
-            <div class="bg-slate-900 border border-slate-800 hover:border-slate-700/80 rounded-2xl p-5 flex flex-col justify-between transition-all duration-200 shadow-sm ${order.seller_upi_risk ? 'border-amber-500/30' : ''}">
+            <div class="bg-slate-900 border border-slate-800 hover:border-slate-700/80 rounded-2xl p-5 flex flex-col justify-between transition-all duration-200 shadow-sm">
                 <div class="space-y-3">
                     <div class="flex items-center justify-between flex-wrap gap-1">
                         <!-- Requirement 8: Order ID is strictly hidden pre-pickup; revealed upon reservation -->
                         <span class="text-[10px] font-mono uppercase px-2.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-semibold tracking-wider">Available Listing</span>
                         <div class="flex items-center gap-1.5 flex-wrap">
-                            ${upiRiskBadge}
                             <span class="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
                                 +${order.reward_rate}% Reward
                             </span>
@@ -438,12 +432,6 @@ async function loadBuyPool(silent = false) {
                         <span class="text-slate-400">Payment: <strong class="text-slate-300">UPI Transfer</strong></span>
                         <span class="text-emerald-500 font-semibold flex items-center gap-1">&bull; Instant UPI</span>
                     </div>
-
-                    ${order.seller_upi_risk ? `
-                        <p class="text-[10px] text-amber-400/90 bg-amber-500/10 border border-amber-500/20 rounded-lg p-2 leading-relaxed">
-                            ⚠️ Notice: This seller's UPI ID has experienced multiple buyer cancellations or payment failures.
-                        </p>
-                    ` : ''}
                 </div>
 
                 <button onclick="pickOrder(${pickArg})" class="mt-4 w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 rounded-xl transition text-xs uppercase tracking-wider shadow-md shadow-indigo-600/20 cursor-pointer">
@@ -681,14 +669,10 @@ async function openActiveOrderStatusModal(orderId) {
         if (upiEl) upiEl.innerText = sellerUpi;
         if (nameEl) nameEl.innerText = sellerName;
 
-        // Seller UPI Risk Warning Banner
+        // Seller UPI Risk Warning Banner (FR-Item 1: Risk alerts hidden from buyers)
         const riskAlert = document.getElementById('activeDetailsUpiRiskAlert');
         if (riskAlert) {
-            if (ord.seller_upi_risk) {
-                riskAlert.classList.remove('hidden');
-            } else {
-                riskAlert.classList.add('hidden');
-            }
+            riskAlert.classList.add('hidden');
         }
 
         // Timer setup
@@ -1110,8 +1094,295 @@ async function requestCustomAllocation() {
 }
 
 // -------------------------------------------------------------
-// TAB 2: SELL LOGIC (FR-011, FR-012, FR-014)
+// TAB 2: SELL LOGIC (FR-011, FR-012, FR-014) & MULTI-UPI MANAGEMENT
 // -------------------------------------------------------------
+
+let cachedUserUpiAccounts = [];
+
+async function loadUserUpiAccounts() {
+    if (!currentUser) return;
+    try {
+        const res = await fetch('/api/upi.php?action=list');
+        const data = await res.json();
+        if (data.success && Array.isArray(data.accounts)) {
+            cachedUserUpiAccounts = data.accounts;
+            renderSellUpiDropdown(data.accounts);
+            renderProfileSavedUpiList(data.accounts);
+        }
+    } catch (e) {
+        console.error('Error loading user UPI accounts:', e);
+    }
+}
+
+function renderSellUpiDropdown(accounts) {
+    const sel = document.getElementById('sellUpiSelect');
+    if (!sel) return;
+
+    if (!accounts || accounts.length === 0) {
+        sel.innerHTML = '<option value="">-- No Saved UPI (Click "+ Add UPI" above) --</option>';
+        return;
+    }
+
+    sel.innerHTML = '<option value="">-- Select Saved UPI ID --</option>' + accounts.map(acc => {
+        const cooldownTag = acc.is_in_cooldown ? ` [⚠️ Cooldown: ${acc.cooldown_remaining_formatted || 'Active'} remaining]` : '';
+        const primaryTag = acc.is_primary ? ' (Primary)' : '';
+        return `
+            <option value="${acc.id}" data-upi="${escapeHtml(acc.upi_id)}" data-name="${escapeHtml(acc.account_holder_name || '')}" data-phone="${escapeHtml(acc.phone_number || '')}" data-cooldown="${acc.is_in_cooldown ? '1' : '0'}" data-cooldown-time="${escapeHtml(acc.cooldown_remaining_formatted || '')}" ${acc.is_primary ? 'selected' : ''}>
+                ${escapeHtml(acc.upi_id)}${primaryTag}${cooldownTag}
+            </option>
+        `;
+    }).join('');
+
+    onSellUpiSelected();
+}
+
+function onSellUpiSelected() {
+    const sel = document.getElementById('sellUpiSelect');
+    const holderInput = document.getElementById('sellAccountHolderName');
+    const upiInput = document.getElementById('sellUpiId');
+    const upiAccInput = document.getElementById('sellUpiAccountId');
+    const alertBox = document.getElementById('sellUpiCooldownAlert');
+    const alertText = document.getElementById('sellUpiCooldownAlertText');
+    const submitBtn = document.getElementById('sellSubmitBtn');
+
+    if (!sel || sel.selectedIndex < 0) return;
+    const opt = sel.options[sel.selectedIndex];
+
+    if (!opt || !opt.value) {
+        if (upiAccInput) upiAccInput.value = '';
+        if (alertBox) alertBox.classList.add('hidden');
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+        }
+        return;
+    }
+
+    const upi = opt.dataset.upi || '';
+    const name = opt.dataset.name || '';
+    const isCooldown = opt.dataset.cooldown === '1';
+    const cooldownTime = opt.dataset.cooldownTime || '4h';
+
+    if (upiInput) upiInput.value = upi;
+    if (upiAccInput) upiAccInput.value = opt.value;
+    if (holderInput && name) holderInput.value = name;
+
+    if (isCooldown) {
+        if (alertBox) alertBox.classList.remove('hidden');
+        if (alertText) {
+            alertText.innerText = `This UPI ID is temporarily restricted due to recent buyer cancellations (${cooldownTime} remaining). Please select or add a different, working UPI ID.`;
+        }
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.classList.add('opacity-50', 'cursor-not-allowed');
+        }
+    } else {
+        if (alertBox) alertBox.classList.add('hidden');
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+        }
+    }
+}
+
+function renderProfileSavedUpiList(accounts) {
+    const list = document.getElementById('savedUpiAccountsList');
+    if (!list) return;
+
+    if (!accounts || accounts.length === 0) {
+        list.innerHTML = `
+            <div class="bg-slate-950 border border-slate-800 rounded-2xl p-4 text-center text-slate-500 text-xs">
+                No saved settlement UPI accounts yet. Click "+ Add UPI" above to add your first account.
+            </div>
+        `;
+        return;
+    }
+
+    list.innerHTML = accounts.map(acc => `
+        <div class="bg-slate-950 border ${acc.is_in_cooldown ? 'border-amber-500/40 bg-amber-500/5' : (acc.is_primary ? 'border-emerald-500/30' : 'border-slate-800')} rounded-2xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+            <div class="space-y-1">
+                <div class="flex items-center gap-2 flex-wrap">
+                    <span class="font-mono font-bold text-white text-sm">${escapeHtml(acc.upi_id)}</span>
+                    ${acc.is_primary ? `
+                        <span class="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Primary
+                        </span>
+                    ` : ''}
+                    ${acc.is_in_cooldown ? `
+                        <span class="bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                            ⚠️ Cooldown (${escapeHtml(acc.cooldown_remaining_formatted || 'Active')})
+                        </span>
+                    ` : `
+                        <span class="bg-slate-800 text-slate-400 text-[10px] font-semibold px-2 py-0.5 rounded-full">
+                            Active
+                        </span>
+                    `}
+                </div>
+                <div class="text-[11px] text-slate-400 flex items-center gap-3">
+                    <span>Holder: <strong class="text-slate-200">${escapeHtml(acc.account_holder_name || '-')}</strong></span>
+                    <span>&bull;</span>
+                    <span>Linked Mobile: <strong class="text-slate-200 font-mono">${escapeHtml(acc.phone_number || '-')}</strong></span>
+                </div>
+                ${acc.is_in_cooldown ? `
+                    <p class="text-[10px] text-amber-300/80 mt-1">
+                        Temporarily hidden from marketplace due to multiple buyer cancellations. Cooldown penalty expires in ${escapeHtml(acc.cooldown_remaining_formatted || 'a few hours')}.
+                    </p>
+                ` : ''}
+            </div>
+
+            <div class="flex items-center gap-2 shrink-0">
+                ${(!acc.is_primary && !acc.is_in_cooldown) ? `
+                    <button type="button" onclick="setPrimaryUpi(${acc.id})" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-indigo-400 hover:text-indigo-300 rounded-lg text-xs font-semibold transition cursor-pointer">
+                        Make Primary
+                    </button>
+                ` : ''}
+                <button type="button" onclick="deleteUpiAccount(${acc.id})" class="px-2.5 py-1 bg-red-600/10 hover:bg-red-600/20 text-red-400 border border-red-500/20 rounded-lg text-xs font-semibold transition cursor-pointer">
+                    Delete
+                </button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function openAddUpiModal() {
+    const modal = document.getElementById('addUpiModal');
+    const form = document.getElementById('addUpiForm');
+    const errBox = document.getElementById('addUpiError');
+    const phoneInput = document.getElementById('newUpiPhone');
+    const holderInput = document.getElementById('newUpiHolderName');
+
+    if (form) form.reset();
+    if (errBox) {
+        errBox.innerText = '';
+        errBox.classList.add('hidden');
+    }
+
+    if (currentUser) {
+        if (phoneInput && currentUser.phone) phoneInput.value = currentUser.phone;
+        if (holderInput && currentUser.account_holder_name) holderInput.value = currentUser.account_holder_name;
+    }
+
+    if (modal) modal.classList.remove('hidden');
+}
+
+function closeAddUpiModal() {
+    const modal = document.getElementById('addUpiModal');
+    if (modal) modal.classList.add('hidden');
+}
+
+async function submitAddUpi(e) {
+    if (e && e.preventDefault) e.preventDefault();
+
+    const upi = document.getElementById('newUpiId').value.trim();
+    const phone = document.getElementById('newUpiPhone').value.trim();
+    const name = document.getElementById('newUpiHolderName').value.trim();
+    const isPrimary = document.getElementById('newUpiIsPrimary').checked;
+    const errBox = document.getElementById('addUpiError');
+    const btn = document.getElementById('addUpiSubmitBtn');
+
+    if (errBox) errBox.classList.add('hidden');
+
+    if (!upi || !upi.includes('@')) {
+        if (errBox) {
+            errBox.innerText = 'Please enter a valid UPI ID (e.g. username@okhdfcbank).';
+            errBox.classList.remove('hidden');
+        }
+        return;
+    }
+
+    if (!phone || phone.length < 10) {
+        if (errBox) {
+            errBox.innerText = 'Please enter a valid 10-digit Indian mobile number.';
+            errBox.classList.remove('hidden');
+        }
+        return;
+    }
+
+    if (btn) {
+        btn.disabled = true;
+        btn.innerText = 'Saving...';
+    }
+
+    try {
+        const res = await fetch('/api/upi.php?action=add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                upi_id: upi,
+                phone_number: phone,
+                account_holder_name: name,
+                is_primary: isPrimary
+            })
+        });
+        const data = await res.json();
+        if (data.success) {
+            closeAddUpiModal();
+            alert('UPI account added successfully!');
+            await loadUserUpiAccounts();
+            if (typeof fetchSession === 'function') fetchSession();
+        } else {
+            if (errBox) {
+                errBox.innerText = data.error || 'Failed to add UPI account.';
+                errBox.classList.remove('hidden');
+            } else {
+                alert(data.error || 'Failed to add UPI account.');
+            }
+        }
+    } catch (err) {
+        if (errBox) {
+            errBox.innerText = 'Network error saving UPI account.';
+            errBox.classList.remove('hidden');
+        } else {
+            alert('Network error saving UPI account.');
+        }
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerText = 'Save UPI Account';
+        }
+    }
+}
+
+async function setPrimaryUpi(accountId) {
+    try {
+        const res = await fetch('/api/upi.php?action=set_primary', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ upi_account_id: accountId })
+        });
+        const data = await res.json();
+        if (data.success) {
+            await loadUserUpiAccounts();
+            if (typeof fetchSession === 'function') fetchSession();
+        } else {
+            alert(data.error || 'Failed to set primary UPI.');
+        }
+    } catch (e) {
+        alert('Network error updating primary UPI.');
+    }
+}
+
+async function deleteUpiAccount(accountId) {
+    if (!confirm('Are you sure you want to remove this saved UPI ID?')) return;
+
+    try {
+        const res = await fetch('/api/upi.php?action=delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ upi_account_id: accountId })
+        });
+        const data = await res.json();
+        if (data.success) {
+            alert('UPI account removed successfully.');
+            await loadUserUpiAccounts();
+            if (typeof fetchSession === 'function') fetchSession();
+        } else {
+            alert(data.error || 'Failed to remove UPI account.');
+        }
+    } catch (e) {
+        alert('Network error removing UPI account.');
+    }
+}
 
 async function submitSellOrder() {
     if (!currentUser) {
@@ -1122,12 +1393,24 @@ async function submitSellOrder() {
     const amountInput = document.getElementById('sellAmountInput');
     const holderInput = document.getElementById('sellAccountHolderName');
     const upiInput = document.getElementById('sellUpiId');
+    const upiAccInput = document.getElementById('sellUpiAccountId');
     const tpinInput = document.getElementById('sellTpinInput');
 
     const amount = parseFloat(amountInput.value);
     const account_holder_name = holderInput ? holderInput.value.trim() : '';
     const upi_id = upiInput ? upiInput.value.trim() : '';
+    const upi_account_id = upiAccInput && upiAccInput.value ? parseInt(upiAccInput.value, 10) : null;
     const tpin = tpinInput.value.trim();
+
+    // Check if selected UPI is in cooldown
+    const sel = document.getElementById('sellUpiSelect');
+    if (sel && sel.selectedIndex >= 0) {
+        const opt = sel.options[sel.selectedIndex];
+        if (opt && opt.dataset.cooldown === '1') {
+            alert('This UPI ID is temporarily restricted due to recent buyer cancellations. Please select or add a different, working UPI ID.');
+            return;
+        }
+    }
 
     if (isNaN(amount) || amount < 100 || amount % 100 !== 0) {
         alert('Sell amount must be at least ₹100 and an exact multiple of ₹100 (e.g. ₹100, ₹500, ₹1000).');
@@ -1153,7 +1436,7 @@ async function submitSellOrder() {
         const res = await fetch('/api/sell.php?action=create_order', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ amount, account_holder_name, upi_id, tpin })
+            body: JSON.stringify({ amount, account_holder_name, upi_id, upi_account_id, tpin })
         });
         const data = await res.json();
         if (data.success) {
@@ -1163,6 +1446,7 @@ async function submitSellOrder() {
             fetchSession();
             loadWalletStats();
             loadSellerDashboard();
+            loadUserUpiAccounts();
         } else {
             alert(data.error || 'Failed to list sell order.');
         }
@@ -1382,7 +1666,29 @@ async function loadSellerDashboard(silent = false) {
             `;
         } else {
             list.innerHTML = runningParents.map(parent => `
-                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-3">
+                <div class="bg-slate-900 border ${parent.is_upi_risk ? 'border-amber-500/40' : 'border-slate-800'} rounded-2xl p-4 sm:p-5 space-y-3">
+                    ${parent.is_upi_risk ? `
+                        <div class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3.5 text-xs text-amber-300 space-y-2">
+                            <div class="flex items-start justify-between gap-2">
+                                <div class="flex items-center gap-2">
+                                    <svg class="w-5 h-5 text-amber-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                                    <span class="font-bold text-amber-200">UPI Failure Alert &bull; Listing Hidden From Market</span>
+                                </div>
+                                <span class="font-mono text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full font-bold shrink-0">Cooldown: ${escapeHtml(parent.cooldown_remaining_formatted || 'Active')} remaining</span>
+                            </div>
+                            <p class="text-[11px] text-amber-300/85 leading-relaxed">
+                                Multiple buyers reported cancellation on this UPI ID (<span class="font-mono font-semibold">${escapeHtml(parent.snapshotted_upi_id)}</span>). This listing is temporarily hidden from the public buy pool.
+                            </p>
+                            <div class="pt-1 flex flex-wrap items-center gap-2">
+                                <button type="button" onclick="cancelParentSellOrder(${parent.id})" class="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-red-600/30">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                                    <span>Cancel Listing & Release ₹${parseFloat(parent.remaining_amount).toLocaleString('en-IN')} Tokens</span>
+                                </button>
+                                <span class="text-[11px] text-slate-400">Release your tokens immediately and create a new listing with another UPI.</span>
+                            </div>
+                        </div>
+                    ` : ''}
+
                     <div class="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-2.5 gap-2">
                         <div>
                             <div class="flex items-center gap-2">
@@ -3860,6 +4166,7 @@ async function handleProfileUpdate(e) {
             if (sellUpi) sellUpi.value = upiId;
             closeProfileModal();
             await fetchSession();
+            await loadUserUpiAccounts();
         } else {
             if (statusEl) {
                 statusEl.innerText = data.error || 'Failed to update details.';

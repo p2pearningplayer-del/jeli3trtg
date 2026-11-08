@@ -9,6 +9,7 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/Validator.php';
 require_once __DIR__ . '/RateLimiter.php';
 require_once __DIR__ . '/EmailService.php';
+require_once __DIR__ . '/UpiManager.php';
 
 class Auth {
     /**
@@ -54,6 +55,35 @@ class Auth {
         $existingPhoneUser = $stmt->fetch();
         if ($existingPhoneUser && $existingPhoneUser['account_status'] !== 'pending_verification') {
             return ['success' => false, 'error' => 'An account with this phone number already exists. Please sign in.'];
+        }
+
+        // Check if phone number is bound in user_upi_accounts
+        try {
+            $chkPhoneUua = $pdo->prepare("SELECT user_id FROM user_upi_accounts WHERE phone_number = ? LIMIT 1");
+            $chkPhoneUua->execute([$cleanPhone]);
+            if ($chkPhoneUua->fetchColumn()) {
+                return ['success' => false, 'error' => 'This Phone Number is already linked to another user account.'];
+            }
+        } catch (Exception $ePh) {}
+
+        // Check unique UPI ID if provided during registration
+        if (!empty($upiId)) {
+            $cleanUpiReg = strtolower(trim($upiId));
+            if (!Validator::validateUpiId($cleanUpiReg)) {
+                return ['success' => false, 'error' => 'Invalid UPI ID format. Example: username@okhdfcbank or 9876543210@paytm.'];
+            }
+            try {
+                $chkUpiUua = $pdo->prepare("SELECT user_id FROM user_upi_accounts WHERE LOWER(upi_id) = ? LIMIT 1");
+                $chkUpiUua->execute([$cleanUpiReg]);
+                if ($chkUpiUua->fetchColumn()) {
+                    return ['success' => false, 'error' => 'This UPI is already bound to another account.'];
+                }
+                $chkUpiUser = $pdo->prepare("SELECT id FROM users WHERE LOWER(upi_id) = ? LIMIT 1");
+                $chkUpiUser->execute([$cleanUpiReg]);
+                if ($chkUpiUser->fetchColumn()) {
+                    return ['success' => false, 'error' => 'This UPI is already bound to another account.'];
+                }
+            } catch (Exception $eUpi) {}
         }
 
         // Resolve referral code
@@ -125,6 +155,17 @@ class Auth {
                     VALUES (?, 0.00, 0.00, 0.00, 1)
                 ");
                 $walletInsert->execute([$targetUserId]);
+
+                // Auto-sync initial UPI account to user_upi_accounts
+                if (!empty($upiId)) {
+                    try {
+                        $insUpi = $pdo->prepare("
+                            INSERT INTO user_upi_accounts (user_id, upi_id, phone_number, account_holder_name, is_primary, created_at, updated_at)
+                            VALUES (?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                        ");
+                        $insUpi->execute([$targetUserId, strtolower(trim($upiId)), $cleanPhone, $name ? trim($name) : null]);
+                    } catch (Exception $eUpiSync) {}
+                }
             }
 
             $pdo->commit();
@@ -801,9 +842,47 @@ class Auth {
             }
         }
 
-        // Update banking settlement details only
+        $cleanUpi = strtolower($trimmedUpi);
+        if (!Validator::validateUpiId($cleanUpi)) {
+            return ['success' => false, 'error' => 'Invalid UPI ID format. Example: username@okhdfcbank or 9876543210@paytm.'];
+        }
+
+        // Strict 1-to-1 Binding check
+        $chkUpiAcc = $pdo->prepare("SELECT user_id FROM user_upi_accounts WHERE LOWER(upi_id) = ? AND user_id != ? LIMIT 1");
+        $chkUpiAcc->execute([$cleanUpi, $userId]);
+        if ($chkUpiAcc->fetchColumn()) {
+            return ['success' => false, 'error' => 'This UPI is already bound to another account.'];
+        }
+
+        $chkUpiUser = $pdo->prepare("SELECT id FROM users WHERE LOWER(upi_id) = ? AND id != ? LIMIT 1");
+        $chkUpiUser->execute([$cleanUpi, $userId]);
+        if ($chkUpiUser->fetchColumn()) {
+            return ['success' => false, 'error' => 'This UPI is already bound to another account.'];
+        }
+
+        // Update banking settlement details
         $stmt = $pdo->prepare("UPDATE users SET upi_id = ?, account_holder_name = ? WHERE id = ?");
-        $stmt->execute([$trimmedUpi, $trimmedName, $userId]);
+        $stmt->execute([$cleanUpi, $trimmedName, $userId]);
+
+        // Sync to user_upi_accounts table
+        try {
+            $uStmt = $pdo->prepare("SELECT phone FROM users WHERE id = ?");
+            $uStmt->execute([$userId]);
+            $uPhone = (string)$uStmt->fetchColumn();
+
+            $existingAcc = $pdo->prepare("SELECT id FROM user_upi_accounts WHERE user_id = ? AND LOWER(upi_id) = ?");
+            $existingAcc->execute([$userId, $cleanUpi]);
+            $accId = $existingAcc->fetchColumn();
+
+            if ($accId) {
+                $pdo->prepare("UPDATE user_upi_accounts SET is_primary = 0 WHERE user_id = ?")->execute([$userId]);
+                $pdo->prepare("UPDATE user_upi_accounts SET is_primary = 1, account_holder_name = ? WHERE id = ?")->execute([$trimmedName, $accId]);
+            } else {
+                $pdo->prepare("UPDATE user_upi_accounts SET is_primary = 0 WHERE user_id = ?")->execute([$userId]);
+                $pdo->prepare("INSERT INTO user_upi_accounts (user_id, upi_id, phone_number, account_holder_name, is_primary) VALUES (?, ?, ?, ?, 1)")
+                    ->execute([$userId, $cleanUpi, $uPhone, $trimmedName]);
+            }
+        } catch (Exception $eUua) {}
 
         return ['success' => true, 'message' => 'Banking details updated successfully.'];
     }

@@ -72,13 +72,17 @@ switch ($action) {
         $poolList = [];
         $secret = defined('JWT_SECRET') ? JWT_SECRET : 'jelipay_secure_token_secret_key';
         foreach ($orders as $ord) {
+            $sellerUpi = (string)($ord['snapshotted_upi_id'] ?? '');
+
+            // FR-Item 1: Hide any active sell listings tied to a UPI in risk cooldown
+            if (UpiManager::isUpiInCooldown($sellerUpi)) {
+                continue;
+            }
+
             $childId = (int)$ord['id'];
             // Generate HMAC signed pickup token without leaking raw ID in plain UI
             $tokenPayload = $childId . ':' . hash_hmac('sha256', (string)$childId, $secret);
             $pickToken = base64_encode($tokenPayload);
-
-            $hasUpiRisk = ((int)($ord['upi_risk_flag'] ?? 0) === 1) ||
-                          StateMachine::isSellerUpiAtRisk($pdo, (int)$ord['seller_id'], (string)($ord['snapshotted_upi_id'] ?? ''));
 
             $poolList[] = [
                 'pick_token' => $pickToken,
@@ -86,7 +90,7 @@ switch ($action) {
                 'reward_rate' => (float)$ord['snapshotted_reward_rate'],
                 'reward_amount' => (float)$ord['snapshotted_reward_amount'],
                 'total_credit' => (float)$ord['total_credit'],
-                'seller_upi_risk' => $hasUpiRisk
+                'seller_upi_risk' => false // FR-Item 1: Visibility strictly hidden from buyers
             ];
         }
 
@@ -337,9 +341,8 @@ function formatChildOrderResponse(array $p, int $now): array {
     $p['seller_name'] = $p['snapshotted_account_holder'] ?? '';
     $p['seller_name_masked'] = Validator::maskName($p['seller_account_holder']);
 
-    // Check Seller UPI Risk Flag
-    $pdo = Database::getConnection();
-    $p['seller_upi_risk'] = !empty($p['seller_id']) ? StateMachine::isSellerUpiAtRisk($pdo, (int)$p['seller_id'], (string)($p['snapshotted_upi_id'] ?? '')) : false;
+    // FR-Item 1: Risk alerts hidden from buyers
+    $p['seller_upi_risk'] = false;
 
     if ($p['status'] === 'Reserved' && !empty($p['payment_deadline'])) {
         $deadline = strtotime($p['payment_deadline'] . ' UTC');

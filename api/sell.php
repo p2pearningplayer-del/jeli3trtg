@@ -49,6 +49,20 @@ switch ($action) {
         $tpin = (string)($input['tpin'] ?? '');
         $accountHolderName = isset($input['account_holder_name']) ? trim((string)$input['account_holder_name']) : null;
         $upiId = isset($input['upi_id']) ? trim((string)$input['upi_id']) : null;
+        $upiAccountId = isset($input['upi_account_id']) ? (int)$input['upi_account_id'] : null;
+
+        if ($upiAccountId && empty($upiId)) {
+            $pdo = Database::getConnection();
+            $accStmt = $pdo->prepare("SELECT * FROM user_upi_accounts WHERE id = ? AND user_id = ?");
+            $accStmt->execute([$upiAccountId, (int)$user['id']]);
+            $acc = $accStmt->fetch(PDO::FETCH_ASSOC);
+            if ($acc) {
+                $upiId = $acc['upi_id'];
+                if (empty($accountHolderName)) {
+                    $accountHolderName = $acc['account_holder_name'];
+                }
+            }
+        }
 
         if (empty($tpin)) {
             jsonError('Selling TPIN is required to authorize token listings.');

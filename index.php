@@ -691,25 +691,45 @@ endif;
                             <span class="text-[11px] text-slate-500 mt-1 block">Min ₹100 &bull; Must be exact multiple of ₹100</span>
                         </div>
 
+                        <!-- Multi-UPI Selection Tool & Quick Add UPI (FR-Item 2) -->
+                        <div>
+                            <div class="flex items-center justify-between mb-1">
+                                <label class="text-xs font-semibold text-slate-300">Receiving UPI ID</label>
+                                <button type="button" onclick="openAddUpiModal()" class="text-xs text-indigo-400 hover:text-indigo-300 font-bold flex items-center gap-1 transition cursor-pointer">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                                    Add UPI
+                                </button>
+                            </div>
+                            <select id="sellUpiSelect" onchange="onSellUpiSelected()" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white font-mono focus:border-indigo-500 focus:outline-none">
+                                <option value="">-- Select Saved UPI ID --</option>
+                            </select>
+                            <input type="hidden" id="sellUpiId" value="<?= htmlspecialchars($currentUser['upi_id'] ?? '') ?>">
+                            <input type="hidden" id="sellUpiAccountId" value="">
+                            <span class="text-[11px] text-slate-500 mt-1 block" id="sellUpiHelpText">Direct UPI payment will be sent to this ID</span>
+
+                            <!-- Inline Cooldown Restriction Warning (FR-Item 1) -->
+                            <div id="sellUpiCooldownAlert" class="mt-2 bg-amber-500/10 border border-amber-500/30 rounded-xl p-2.5 text-xs text-amber-300 hidden flex items-start gap-2">
+                                <svg class="w-4 h-4 text-amber-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                                <div>
+                                    <span class="font-bold text-amber-200">UPI In Risk Cooldown</span>
+                                    <p class="text-[11px] text-amber-300/80 mt-0.5" id="sellUpiCooldownAlertText">This UPI ID is temporarily restricted due to recent buyer cancellations. Please select or add a different, working UPI ID.</p>
+                                </div>
+                            </div>
+                        </div>
+
                         <div>
                             <label class="text-xs font-semibold text-slate-300 block mb-1">Account Holder Name</label>
-                            <input type="text" id="sellAccountHolderName" placeholder="Full name as registered in UPI / Bank" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:border-indigo-500 focus:outline-none">
+                            <input type="text" id="sellAccountHolderName" value="<?= htmlspecialchars($currentUser['account_holder_name'] ?? '') ?>" placeholder="Full name as registered in UPI / Bank" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:border-indigo-500 focus:outline-none">
                             <span class="text-[11px] text-slate-500 mt-1 block">Name shown to buyers making direct UPI transfer</span>
                         </div>
 
                         <div>
-                            <label class="text-xs font-semibold text-slate-300 block mb-1">UPI ID</label>
-                            <input type="text" id="sellUpiId" placeholder="e.g. mobile@upi or username@okaxis" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white font-mono focus:border-indigo-500 focus:outline-none">
-                            <span class="text-[11px] text-slate-500 mt-1 block">Direct UPI payment will be sent to this ID</span>
-                        </div>
-
-                        <div>
-                            <label class="text-xs font-semibold text-slate-300 block mb-1">Secondary</label>
+                            <label class="text-xs font-semibold text-slate-300 block mb-1">Secondary T-PIN</label>
                             <input type="password" id="sellTpinInput" maxlength="6" placeholder="••••" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white font-mono tracking-widest focus:border-indigo-500 focus:outline-none">
                             <span class="text-[11px] text-slate-500 mt-1 block">Enter your 4–6 digit T-PIN to authorize</span>
                         </div>
 
-                        <button onclick="submitSellOrder()" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-indigo-600/30 transition text-sm">
+                        <button onclick="submitSellOrder()" id="sellSubmitBtn" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-indigo-600/30 transition text-sm">
                             Authorize & List Sell Order
                         </button>
                     </div>
@@ -988,6 +1008,24 @@ endif;
                                 Save Banking Details
                             </button>
                         </form>
+
+                        <!-- Multi-UPI Accounts Manager (FR-Item 2 & Item 3) -->
+                        <div class="mt-6 pt-5 border-t border-slate-800 space-y-3">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <h4 class="text-xs font-bold uppercase tracking-wider text-slate-300">Saved UPI Accounts</h4>
+                                    <p class="text-[11px] text-slate-500">Manage multiple settlement UPI IDs for your sell listings</p>
+                                </div>
+                                <button type="button" onclick="openAddUpiModal()" class="px-3 py-1.5 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-400 border border-indigo-500/30 rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-sm cursor-pointer">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                                    <span>Add UPI</span>
+                                </button>
+                            </div>
+
+                            <div id="savedUpiAccountsList" class="space-y-2">
+                                <div class="text-xs text-slate-500 italic p-3 text-center">Loading saved UPI accounts...</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -2045,6 +2083,51 @@ endif;
 
                 <button type="submit" id="appealSubmitBtn" class="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-red-600/30 transition text-sm">
                     Freeze Order & Escalate to Admin
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- 4b. Add Saved UPI Account Modal (FR-Item 2 & Item 3) -->
+    <div id="addUpiModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 sm:p-7 shadow-2xl relative space-y-4">
+            <button type="button" onclick="closeAddUpiModal()" class="absolute right-4 top-4 text-slate-400 hover:text-white transition cursor-pointer">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+            <div>
+                <span class="text-xs uppercase font-bold text-indigo-400 tracking-wider">Multi-UPI Management</span>
+                <h3 class="text-lg font-bold text-white mt-1">Add Saved UPI Account</h3>
+                <p class="text-xs text-slate-400 mt-1">Strict 1-to-1 account binding &bull; A UPI ID and Phone Number can only link to one user</p>
+            </div>
+
+            <form id="addUpiForm" onsubmit="submitAddUpi(event); return false;" class="space-y-4">
+                <div>
+                    <label class="text-xs font-semibold text-slate-300 block mb-1">UPI ID / VPA Address</label>
+                    <input type="text" id="newUpiId" required placeholder="e.g. username@okhdfcbank or 9876543210@paytm" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white font-mono focus:border-indigo-500 focus:outline-none transition">
+                    <span class="text-[11px] text-slate-500 mt-1 block">Virtual payment address to receive direct buyer settlements.</span>
+                </div>
+
+                <div>
+                    <label class="text-xs font-semibold text-slate-300 block mb-1">Associated Mobile Number</label>
+                    <input type="tel" id="newUpiPhone" required maxlength="10" placeholder="10-digit mobile number" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white font-mono focus:border-indigo-500 focus:outline-none transition">
+                    <span class="text-[11px] text-slate-500 mt-1 block">Phone number linked to this UPI ID (Anti-fraud validation).</span>
+                </div>
+
+                <div>
+                    <label class="text-xs font-semibold text-slate-300 block mb-1">Account Holder Full Name</label>
+                    <input type="text" id="newUpiHolderName" placeholder="Full name registered on UPI account" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:border-indigo-500 focus:outline-none transition">
+                    <span class="text-[11px] text-slate-500 mt-1 block">Leave empty to use your default profile name.</span>
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <input type="checkbox" id="newUpiIsPrimary" class="rounded bg-slate-950 border-slate-800 text-indigo-600 focus:ring-0">
+                    <label for="newUpiIsPrimary" class="text-xs text-slate-300 cursor-pointer">Set as primary settlement account</label>
+                </div>
+
+                <div id="addUpiError" class="text-xs text-red-400 font-semibold p-2.5 bg-red-500/10 border border-red-500/20 rounded-xl hidden"></div>
+
+                <button type="submit" id="addUpiSubmitBtn" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-indigo-600/30 transition text-sm cursor-pointer">
+                    Save UPI Account
                 </button>
             </form>
         </div>
