@@ -11,8 +11,8 @@ require_once __DIR__ . '/../src/Security/IPBanManager.php';
 require_once __DIR__ . '/response.php';
 
 // IP Ban Enforcement
-$clientIp = \Security\IPBanManager::getClientIp();
-if (\Security\IPBanManager::isBanned($clientIp)) {
+$clientIp = IPBanManager::getClientIp();
+if (IPBanManager::isBanned($clientIp)) {
     jsonError('Access Denied: Your IP address is temporarily banned due to security policy violations.', 403);
 }
 
@@ -31,11 +31,16 @@ switch ($action) {
         $upiId = $input['upi_id'] ?? null;
         $name = $input['name'] ?? null;
 
-        if (empty($email) || !filter_var(trim($email), FILTER_VALIDATE_EMAIL)) {
-            jsonError('Please provide a valid email address for account verification.');
+        $cleanEmail = strtolower(trim((string)$email));
+        if (empty($cleanEmail) || !filter_var($cleanEmail, FILTER_VALIDATE_EMAIL)) {
+            jsonError('Please provide a valid Gmail address for account verification.');
         }
 
-        $res = Auth::register($phone, $password, $refCode, $upiId, $name, trim($email), false);
+        if (!str_ends_with($cleanEmail, '@gmail.com')) {
+            jsonError('Registration failed: Only @gmail.com email addresses are allowed.');
+        }
+
+        $res = Auth::register($phone, $password, $refCode, $upiId, $name, $cleanEmail, false);
         if ($res['success']) {
             jsonResponse(true, $res);
         } else {

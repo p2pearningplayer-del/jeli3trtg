@@ -13,8 +13,8 @@ require_once __DIR__ . '/../src/Security/IPBanManager.php';
 require_once __DIR__ . '/response.php';
 
 // IP Ban Enforcement
-$clientIp = \Security\IPBanManager::getClientIp();
-if (\Security\IPBanManager::isBanned($clientIp)) {
+$clientIp = IPBanManager::getClientIp();
+if (IPBanManager::isBanned($clientIp)) {
     jsonError('Access Denied: Your IP address is temporarily banned due to security policy violations.', 403);
 }
 

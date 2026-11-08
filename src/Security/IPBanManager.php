@@ -153,3 +153,8 @@ class IPBanManager {
         }
     }
 }
+
+// Namespace compatibility alias
+if (!class_exists('Security\\IPBanManager', false)) {
+    class_alias('IPBanManager', 'Security\\IPBanManager');
+}

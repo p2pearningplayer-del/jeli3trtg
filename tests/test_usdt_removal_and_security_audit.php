@@ -122,7 +122,7 @@ assertCondition(
 echo "\n--- TEST GROUP 2: Numeric Injection & Negative Balance Protection ---\n";
 
 // Create test user
-$userRes = Auth::register('9876500001', 'SecurePass123!', null, 'user1@upi', 'Alice Secure', 'user1@example.com', true);
+$userRes = Auth::register('9876500001', 'SecurePass123!', null, 'user1@upi', 'Alice Secure', 'user1@gmail.com', true);
 $userId = (int)$userRes['user_id'];
 
 // Set available balance to ₹1,000
@@ -276,7 +276,7 @@ assertCondition(!IPBanManager::isBanned($testIp), "IP {$testIp} is successfully 
 echo "\n--- TEST GROUP 5: Dispute Concurrency & Settlement Protection ---\n";
 
 // Create seller and buyer
-$sellerRes = Auth::register('9876500002', 'SecurePass123!', null, 'seller@upi', 'Bob Seller', 'seller@example.com', true);
+$sellerRes = Auth::register('9876500002', 'SecurePass123!', null, 'seller@upi', 'Bob Seller', 'seller@gmail.com', true);
 $sellerId = (int)$sellerRes['user_id'];
 Auth::setTPIN($sellerId, '5555');
 

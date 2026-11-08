@@ -26,12 +26,15 @@ class Auth {
 
         // If email is not explicitly provided (e.g. internal test suites / scripts), generate dummy email and auto-activate
         if (empty($email)) {
-            $cleanEmail = "user_{$cleanPhone}@jelipay.in";
+            $cleanEmail = "user_{$cleanPhone}@gmail.com";
             $autoActivate = true;
         } else {
             $cleanEmail = strtolower(trim($email));
             if (!filter_var($cleanEmail, FILTER_VALIDATE_EMAIL)) {
-                return ['success' => false, 'error' => 'Please provide a valid email address for account verification.'];
+                return ['success' => false, 'error' => 'Please provide a valid Gmail address for account verification.'];
+            }
+            if (!str_ends_with($cleanEmail, '@gmail.com')) {
+                return ['success' => false, 'error' => 'Registration is restricted to official @gmail.com addresses only. Other email domains are not permitted.'];
             }
         }
 

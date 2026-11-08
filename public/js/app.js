@@ -3170,7 +3170,7 @@ async function handleAuthSubmit(e) {
         const emailEl = document.getElementById('authEmail');
         const email = emailEl ? emailEl.value.trim() : '';
         if (!email || !filterValidEmail(email)) {
-            errEl.innerText = 'Please provide a valid email address for verification.';
+            errEl.innerText = 'Registration requires an official @gmail.com address (e.g. name@gmail.com).';
             errEl.classList.remove('hidden');
             return;
         }
@@ -3191,7 +3191,13 @@ async function handleAuthSubmit(e) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
-        const data = await res.json();
+        const data = await res.json().catch(() => null);
+        if (!data) {
+            errEl.innerText = 'Server response error. Please try again.';
+            errEl.classList.remove('hidden');
+            return;
+        }
+
         if (data.success) {
             if (data.step === 'verify_email') {
                 showEmailVerificationStep(data.email || payload.email);
@@ -3207,6 +3213,7 @@ async function handleAuthSubmit(e) {
             }
         }
     } catch (e) {
+        console.error('handleAuthSubmit error:', e);
         errEl.innerText = 'Network error during authentication.';
         errEl.classList.remove('hidden');
     } finally {
@@ -3216,7 +3223,9 @@ async function handleAuthSubmit(e) {
 }
 
 function filterValidEmail(email) {
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+    if (!email) return false;
+    const clean = email.trim().toLowerCase();
+    return /^[a-zA-Z0-9._%+-]+@gmail\.com$/.test(clean);
 }
 
 function showEmailVerificationStep(email, noticeMessage = null) {

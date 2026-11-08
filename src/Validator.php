@@ -69,6 +69,16 @@ class Validator {
     }
 
     /**
+     * Validate Gmail address (@gmail.com only)
+     */
+    public static function validateGmail(?string $email): bool {
+        if (empty($email)) return false;
+        $clean = strtolower(trim($email));
+        if (!filter_var($clean, FILTER_VALIDATE_EMAIL)) return false;
+        return str_ends_with($clean, '@gmail.com');
+    }
+
+    /**
      * Sanitize phone number to standard 10 digits
      */
     public static function cleanPhone(string $phone): string {
