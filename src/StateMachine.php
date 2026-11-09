@@ -364,8 +364,8 @@ class StateMachine {
 
             $isFlaggedReview = ($fraudAssessment['decision'] === 'PENDING_REVIEW' && ($fraudAssessment['risk_score'] ?? 0) >= 25);
             $sellerNotice = $isFlaggedReview
-                ? "Buyer submitted UPI proof (UTR: {$normalizedUtr}) for order #{$childOrderId}. Note: Visual verification suggested. Please verify in your bank account."
-                : "Buyer submitted UPI proof (UTR: {$normalizedUtr}) for order #{$childOrderId}. Please verify in your bank account within 15 minutes.";
+                ? "Buyer submitted UPI proof (UTR: {$normalizedUtr}) for order #{$childOrderId}. Note: Manual visual verification required. Please check your bank account and verify the screenshot."
+                : "Buyer submitted UPI proof (UTR: {$normalizedUtr}) for order #{$childOrderId}. Please check your bank account and manually verify the screenshot within 15 minutes.";
 
             $notif = $pdo->prepare("INSERT INTO notifications (user_id, title, message, type, reference_id, created_at) VALUES (?, ?, ?, 'order', ?, ?)");
             $notif->execute([

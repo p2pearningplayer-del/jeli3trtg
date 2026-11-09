@@ -331,15 +331,16 @@ try {
         throw new Exception("Clean transaction produced unexpected score: {$cleanEval['score']} ({$cleanEval['risk_level']})");
     }
 
-    // Scenario B: Ambiguous transaction (OCR amount mismatch)
+    // Scenario B: Screenshot with apparent amount difference (OCR amount verification permanently disabled)
+    // Ensures users with Paytm or diverse screenshots reading partial numbers are NOT penalized.
     $ambigImage = $cleanImage;
     $ambigImage['comparison']['amount_matched'] = false;
     $ambigImage['comparison']['extracted_amount'] = 500.0;
     $ambigImage['comparison']['amount_difference'] = 4500.0;
     $ambigEval = RiskScoringEngine::evaluateSubmission($pdo, $orderMock, $utrDataClean, $noDup, $ambigImage, $noDup);
 
-    if ($ambigEval['score'] < 30 || !in_array('AMOUNT_MISMATCH_OCR', $ambigEval['reasons'], true)) {
-        throw new Exception("Ambiguous transaction produced unexpected score: {$ambigEval['score']}");
+    if (in_array('AMOUNT_MISMATCH_OCR', $ambigEval['reasons'], true) || $ambigEval['score'] > 25) {
+        throw new Exception("OCR amount mismatch should NOT be scored or flagged: {$ambigEval['score']}");
     }
 
     // Scenario C: Confirmed Hard Duplicate UTR

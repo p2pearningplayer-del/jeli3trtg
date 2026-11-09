@@ -1632,6 +1632,7 @@ class SchemaInstaller {
     public static function seedPlatformSettings(PDO $pdo): void {
         $settings = [
             ['fraud_detection_enabled', '1', 'AI and rule-based fraud detection engine status (1=Active, 0=Disabled)'],
+            ['fraud_ocr_enabled', '0', 'OCR screenshot text and amount verification (1=Active, 0=Disabled per manual seller verification policy)'],
             ['fraud_auto_reject_score', '75', 'Risk score threshold at or above which submissions are automatically rejected'],
             ['fraud_review_threshold', '25', 'Risk score threshold at or above which submissions are marked PENDING_REVIEW'],
             ['fraud_gemini_api_key', '', 'Optional Google Gemini Vision API key for enhanced OCR screenshot inspection'],
@@ -1713,6 +1714,15 @@ class SchemaInstaller {
             if (!$chkFp->fetch()) {
                 $insFp = $pdo->prepare("INSERT INTO platform_settings (setting_key, setting_value, description) VALUES ('fraud_perceptual_hash_enabled', '0', 'Perceptual visual hash duplicate detection (1=Active, 0=Disabled to avoid false positives on standard UPI receipts)')");
                 $insFp->execute();
+            }
+
+            // Permanently disable OCR validation per manual seller verification policy
+            $pdo->exec("UPDATE platform_settings SET setting_value = '0' WHERE setting_key = 'fraud_ocr_enabled'");
+            $chkOcr = $pdo->prepare("SELECT setting_value FROM platform_settings WHERE setting_key = 'fraud_ocr_enabled'");
+            $chkOcr->execute();
+            if (!$chkOcr->fetch()) {
+                $insOcr = $pdo->prepare("INSERT INTO platform_settings (setting_key, setting_value, description) VALUES ('fraud_ocr_enabled', '0', 'OCR screenshot text and amount verification (1=Active, 0=Disabled per manual seller verification policy)')");
+                $insOcr->execute();
             }
         } catch (Exception $e) {
             // Ignore migration exception

@@ -163,25 +163,21 @@ class FraudDecisionEngine {
         $explanations = $riskEvaluation['explanations'];
 
         // 7. Decision Determination
+        // In manual seller verification mode, only unambiguous hard rules (confirmed duplicate UTR,
+        // exact duplicate SHA-256 image, or dummy sequential test UTR) trigger REJECTED.
+        // Image text extraction / OCR is permanently disabled. Users are never blocked from submitting
+        // screenshots directly to the seller for manual verification.
         $decision = 'PENDING_REVIEW';
         $canProceed = false;
         $rejectionReason = null;
 
-        if ($riskEvaluation['hard_rule_violated'] || $riskScore >= $autoRejectScore) {
-            // Guard against false-positive auto-rejections on soft visual similarity alone:
-            // If the rejection would be triggered without any hard rule violation and involves perceptual hash similarity,
-            // downgrade to PENDING_REVIEW so legitimate buyers are not blocked from submitting proof and orders do not time out.
-            if (!$riskEvaluation['hard_rule_violated'] && in_array('PERCEPTUAL_SIMILAR_IMAGE', $reasonCodes, true)) {
-                $decision = 'PENDING_REVIEW';
-                $canProceed = true;
-            } else {
-                $decision = 'REJECTED';
-                $canProceed = false;
-                $rejectionReason = !empty($explanations[0]) ? $explanations[0] : 'Payment proof rejected by automated fraud prevention rules.';
-            }
+        if ($riskEvaluation['hard_rule_violated']) {
+            $decision = 'REJECTED';
+            $canProceed = false;
+            $rejectionReason = !empty($explanations[0]) ? $explanations[0] : 'Payment proof rejected by security rules.';
         } elseif ($riskScore >= $reviewThreshold || !empty($imageData['aspect_ratio_anomaly'])) {
             $decision = 'PENDING_REVIEW';
-            $canProceed = true; // Still moves to 'Seller Confirmation Pending' but flagged for review
+            $canProceed = true; // Moves directly to 'Seller Confirmation Pending' for seller manual verification
         } else {
             $decision = 'VERIFIED';
             $canProceed = true;

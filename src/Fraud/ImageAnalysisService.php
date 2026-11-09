@@ -17,6 +17,27 @@ interface OcrProviderInterface {
 }
 
 /**
+ * Permanently Disabled OCR Provider (Manual Seller Verification Active)
+ * Skips text/amount extraction entirely so legitimate users with Paytm or diverse screenshots
+ * are never blocked by inaccurate OCR / AI image reading.
+ */
+class DisabledOcrProvider implements OcrProviderInterface {
+    public function extractTransactionData(string $filePath): array {
+        return [
+            'success' => true,
+            'provider' => 'disabled',
+            'confidence' => 0.0,
+            'extracted_amount' => null,
+            'extracted_utr' => null,
+            'extracted_date' => null,
+            'extracted_status' => null,
+            'raw_text' => '',
+            'notes' => 'OCR amount verification permanently disabled for payment proofs. Direct screenshot upload & seller manual verification active.'
+        ];
+    }
+}
+
+/**
  * Built-in Lightweight Pattern & Binary Stream OCR Provider
  * Zero external dependencies; safely extracts structured banking patterns from image streams.
  */
@@ -269,31 +290,37 @@ class ImageAnalysisService {
         // 6. Metadata / EXIF Inspection (Detect editing tools e.g. Photoshop/PicsArt)
         $tamperingHints = self::detectEditingArtifacts($absolutePath);
 
-        // 7. OCR Transaction Details Extraction
+        // 7. OCR Transaction Details Extraction (Permanently disabled for user proof submissions)
         if ($ocrProvider === null) {
             $ocrProvider = self::resolveDefaultOcrProvider();
         }
         $ocrResult = $ocrProvider->extractTransactionData($absolutePath);
 
-        // 8. Cross-reference OCR findings against claimed order details
+        // 8. Cross-reference findings:
+        // By default (DisabledOcrProvider), OCR text & amount verification is completely disabled to allow
+        // direct screenshot uploads without AI false-rejections (e.g. Paytm reading ₹2 instead of ₹100).
+        // Verification is manually conducted by the seller.
         $claimedNormUtr = UTRNormalizer::normalize($claimedUtr)['normalized'];
-        $extractedNormUtr = !empty($ocrResult['extracted_utr']) ? UTRNormalizer::normalize($ocrResult['extracted_utr'])['normalized'] : null;
-
+        $extractedNormUtr = null;
         $amountMatched = null;
         $amountDiff = 0.0;
-        if ($ocrResult['extracted_amount'] !== null) {
-            $amountDiff = abs((float)$ocrResult['extracted_amount'] - $claimedAmount);
-            $amountMatched = ($amountDiff < 0.05); // Within 5 paise tolerance
-        }
-
         $utrMatched = null;
-        if ($extractedNormUtr !== null) {
-            $utrMatched = ($extractedNormUtr === $claimedNormUtr);
-        }
-
         $statusMatched = null;
-        if (!empty($ocrResult['extracted_status'])) {
-            $statusMatched = ($ocrResult['extracted_status'] === 'SUCCESS');
+
+        // If an explicit non-disabled provider was injected (e.g. diagnostic tooling or unit testing),
+        // compute comparison metrics without enforcing any automated upload block.
+        if (!($ocrProvider instanceof DisabledOcrProvider)) {
+            $extractedNormUtr = !empty($ocrResult['extracted_utr']) ? UTRNormalizer::normalize($ocrResult['extracted_utr'])['normalized'] : null;
+            if ($ocrResult['extracted_amount'] !== null) {
+                $amountDiff = abs((float)$ocrResult['extracted_amount'] - $claimedAmount);
+                $amountMatched = ($amountDiff < 0.05); // Within 5 paise tolerance
+            }
+            if ($extractedNormUtr !== null) {
+                $utrMatched = ($extractedNormUtr === $claimedNormUtr);
+            }
+            if (!empty($ocrResult['extracted_status'])) {
+                $statusMatched = ($ocrResult['extracted_status'] === 'SUCCESS');
+            }
         }
 
         return [
@@ -584,10 +611,7 @@ class ImageAnalysisService {
     }
 
     private static function resolveDefaultOcrProvider(): OcrProviderInterface {
-        $geminiKey = getenv('GEMINI_API_KEY');
-        if (!empty($geminiKey)) {
-            return new GeminiVisionOcrProvider($geminiKey);
-        }
-        return new LocalPatternOcrProvider();
+        // OCR validation is permanently disabled to allow direct user uploads and seller manual verification
+        return new DisabledOcrProvider();
     }
 }

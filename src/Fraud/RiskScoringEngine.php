@@ -78,40 +78,10 @@ class RiskScoringEngine {
             $explanations[] = $imageDupCheck['description'];
         }
 
-        // 6. OCR Discrepancies
-        if (!empty($imageData['ocr']['success'])) {
-            $comparison = $imageData['comparison'] ?? [];
-
-            // Amount Mismatch (e.g. ₹500 paid for ₹5,000 order)
-            if ($comparison['amount_matched'] === false && $comparison['extracted_amount'] !== null) {
-                $score += 45;
-                $reasons[] = 'AMOUNT_MISMATCH_OCR';
-                $explanations[] = sprintf(
-                    'OCR extracted ₹%s which does not match claimed order amount ₹%s (difference ₹%s).',
-                    number_format((float)$comparison['extracted_amount'], 2),
-                    number_format($claimedAmount, 2),
-                    number_format((float)$comparison['amount_difference'], 2)
-                );
-            }
-
-            // UTR Reference Mismatch
-            if ($comparison['utr_matched'] === false && !empty($comparison['extracted_utr'])) {
-                $score += 35;
-                $reasons[] = 'UTR_MISMATCH_OCR';
-                $explanations[] = sprintf(
-                    'OCR extracted UTR [%s] which differs from submitted UTR [%s].',
-                    $comparison['extracted_utr'],
-                    $comparison['claimed_utr']
-                );
-            }
-
-            // Explicit Transaction Failure in Screenshot
-            if ($comparison['status_matched'] === false && in_array($comparison['extracted_status'], ['FAILED', 'DECLINED'], true)) {
-                $score += 65;
-                $reasons[] = 'PAYMENT_FAILED_SCREENSHOT';
-                $explanations[] = "Screenshot explicitly indicates a '{$comparison['extracted_status']}' banking transaction status.";
-            }
-        }
+        // 6. OCR Discrepancies - Permanently Disabled per Manual Seller Verification Policy
+        // Automated image text / amount extraction is disabled to avoid false rejections (e.g. Paytm screenshots
+        // reading partial numbers like ₹2.00 instead of ₹100.00).
+        // Verification of screenshot and UTR is delegated manually to the seller.
 
         // 7. Image Editing Artifacts (Photoshop, Canva, PicsArt)
         if (!empty($imageData['tampering_hints'])) {
@@ -207,9 +177,10 @@ class RiskScoringEngine {
         $cancellationRate = ($totalOrders > 0) ? round(($cancelledOrders / $totalOrders) * 100, 1) : 0.0;
 
         // 2. Prior rejected fraud assessments
+        // Exclude past false-positive rejections caused by inaccurate OCR amount mismatches
         $stmtFraud = $pdo->prepare("
             SELECT COUNT(*) FROM fraud_assessments
-            WHERE buyer_id = ? AND decision = 'REJECTED'
+            WHERE buyer_id = ? AND decision = 'REJECTED' AND (reason_codes NOT LIKE '%OCR%' AND reason_codes NOT LIKE '%AMOUNT_MISMATCH%')
         ");
         $stmtFraud->execute([$userId]);
         $priorRejects = (int)$stmtFraud->fetchColumn();
