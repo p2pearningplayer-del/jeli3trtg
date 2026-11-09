@@ -15,6 +15,122 @@
 class UpiManager {
 
     /**
+     * Mandatory 5-strike threshold: UPI Risk restriction only triggers after 5 seller-fault cancellations.
+     */
+    public const UPI_RISK_STRIKE_THRESHOLD = 5;
+
+    /**
+     * Strict Seller-Fault cancellation reason codes that count towards the 5-strike UPI restriction threshold.
+     */
+    public const SELLER_FAULT_REASON_CODES = [
+        'upi_risk',
+        'seller_inactive',
+        'upi_invalid',
+        'payment_failed',
+        'seller_timeout',
+        'seller_fault'
+    ];
+
+    /**
+     * Buyer-side cancellation reason codes that must NEVER count towards seller UPI restrictions.
+     */
+    public const BUYER_FAULT_REASON_CODES = [
+        'insufficient_funds',
+        'placed_by_mistake',
+        'changed_mind',
+        'buyer_timeout',
+        'expired',
+        'other'
+    ];
+
+    /**
+     * Check whether a cancellation reason code is strictly a Seller-side fault.
+     * Buyer-side issues ('insufficient_funds', 'placed_by_mistake', 'changed_mind', 'other', timeouts) return false.
+     */
+    public static function isSellerFaultReason(string $reasonCode): bool {
+        $clean = strtolower(trim($reasonCode));
+        return in_array($clean, self::SELLER_FAULT_REASON_CODES, true);
+    }
+
+    /**
+     * Count seller-fault cancellations for a specific UPI ID in the current active cycle.
+     * Strictly excludes all buyer-fault cancellations.
+     */
+    public static function getSellerFaultStrikeCount(PDO $pdo, string $upiId): int {
+        $cleanUpi = strtolower(trim($upiId));
+        if ($cleanUpi === '') {
+            return 0;
+        }
+
+        $placeholders = implode(',', array_fill(0, count(self::SELLER_FAULT_REASON_CODES), '?'));
+        $baseParams = array_merge([$cleanUpi], self::SELLER_FAULT_REASON_CODES);
+
+        // First count unconsumed strikes in the current open cycle
+        $unconsumedSql = "
+            SELECT COUNT(*)
+            FROM order_cancellations
+            WHERE LOWER(seller_upi_id) = ?
+              AND LOWER(reason_code) IN ({$placeholders})
+              AND (reason_text IS NULL OR reason_text NOT LIKE '%[BAN_CYCLE_%')
+        ";
+
+        try {
+            $stmt = $pdo->prepare($unconsumedSql);
+            $stmt->execute($baseParams);
+            $unconsumedCount = (int)$stmt->fetchColumn();
+
+            if ($unconsumedCount > 0) {
+                return $unconsumedCount;
+            }
+
+            // If the UPI is currently in an active cooldown ban, return the strike count that triggered this ban
+            if (self::isUpiInCooldown($cleanUpi)) {
+                return self::UPI_RISK_STRIKE_THRESHOLD;
+            }
+
+            return 0;
+        } catch (Exception $e) {
+            return 0;
+        }
+    }
+
+    /**
+     * Evaluate whether a seller's UPI ID has reached the 5-strike Seller-Fault threshold.
+     * Only triggers the 4-hour / 8-hour UPI cooldown restriction when strike_count >= 5.
+     */
+    public static function evaluateSellerFaultStrike(PDO $pdo, string $upiId, int $sellerId): array {
+        $cleanUpi = strtolower(trim($upiId));
+        if ($cleanUpi === '') {
+            return [
+                'flagged' => false,
+                'strike_count' => 0,
+                'threshold' => self::UPI_RISK_STRIKE_THRESHOLD
+            ];
+        }
+
+        $strikeCount = self::getSellerFaultStrikeCount($pdo, $cleanUpi);
+
+        if ($strikeCount >= self::UPI_RISK_STRIKE_THRESHOLD) {
+            $flagRes = self::flagUpiForRisk(
+                $pdo,
+                $cleanUpi,
+                $sellerId,
+                "Reached {$strikeCount}/" . self::UPI_RISK_STRIKE_THRESHOLD . " seller-fault cancellations (UPI invalid / payment failure / seller timeout)"
+            );
+            $flagRes['strike_count'] = $strikeCount;
+            $flagRes['threshold'] = self::UPI_RISK_STRIKE_THRESHOLD;
+            return $flagRes;
+        }
+
+        return [
+            'flagged' => false,
+            'strike_count' => $strikeCount,
+            'threshold' => self::UPI_RISK_STRIKE_THRESHOLD,
+            'remaining_strikes_before_ban' => max(0, self::UPI_RISK_STRIKE_THRESHOLD - $strikeCount)
+        ];
+    }
+
+    /**
      * Validate strict 1-to-1 binding for UPI ID and Phone Number across entire platform
      */
     public static function validateUpiBinding(PDO $pdo, int $userId, string $upiId, string $phoneNumber): array {
@@ -593,6 +709,27 @@ class UpiManager {
             ");
             $updUser->execute([$newCount, $cooldownUntil, $reason, $nowUtc, $cleanUpi]);
         } catch (Exception $eUser) {}
+
+        // Tag the seller-fault cancellations that triggered this ban cycle so post-reactivation starts at 0/5 strikes
+        try {
+            $tagStr = " [BAN_CYCLE_{$newCount}]";
+            if (Database::getDriver() === 'sqlite') {
+                $tagStmt = $pdo->prepare("
+                    UPDATE order_cancellations
+                    SET reason_text = COALESCE(reason_text, '') || ?
+                    WHERE LOWER(seller_upi_id) = ?
+                      AND (reason_text IS NULL OR reason_text NOT LIKE '%[BAN_CYCLE_%')
+                ");
+            } else {
+                $tagStmt = $pdo->prepare("
+                    UPDATE order_cancellations
+                    SET reason_text = CONCAT(COALESCE(reason_text, ''), ?)
+                    WHERE LOWER(seller_upi_id) = ?
+                      AND (reason_text IS NULL OR reason_text NOT LIKE '%[BAN_CYCLE_%')
+                ");
+            }
+            $tagStmt->execute([$tagStr, $cleanUpi]);
+        } catch (Exception $eTag) {}
 
         return [
             'flagged' => true,

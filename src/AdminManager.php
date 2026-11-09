@@ -1439,11 +1439,7 @@ class AdminManager {
             $hiddenOrdersStmt->execute([$cleanUpi]);
             $hiddenInfo = $hiddenOrdersStmt->fetch(PDO::FETCH_ASSOC) ?: ['order_count' => 0, 'total_amount' => 0];
 
-            $cancelCount = 0;
-            try {
-                $cancelCountStmt->execute([$cleanUpi]);
-                $cancelCount = (int)$cancelCountStmt->fetchColumn();
-            } catch (Exception $eC) {}
+            $cancelCount = UpiManager::getSellerFaultStrikeCount($pdo, $cleanUpi);
 
             $restrictions[] = [
                 'upi_account_id' => (int)$r['upi_account_id'],
@@ -1461,6 +1457,8 @@ class AdminManager {
                 'ban_tier' => $banTier,
                 'risk_flag_count' => max(1, $flagCount),
                 'buyer_cancellations_count' => $cancelCount,
+                'seller_fault_strikes' => $cancelCount,
+                'strike_threshold' => UpiManager::UPI_RISK_STRIKE_THRESHOLD,
                 'risk_cooldown_until' => $cooldownUntil,
                 'remaining_seconds' => $remainingSecs,
                 'remaining_formatted' => $remainingFormatted,

@@ -150,13 +150,16 @@ class StateMachine {
         // Reason mapping and validation
         $validReasons = [
             'upi_risk' => 'UPI risk / payment failure',
-            'insufficient_funds' => 'Insufficient funds in bank account',
             'seller_inactive' => 'Seller UPI inactive / Name mismatch',
+            'upi_invalid' => 'Seller UPI invalid',
+            'payment_failed' => 'Payment failed to this UPI',
+            'insufficient_funds' => 'Insufficient funds in bank account',
             'placed_by_mistake' => 'Changed mind / Placed by mistake',
+            'changed_mind' => 'Changed mind',
             'other' => 'Other reason'
         ];
 
-        $code = !empty($reasonCode) ? trim($reasonCode) : 'placed_by_mistake';
+        $code = !empty($reasonCode) ? strtolower(trim($reasonCode)) : 'placed_by_mistake';
         $reasonLabel = $validReasons[$code] ?? ucfirst(str_replace('_', ' ', $code));
         $customText = !empty($reasonText) ? trim($reasonText) : '';
         $fullReason = $customText !== '' ? "[$code] $reasonLabel: $customText" : "[$code] $reasonLabel";
@@ -218,24 +221,11 @@ class StateMachine {
                     $nowUtc
                 ]);
 
-                // Check Seller UPI Risk Flagging
-                // If multiple buyers cancel orders linked to this UPI ID or >=2 cancellations with upi_risk:
-                $riskStmt = $pdo->prepare("
-                    SELECT COUNT(DISTINCT buyer_id) as buyer_count,
-                           COUNT(*) as total_cancels,
-                           SUM(CASE WHEN reason_code = 'upi_risk' THEN 1 ELSE 0 END) as upi_risk_cancels
-                    FROM order_cancellations
-                    WHERE seller_upi_id = ?
-                ");
-                $riskStmt->execute([$sellerUpi]);
-                $riskStats = $riskStmt->fetch();
-
-                $distinctBuyers = (int)($riskStats['buyer_count'] ?? 0);
-                $totalCancels = (int)($riskStats['total_cancels'] ?? 0);
-                $upiRiskCancels = (int)($riskStats['upi_risk_cancels'] ?? 0);
-
-                if ($distinctBuyers >= 2 || $totalCancels >= 2 || $upiRiskCancels >= 2) {
-                    UpiManager::flagUpiForRisk($pdo, (string)$sellerUpi, $sellerId, 'Multiple buyers cancelled orders citing UPI risk / payment failure');
+                // Strict Seller-Fault Only & 5-Strike Threshold:
+                // Buyer-fault cancellations ('insufficient_funds', 'placed_by_mistake', 'changed_mind', 'other')
+                // are strictly excluded and NEVER count towards the seller's 5-strike UPI restriction limit.
+                if (UpiManager::isSellerFaultReason($code)) {
+                    UpiManager::evaluateSellerFaultStrike($pdo, $sellerUpi, $sellerId);
                 }
             } catch (Exception $eCancel) {
                 // Ignore audit log error if schema is still propagating
@@ -754,7 +744,7 @@ class StateMachine {
 
         // 2. Transition seller verification timeout past 15 minutes to Appeal state (Requirement 4 & 5)
         $timeoutStmt = $pdo->prepare("
-            SELECT id, seller_id, buyer_id, amount
+            SELECT id, parent_order_id, seller_id, buyer_id, amount, snapshotted_upi_id
             FROM child_orders
             WHERE status IN ('Payment Proof Submitted', 'Seller Confirmation Pending')
               AND verification_deadline < ?
@@ -764,8 +754,10 @@ class StateMachine {
 
         foreach ($timeouts as $to) {
             $childOrderId = (int)$to['id'];
+            $parentOrderId = (int)($to['parent_order_id'] ?? 0);
             $sellerId = (int)$to['seller_id'];
             $buyerId = (int)$to['buyer_id'];
+            $sellerUpi = (string)($to['snapshotted_upi_id'] ?? '');
 
             // Automatically transition to Disputed / Appeal state
             $upd = $pdo->prepare("UPDATE child_orders SET status = 'Disputed' WHERE id = ?");
@@ -780,6 +772,19 @@ class StateMachine {
                     VALUES (?, ?, 'buyer', 'Auto-escalated to arbitration: Seller did not confirm receipt within 15-minute verification SLA.', 'pending', ?)
                 ");
                 $insDisp->execute([$childOrderId, $buyerId, $nowUtc]);
+            }
+
+            // Record seller-fault strike when seller fails to release tokens within verification window
+            if ($sellerUpi !== '') {
+                try {
+                    $insTimeoutStrike = $pdo->prepare("
+                        INSERT INTO order_cancellations (
+                            child_order_id, parent_order_id, buyer_id, seller_id, seller_upi_id, reason_code, reason_text, created_at
+                        ) VALUES (?, ?, ?, ?, ?, 'seller_timeout', '[seller_timeout] Seller failed to release tokens within 15-minute verification window after payment proof submission', ?)
+                    ");
+                    $insTimeoutStrike->execute([$childOrderId, $parentOrderId, $buyerId, $sellerId, $sellerUpi, $nowUtc]);
+                    UpiManager::evaluateSellerFaultStrike($pdo, $sellerUpi, $sellerId);
+                } catch (Exception $eStrike) {}
             }
 
             // Deduct Health Score from seller for delayed confirmation (-10 points)

@@ -133,15 +133,17 @@ class CancellationRiskAndReferralTest {
         $seller = $this->pdo->query("SELECT upi_risk_flag FROM users WHERE id = {$this->sellerId}")->fetch();
         $this->assertEquals(0, (int)$seller['upi_risk_flag'], "Seller should initially have 0 UPI risk flag");
 
-        // Buyer 1 picks an order and cancels citing upi_risk
+        // Buyer 1 picks an order and cancels citing upi_risk (Strike 1)
         $orderId1 = $this->createOrder(1000.00);
         StateMachine::pickOrder($orderId1, $this->buyer1Id);
         StateMachine::cancelReservation($orderId1, $this->buyer1Id, 'upi_risk', 'Bank declined transfer to UPI ID');
 
-        // Buyer 2 picks another order with the same seller and cancels citing upi_risk
+        // Strikes 2, 3, 4, 5 citing seller-fault reasons to reach the 5-strike threshold
         $orderId2 = $this->createOrder(1000.00);
-        StateMachine::pickOrder($orderId2, $this->buyer2Id);
-        StateMachine::cancelReservation($orderId2, $this->buyer2Id, 'upi_risk', 'UPI ID flagged by PhonePe');
+        for ($s = 2; $s <= 5; $s++) {
+            StateMachine::pickOrder($orderId2, $this->buyer2Id);
+            StateMachine::cancelReservation($orderId2, $this->buyer2Id, 'upi_risk', "UPI ID flagged by PhonePe (strike {$s})");
+        }
 
         // Now multiple distinct buyers have cancelled citing UPI risk:
         $sellerAfter = $this->pdo->query("SELECT upi_risk_flag, upi_risk_reason FROM users WHERE id = {$this->sellerId}")->fetch();

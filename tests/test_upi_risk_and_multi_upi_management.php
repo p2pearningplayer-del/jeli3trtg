@@ -175,12 +175,23 @@ $resC = Auth::register($phoneC, 'TestPass@123', null, 'buyerc@testupi', 'Buyer C
 $userIdC = (int)$resC['user_id'];
 $pdo->prepare("UPDATE wallets SET available_balance = ? WHERE user_id = ?")->execute([50000.0, $userIdC]);
 
-// User C picks Child 2 and cancels citing upi_risk (second distinct buyer cancellation)
+// User C picks Child 2 and cancels citing upi_risk (strikes 2, 3, 4, 5 to reach 5-strike seller-fault threshold)
 $pick2 = StateMachine::pickOrder($child2Id, $userIdC);
 testAssert('Buyer 2 picks Child 2', $pick2['success'] === true);
+$cancel2 = StateMachine::cancelReservation($child2Id, $userIdC, 'upi_risk', 'UPI payment declined by bank (strike 2)');
+testAssert('After 2 seller-fault strikes, UPI is NOT yet in cooldown (< 5 strikes)', UpiManager::isUpiInCooldown($secondUpiA) === false);
 
-$cancel2 = StateMachine::cancelReservation($child2Id, $userIdC, 'upi_risk', 'UPI payment declined by bank');
-testAssert('Buyer 2 cancels Child 2 citing upi_risk (triggering risk flagging)', $cancel2['success'] === true);
+// Strikes 3 and 4 (still < 5 strikes)
+StateMachine::pickOrder($child2Id, $userIdB);
+StateMachine::cancelReservation($child2Id, $userIdB, 'seller_inactive', 'Seller UPI invalid (strike 3)');
+StateMachine::pickOrder($child2Id, $userIdC);
+StateMachine::cancelReservation($child2Id, $userIdC, 'upi_risk', 'Payment failed (strike 4)');
+testAssert('After 4 seller-fault strikes, UPI is still NOT in cooldown (< 5 strikes)', UpiManager::isUpiInCooldown($secondUpiA) === false);
+
+// Strike 5 (reaches exact 5-strike threshold -> triggers 4-hour cooldown)
+StateMachine::pickOrder($child2Id, $userIdB);
+$cancel5 = StateMachine::cancelReservation($child2Id, $userIdB, 'upi_risk', 'UPI payment declined by bank (strike 5)');
+testAssert('5th seller-fault cancellation triggers UPI risk flagging', $cancel5['success'] === true);
 
 // 3.1: Verify Cooldown State: 1st flag must be exactly 4 hours
 testAssert('Backup UPI is now in active cooldown', UpiManager::isUpiInCooldown($secondUpiA) === true);
