@@ -13,7 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(periodicAdminSync, 10000);
     window.addEventListener('hashchange', () => {
         const hashTab = window.location.hash.replace('#', '');
-        const validTabs = ['dashboard', 'users', 'orders', 'pending_confirmations', 'disputes', 'fraud', 'rewards', 'content', 'reports', 'audit', 'admins', 'agents', 'risk'];
+        const validTabs = ['dashboard', 'users', 'orders', 'pending_confirmations', 'sell_restrictions', 'disputes', 'fraud', 'rewards', 'content', 'reports', 'audit', 'admins', 'agents', 'risk'];
         if (hashTab && validTabs.includes(hashTab) && hashTab !== currentAdminTab) {
             switchAdminTab(hashTab);
         }
@@ -25,7 +25,7 @@ async function initAdmin() {
     const tabParam = urlParams.get('tab');
     const hashTab = window.location.hash.replace('#', '');
     const savedTab = localStorage.getItem('adminActiveTab');
-    const validTabs = ['dashboard', 'users', 'orders', 'pending_confirmations', 'disputes', 'fraud', 'rewards', 'content', 'reports', 'audit', 'admins', 'agents', 'risk'];
+    const validTabs = ['dashboard', 'users', 'orders', 'pending_confirmations', 'sell_restrictions', 'disputes', 'fraud', 'rewards', 'content', 'reports', 'audit', 'admins', 'agents', 'risk'];
 
     let initialTab = 'dashboard';
     if (tabParam && validTabs.includes(tabParam)) {
@@ -53,7 +53,7 @@ window.setBadge = setBadge;
 window.setTxt = setTxt;
 
 function switchAdminTab(tabId, filterOptions = null) {
-    const validTabs = ['dashboard', 'users', 'orders', 'pending_confirmations', 'disputes', 'fraud', 'rewards', 'content', 'reports', 'audit', 'admins', 'agents', 'risk'];
+    const validTabs = ['dashboard', 'users', 'orders', 'pending_confirmations', 'sell_restrictions', 'disputes', 'fraud', 'rewards', 'content', 'reports', 'audit', 'admins', 'agents', 'risk'];
     if (!validTabs.includes(tabId)) {
         tabId = 'dashboard';
     }
@@ -122,6 +122,7 @@ function switchAdminTab(tabId, filterOptions = null) {
     if (tabId === 'users') loadAdminUsers();
     if (tabId === 'orders') loadAdminOrders();
     if (tabId === 'pending_confirmations') loadAdminPendingConfirmations();
+    if (tabId === 'sell_restrictions') loadAdminSellRestrictions();
     if (tabId === 'disputes') loadAdminDisputes();
     if (tabId === 'fraud') loadAdminFraudAssessments();
     if (tabId === 'rewards') loadAdminRewardSettings();
@@ -136,6 +137,7 @@ function switchAdminTab(tabId, filterOptions = null) {
 function periodicAdminSync() {
     if (currentAdminTab === 'dashboard') loadAdminDashboard(true);
     if (currentAdminTab === 'pending_confirmations') loadAdminPendingConfirmations(true);
+    if (currentAdminTab === 'sell_restrictions') loadAdminSellRestrictions(true);
 }
 
 // -------------------------------------------------------------
@@ -1179,6 +1181,156 @@ async function fastTrackResolveOrder(orderId, decision) {
         }
     } catch (e) {
         alert('Network error executing fast-track resolution.');
+    }
+}
+
+// -------------------------------------------------------------
+// TAB 3C: SELL RESTRICTION CONTROL (UPI RISK / COOLDOWN OVERRIDE)
+// -------------------------------------------------------------
+
+let sellRestPageOffset = 0;
+let sellRestPageLimit = 50;
+let sellRestTotalRecords = 0;
+
+function changeSellRestPage(direction) {
+    if (direction === 'prev' && sellRestPageOffset > 0) {
+        sellRestPageOffset = Math.max(0, sellRestPageOffset - sellRestPageLimit);
+        loadAdminSellRestrictions();
+    } else if (direction === 'next' && (sellRestPageOffset + sellRestPageLimit) < sellRestTotalRecords) {
+        sellRestPageOffset += sellRestPageLimit;
+        loadAdminSellRestrictions();
+    }
+}
+
+async function loadAdminSellRestrictions(silent = false) {
+    const query = document.getElementById('sellRestSearchInput')?.value || '';
+    const filter = document.getElementById('sellRestFilterSelect')?.value || 'active';
+    const tbody = document.getElementById('adminSellRestrictionsTableBody');
+
+    try {
+        const url = `/api/admin.php?action=sell_restrictions&query=${encodeURIComponent(query)}&filter=${encodeURIComponent(filter)}&limit=${sellRestPageLimit}&offset=${sellRestPageOffset}`;
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (data.summary) {
+            const sum = data.summary;
+            setTxt('sellRestTotalUpis', sum.total_restricted_upis || 0);
+            setTxt('navSellRestrictionsBadge', sum.total_restricted_upis || 0);
+            setTxt('sellRestTotalSellers', sum.total_restricted_sellers || 0);
+            setTxt('sellRest4hCount', sum.ban_4h_count || 0);
+            setTxt('sellRest8hCount', sum.ban_8h_count || 0);
+            setTxt('sellRestHiddenCount', sum.hidden_orders_count || 0);
+            setTxt('sellRestHiddenVol', `₹${parseFloat(sum.hidden_orders_volume || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+        }
+
+        if (!tbody) return;
+
+        sellRestTotalRecords = data.total || 0;
+        const from = sellRestTotalRecords > 0 ? (sellRestPageOffset + 1) : 0;
+        const to = Math.min(sellRestTotalRecords, sellRestPageOffset + sellRestPageLimit);
+        setTxt('sellRestPaginationInfo', `Showing ${from} to ${to} of ${sellRestTotalRecords} restricted UPI record(s)`);
+
+        const prevBtn = document.getElementById('sellRestPrevBtn');
+        const nextBtn = document.getElementById('sellRestNextBtn');
+        if (prevBtn) prevBtn.disabled = (sellRestPageOffset === 0);
+        if (nextBtn) nextBtn.disabled = (sellRestPageOffset + sellRestPageLimit >= sellRestTotalRecords);
+        setTxt('sellRestPageIndicator', `Page ${Math.floor(sellRestPageOffset / sellRestPageLimit) + 1} of ${Math.max(1, Math.ceil(sellRestTotalRecords / sellRestPageLimit))}`);
+
+        if (!data.success || !data.restrictions || data.restrictions.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-slate-500 font-sans">No restricted sellers or hidden UPI IDs match the current filter.</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = data.restrictions.map(r => {
+            const is8h = r.penalty_hours >= 8;
+            const banBadgeClass = is8h
+                ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                : 'bg-amber-500/20 text-amber-400 border border-amber-500/30';
+
+            return `
+                <tr class="hover:bg-slate-900/80 transition text-xs font-mono">
+                    <td class="p-3">
+                        <div class="flex items-center gap-2">
+                            <span class="px-2 py-0.5 rounded bg-slate-800 text-indigo-400 font-bold">User #${r.user_id}</span>
+                            <span class="text-white font-bold">${escapeHtml(r.user_phone || '-')}</span>
+                        </div>
+                        <span class="text-[11px] text-slate-400 font-sans block mt-0.5">${escapeHtml(r.user_name || 'Seller')}</span>
+                    </td>
+                    <td class="p-3">
+                        <div class="flex items-center gap-1.5">
+                            <span class="text-rose-400 font-bold text-sm">${escapeHtml(r.upi_id)}</span>
+                            ${r.is_primary ? `<span class="px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/25 text-[9px] font-sans font-bold uppercase">Primary</span>` : ''}
+                        </div>
+                        <span class="text-[10px] text-slate-500 font-sans block mt-0.5">Linked Phone: ${escapeHtml(r.upi_phone || r.user_phone || '-')}</span>
+                    </td>
+                    <td class="p-3 font-sans">
+                        <span class="px-2.5 py-1 rounded-lg text-[11px] font-bold uppercase ${banBadgeClass} inline-block">
+                            ${escapeHtml(r.ban_badge || (is8h ? '8-Hour Ban' : '4-Hour Ban'))}
+                        </span>
+                        <span class="text-[10px] text-slate-400 block mt-1">
+                            Flag Count: <strong class="text-white">${r.risk_flag_count || 1}x</strong>
+                            ${r.buyer_cancellations_count ? ` &bull; ${r.buyer_cancellations_count} buyer cancel(s)` : ''}
+                        </span>
+                    </td>
+                    <td class="p-3 font-sans">
+                        <div class="text-xs font-bold ${r.is_in_cooldown ? 'text-amber-400' : 'text-slate-400'}">
+                            ${escapeHtml(r.remaining_formatted || 'Active Flag')}
+                        </div>
+                        ${r.risk_cooldown_until ? `<div class="text-[10px] text-slate-500 font-mono">Until: ${escapeHtml(r.risk_cooldown_until)} UTC</div>` : ''}
+                        <div class="text-[10px] text-slate-400 mt-0.5 max-w-xs truncate" title="${escapeHtml(r.risk_reason || '')}">
+                            ${escapeHtml(r.risk_reason || 'Multiple buyer cancellations reported')}
+                        </div>
+                    </td>
+                    <td class="p-3 font-sans">
+                        ${r.hidden_orders_count > 0 ? `
+                            <span class="text-indigo-400 font-bold font-mono text-sm block">₹${parseFloat(r.hidden_orders_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                            <span class="text-[10px] text-amber-300 font-semibold block">${r.hidden_orders_count} active order(s) hidden from Buy pool</span>
+                        ` : `
+                            <span class="text-slate-500 text-[11px]">0 active orders</span>
+                        `}
+                    </td>
+                    <td class="p-3 font-sans">
+                        <button type="button"
+                                onclick="removeUpiSellRestriction('${escapeHtml(r.upi_id)}', ${r.user_id}, '${escapeHtml(r.user_phone || '')}')"
+                                class="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition shadow-md shadow-emerald-600/20 flex items-center gap-1.5 cursor-pointer whitespace-nowrap">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                            <span>Remove Restriction (Make Live)</span>
+                        </button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    } catch (e) {
+        console.error('Failed to load sell restrictions:', e);
+    }
+}
+
+async function removeUpiSellRestriction(upiId, userId, userPhone = '') {
+    const confirmMsg = `Remove Restriction (Make Live) for UPI ID: ${upiId} (User #${userId} ${userPhone ? '/ ' + userPhone : ''})?\n\nThis will:\n• Instantly clear the UPI risk flag\n• Bypass the 4h/8h cooldown timer\n• Immediately push their active sell orders back to the public Buy section`;
+    if (!confirm(confirmMsg)) return;
+
+    try {
+        const res = await fetch('/api/admin.php?action=remove_sell_restriction', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                upi_id: upiId,
+                user_id: userId,
+                reset_strikes: true,
+                reason: `Admin manually removed UPI restriction (Make Live) for ${upiId}`
+            })
+        });
+        const data = await res.json();
+        if (data.success) {
+            alert(data.message || `Restriction removed for ${upiId}! Active sell orders are now live in the Buy pool.`);
+            loadAdminSellRestrictions();
+            loadAdminOrders();
+            loadAdminDashboard(true);
+        } else {
+            alert(data.error || 'Failed to remove UPI restriction.');
+        }
+    } catch (e) {
+        alert('Network error while removing UPI restriction.');
     }
 }
 

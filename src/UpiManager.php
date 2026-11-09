@@ -602,4 +602,156 @@ class UpiManager {
             'reason' => $reason
         ];
     }
+
+    /**
+     * Admin Manual Override: Clear UPI risk flag & cooldown timer ("Remove Restriction" / Make Live)
+     * Immediately restores the UPI ID and pushes all active 'Available' sell orders tied to it
+     * back to the public Buy section.
+     */
+    public static function clearUpiRestriction(
+        PDO $pdo,
+        string $upiId,
+        ?int $userId = null,
+        bool $resetStrikeCount = false
+    ): array {
+        $cleanUpi = strtolower(trim($upiId));
+        $nowUtc = gmdate('Y-m-d H:i:s');
+
+        // Resolve owner user_id if not provided
+        if (empty($userId) && $cleanUpi !== '') {
+            try {
+                $stmtOwner = $pdo->prepare("SELECT user_id FROM user_upi_accounts WHERE LOWER(upi_id) = ? LIMIT 1");
+                $stmtOwner->execute([$cleanUpi]);
+                $userId = (int)$stmtOwner->fetchColumn();
+            } catch (Exception $e) {}
+
+            if (empty($userId)) {
+                try {
+                    $stmtUser = $pdo->prepare("SELECT id FROM users WHERE LOWER(upi_id) = ? LIMIT 1");
+                    $stmtUser->execute([$cleanUpi]);
+                    $userId = (int)$stmtUser->fetchColumn();
+                } catch (Exception $e) {}
+            }
+        }
+
+        // 1. Clear risk flags and cooldown on user_upi_accounts
+        if ($cleanUpi !== '') {
+            try {
+                if ($resetStrikeCount) {
+                    $updAcc = $pdo->prepare("
+                        UPDATE user_upi_accounts
+                        SET is_risk_flagged = 0,
+                            risk_cooldown_until = NULL,
+                            risk_reason = NULL,
+                            risk_flag_count = 0,
+                            updated_at = ?
+                        WHERE LOWER(upi_id) = ?
+                    ");
+                    $updAcc->execute([$nowUtc, $cleanUpi]);
+                } else {
+                    $updAcc = $pdo->prepare("
+                        UPDATE user_upi_accounts
+                        SET is_risk_flagged = 0,
+                            risk_cooldown_until = NULL,
+                            risk_reason = NULL,
+                            updated_at = ?
+                        WHERE LOWER(upi_id) = ?
+                    ");
+                    $updAcc->execute([$nowUtc, $cleanUpi]);
+                }
+            } catch (Exception $eAcc) {}
+
+            // 2. Clear risk flags and cooldown on users table where upi_id matches
+            try {
+                if ($resetStrikeCount) {
+                    $updUserUpi = $pdo->prepare("
+                        UPDATE users
+                        SET upi_risk_flag = 0,
+                            upi_risk_cooldown_until = NULL,
+                            upi_risk_reason = NULL,
+                            upi_risk_flag_count = 0
+                        WHERE LOWER(upi_id) = ?
+                    ");
+                    $updUserUpi->execute([$cleanUpi]);
+                } else {
+                    $updUserUpi = $pdo->prepare("
+                        UPDATE users
+                        SET upi_risk_flag = 0,
+                            upi_risk_cooldown_until = NULL,
+                            upi_risk_reason = NULL
+                        WHERE LOWER(upi_id) = ?
+                    ");
+                    $updUserUpi->execute([$cleanUpi]);
+                }
+            } catch (Exception $eUserUpi) {}
+
+            // 3. Clear historical buyer cancellations for this UPI so it doesn't immediately re-trigger on 1 cancel
+            try {
+                $delCancels = $pdo->prepare("DELETE FROM order_cancellations WHERE LOWER(seller_upi_id) = ?");
+                $delCancels->execute([$cleanUpi]);
+            } catch (Exception $eCanc) {}
+        }
+
+        // 4. If userId is known, also clear user-level risk / sell restriction if no other UPIs remain in cooldown
+        if (!empty($userId) && $userId > 0) {
+            try {
+                $otherActiveStmt = $pdo->prepare("
+                    SELECT COUNT(*) FROM user_upi_accounts
+                    WHERE user_id = ? AND is_risk_flagged = 1 AND risk_cooldown_until > ?
+                ");
+                $otherActiveStmt->execute([$userId, $nowUtc]);
+                $remainingFlagged = (int)$otherActiveStmt->fetchColumn();
+
+                if ($remainingFlagged === 0) {
+                    $updUser = $pdo->prepare("
+                        UPDATE users
+                        SET upi_risk_flag = 0,
+                            upi_risk_cooldown_until = NULL,
+                            upi_risk_reason = NULL,
+                            sell_restricted = 0,
+                            sell_restriction_reason = NULL
+                        WHERE id = ?
+                    ");
+                    $updUser->execute([$userId]);
+                }
+            } catch (Exception $eUserClean) {}
+        }
+
+        // 5. Count active sell orders (child_orders with status = 'Available') now live in the public Buy section
+        $liveCount = 0;
+        $liveAmount = 0.0;
+        if ($cleanUpi !== '') {
+            try {
+                $liveStmt = $pdo->prepare("
+                    SELECT COUNT(*) as cnt, COALESCE(SUM(amount), 0) as total_amt
+                    FROM child_orders
+                    WHERE status = 'Available' AND LOWER(snapshotted_upi_id) = ?
+                ");
+                $liveStmt->execute([$cleanUpi]);
+                $liveRow = $liveStmt->fetch(PDO::FETCH_ASSOC);
+                $liveCount = (int)($liveRow['cnt'] ?? 0);
+                $liveAmount = round((float)($liveRow['total_amt'] ?? 0.0), 2);
+            } catch (Exception $eLive) {}
+        } elseif (!empty($userId)) {
+            try {
+                $liveStmt = $pdo->prepare("
+                    SELECT COUNT(*) as cnt, COALESCE(SUM(amount), 0) as total_amt
+                    FROM child_orders
+                    WHERE status = 'Available' AND seller_id = ?
+                ");
+                $liveStmt->execute([$userId]);
+                $liveRow = $liveStmt->fetch(PDO::FETCH_ASSOC);
+                $liveCount = (int)($liveRow['cnt'] ?? 0);
+                $liveAmount = round((float)($liveRow['total_amt'] ?? 0.0), 2);
+            } catch (Exception $eLive) {}
+        }
+
+        return [
+            'success' => true,
+            'upi_id' => $cleanUpi,
+            'user_id' => $userId,
+            'live_orders_count' => $liveCount,
+            'live_orders_amount' => $liveAmount
+        ];
+    }
 }

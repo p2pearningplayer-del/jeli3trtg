@@ -11,6 +11,7 @@ require_once __DIR__ . '/Wallet.php';
 require_once __DIR__ . '/Ledger.php';
 require_once __DIR__ . '/ReferralEngine.php';
 require_once __DIR__ . '/AgentManager.php';
+require_once __DIR__ . '/UpiManager.php';
 
 class AdminManager {
     /**
@@ -1202,6 +1203,401 @@ class AdminManager {
                 $pdo->rollBack();
             }
             return ['success' => false, 'error' => 'Fast-track resolution failed: ' . $e->getMessage()];
+        }
+    }
+
+    /**
+     * Get Sell Restriction Control Panel Data:
+     * Lists all sellers and UPI IDs currently restricted/hidden from the marketplace due to the
+     * automated UPI Risk/Failure cooldown system (4-hour ban / 8-hour ban) or manual restriction.
+     * Supports searching by User ID, Phone Number, UPI ID, or Account Holder Name.
+     */
+    public static function getSellRestrictions(
+        string $query = '',
+        string $filter = 'active',
+        int $limit = 50,
+        int $offset = 0
+    ): array {
+        $pdo = Database::getConnection();
+        $nowUtc = gmdate('Y-m-d H:i:s');
+        $nowTs = time();
+
+        // 1. Auto-sync any users who have upi_risk_flag = 1 or upi_risk_cooldown_until on users table
+        //    but do not yet have that UPI row in user_upi_accounts
+        try {
+            $syncStmt = $pdo->query("
+                SELECT u.id, u.upi_id, u.phone, u.account_holder_name,
+                       u.upi_risk_flag, u.upi_risk_flag_count, u.upi_risk_cooldown_until, u.upi_risk_reason
+                FROM users u
+                WHERE u.upi_id IS NOT NULL AND u.upi_id != ''
+                  AND (u.upi_risk_flag = 1 OR u.upi_risk_cooldown_until IS NOT NULL OR u.sell_restricted = 1)
+            ");
+            if ($syncStmt) {
+                $usersToSync = $syncStmt->fetchAll(PDO::FETCH_ASSOC);
+                $chkAcc = $pdo->prepare("SELECT id, is_risk_flagged, risk_cooldown_until FROM user_upi_accounts WHERE user_id = ? AND LOWER(upi_id) = ? LIMIT 1");
+                $insAcc = $pdo->prepare("
+                    INSERT INTO user_upi_accounts (
+                        user_id, upi_id, phone_number, account_holder_name,
+                        is_primary, is_risk_flagged, risk_flag_count, risk_cooldown_until, risk_reason,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
+                ");
+                $updAcc = $pdo->prepare("
+                    UPDATE user_upi_accounts
+                    SET is_risk_flagged = CASE WHEN ? > is_risk_flagged THEN ? ELSE is_risk_flagged END,
+                        risk_cooldown_until = COALESCE(risk_cooldown_until, ?),
+                        risk_flag_count = CASE WHEN ? > risk_flag_count THEN ? ELSE risk_flag_count END,
+                        risk_reason = COALESCE(risk_reason, ?)
+                    WHERE id = ?
+                ");
+
+                foreach ($usersToSync as $uRow) {
+                    $cleanUpi = strtolower(trim((string)$uRow['upi_id']));
+                    if ($cleanUpi === '') continue;
+                    $chkAcc->execute([(int)$uRow['id'], $cleanUpi]);
+                    $existingAcc = $chkAcc->fetch(PDO::FETCH_ASSOC);
+                    if (!$existingAcc) {
+                        $insAcc->execute([
+                            (int)$uRow['id'],
+                            $cleanUpi,
+                            $uRow['phone'] ?? '',
+                            $uRow['account_holder_name'] ?? null,
+                            (int)($uRow['upi_risk_flag'] ?? 0),
+                            max(1, (int)($uRow['upi_risk_flag_count'] ?? 1)),
+                            $uRow['upi_risk_cooldown_until'] ?? null,
+                            $uRow['upi_risk_reason'] ?? 'Flagged by UPI risk system',
+                            $nowUtc,
+                            $nowUtc
+                        ]);
+                    } else {
+                        $updAcc->execute([
+                            (int)($uRow['upi_risk_flag'] ?? 0),
+                            (int)($uRow['upi_risk_flag'] ?? 0),
+                            $uRow['upi_risk_cooldown_until'] ?? null,
+                            (int)($uRow['upi_risk_flag_count'] ?? 0),
+                            (int)($uRow['upi_risk_flag_count'] ?? 0),
+                            $uRow['upi_risk_reason'] ?? null,
+                            (int)$existingAcc['id']
+                        ]);
+                    }
+                }
+            }
+        } catch (Exception $eSync) {}
+
+        // 2. Build query over user_upi_accounts joined with users
+        $where = [];
+        $params = [];
+
+        if ($filter === 'active') {
+            $where[] = "(
+                (ua.risk_cooldown_until IS NOT NULL AND ua.risk_cooldown_until > ?)
+                OR ua.is_risk_flagged = 1
+                OR (u.upi_risk_cooldown_until IS NOT NULL AND u.upi_risk_cooldown_until > ? AND LOWER(u.upi_id) = LOWER(ua.upi_id))
+                OR (u.sell_restricted = 1 AND ua.is_primary = 1)
+            )";
+            $params[] = $nowUtc;
+            $params[] = $nowUtc;
+        } elseif ($filter === '4h') {
+            $where[] = "(
+                ((ua.risk_cooldown_until IS NOT NULL AND ua.risk_cooldown_until > ?) OR ua.is_risk_flagged = 1)
+                AND COALESCE(ua.risk_flag_count, 1) <= 1
+            )";
+            $params[] = $nowUtc;
+        } elseif ($filter === '8h') {
+            $where[] = "(
+                ((ua.risk_cooldown_until IS NOT NULL AND ua.risk_cooldown_until > ?) OR ua.is_risk_flagged = 1)
+                AND COALESCE(ua.risk_flag_count, 0) >= 2
+            )";
+            $params[] = $nowUtc;
+        } else {
+            // 'all' - any UPI with risk history or active restriction
+            $where[] = "(
+                ua.is_risk_flagged = 1
+                OR ua.risk_cooldown_until IS NOT NULL
+                OR ua.risk_flag_count > 0
+                OR u.upi_risk_flag = 1
+                OR u.sell_restricted = 1
+            )";
+        }
+
+        if (!empty(trim($query))) {
+            $cleanQ = trim($query);
+            $likeQ = '%' . $cleanQ . '%';
+            $where[] = "(
+                CAST(u.id AS CHAR) = ?
+                OR u.phone LIKE ?
+                OR ua.phone_number LIKE ?
+                OR LOWER(ua.upi_id) LIKE ?
+                OR LOWER(COALESCE(u.account_holder_name, '')) LIKE ?
+            )";
+            $params[] = ltrim($cleanQ, '#');
+            $params[] = $likeQ;
+            $params[] = $likeQ;
+            $params[] = strtolower($likeQ);
+            $params[] = strtolower($likeQ);
+        }
+
+        $whereClause = !empty($where) ? implode(" AND ", $where) : "1=1";
+
+        $countSql = "
+            SELECT COUNT(*)
+            FROM user_upi_accounts ua
+            JOIN users u ON ua.user_id = u.id
+            WHERE {$whereClause}
+        ";
+        $countStmt = $pdo->prepare($countSql);
+        $countStmt->execute($params);
+        $totalCount = (int)$countStmt->fetchColumn();
+
+        $sql = "
+            SELECT ua.id as upi_account_id,
+                   ua.user_id,
+                   ua.upi_id,
+                   ua.phone_number as upi_phone,
+                   ua.account_holder_name as upi_holder_name,
+                   ua.is_primary,
+                   ua.is_risk_flagged,
+                   ua.risk_flag_count,
+                   ua.risk_cooldown_until,
+                   ua.risk_reason,
+                   ua.updated_at as upi_updated_at,
+                   u.phone as user_phone,
+                   u.email as user_email,
+                   u.account_holder_name as user_name,
+                   u.account_status,
+                   u.upi_risk_flag as user_upi_risk_flag,
+                   u.upi_risk_cooldown_until as user_cooldown_until,
+                   u.upi_risk_flag_count as user_flag_count,
+                   u.upi_risk_reason as user_risk_reason,
+                   u.sell_restricted,
+                   u.sell_restriction_reason
+            FROM user_upi_accounts ua
+            JOIN users u ON ua.user_id = u.id
+            WHERE {$whereClause}
+            ORDER BY COALESCE(ua.risk_cooldown_until, ua.updated_at, ua.created_at) DESC, ua.id DESC
+            LIMIT ? OFFSET ?
+        ";
+
+        $stmt = $pdo->prepare($sql);
+        $bindIdx = 1;
+        foreach ($params as $p) {
+            $stmt->bindValue($bindIdx++, $p);
+        }
+        $stmt->bindValue($bindIdx++, $limit, PDO::PARAM_INT);
+        $stmt->bindValue($bindIdx++, $offset, PDO::PARAM_INT);
+        $stmt->execute();
+
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Prepare query to inspect hidden active sell orders for each restricted UPI
+        $hiddenOrdersStmt = $pdo->prepare("
+            SELECT COUNT(*) as order_count, COALESCE(SUM(amount), 0) as total_amount
+            FROM child_orders
+            WHERE status = 'Available' AND LOWER(snapshotted_upi_id) = ?
+        ");
+        $cancelCountStmt = $pdo->prepare("
+            SELECT COUNT(*) FROM order_cancellations WHERE LOWER(seller_upi_id) = ?
+        ");
+
+        $restrictions = [];
+        foreach ($rows as $r) {
+            $cleanUpi = strtolower(trim((string)$r['upi_id']));
+            $cooldownUntil = $r['risk_cooldown_until'] ?: ($r['user_cooldown_until'] ?? null);
+            $flagCount = max((int)($r['risk_flag_count'] ?? 0), (int)($r['user_flag_count'] ?? 0));
+            $reason = $r['risk_reason'] ?: ($r['user_risk_reason'] ?: ($r['sell_restriction_reason'] ?: 'Multiple buyer cancellations on this UPI ID'));
+
+            $isInCooldown = false;
+            $remainingSecs = 0;
+            $remainingFormatted = 'Expired / Inactive';
+
+            if (!empty($cooldownUntil)) {
+                $cooldownTs = strtotime($cooldownUntil . ' UTC');
+                if ($cooldownTs > $nowTs) {
+                    $isInCooldown = true;
+                    $remainingSecs = $cooldownTs - $nowTs;
+                    $hrs = floor($remainingSecs / 3600);
+                    $mins = floor(($remainingSecs % 3600) / 60);
+                    $secs = $remainingSecs % 60;
+                    $remainingFormatted = $hrs > 0 ? "{$hrs}h {$mins}m left" : "{$mins}m {$secs}s left";
+                }
+            }
+
+            $isRestricted = $isInCooldown || ((int)($r['is_risk_flagged'] ?? 0) === 1) || ((int)($r['sell_restricted'] ?? 0) === 1);
+
+            // Determine penalty tier (4-hour ban vs 8-hour ban)
+            if ($flagCount >= 2) {
+                $penaltyHours = 8;
+                $banBadge = '8-Hour Ban';
+                $banTier = '8h_ban';
+            } else {
+                $penaltyHours = 4;
+                $banBadge = '4-Hour Ban';
+                $banTier = '4h_ban';
+            }
+
+            // Count hidden active sell orders tied to this UPI
+            $hiddenOrdersStmt->execute([$cleanUpi]);
+            $hiddenInfo = $hiddenOrdersStmt->fetch(PDO::FETCH_ASSOC) ?: ['order_count' => 0, 'total_amount' => 0];
+
+            $cancelCount = 0;
+            try {
+                $cancelCountStmt->execute([$cleanUpi]);
+                $cancelCount = (int)$cancelCountStmt->fetchColumn();
+            } catch (Exception $eC) {}
+
+            $restrictions[] = [
+                'upi_account_id' => (int)$r['upi_account_id'],
+                'user_id' => (int)$r['user_id'],
+                'user_phone' => $r['user_phone'],
+                'user_name' => $r['user_name'] ?: ($r['upi_holder_name'] ?: 'Seller'),
+                'account_status' => $r['account_status'],
+                'upi_id' => $r['upi_id'],
+                'upi_phone' => $r['upi_phone'] ?: $r['user_phone'],
+                'is_primary' => (bool)$r['is_primary'],
+                'is_restricted' => $isRestricted,
+                'is_in_cooldown' => $isInCooldown,
+                'penalty_hours' => $penaltyHours,
+                'ban_badge' => $banBadge,
+                'ban_tier' => $banTier,
+                'risk_flag_count' => max(1, $flagCount),
+                'buyer_cancellations_count' => $cancelCount,
+                'risk_cooldown_until' => $cooldownUntil,
+                'remaining_seconds' => $remainingSecs,
+                'remaining_formatted' => $remainingFormatted,
+                'risk_reason' => $reason,
+                'hidden_orders_count' => (int)($hiddenInfo['order_count'] ?? 0),
+                'hidden_orders_amount' => round((float)($hiddenInfo['total_amount'] ?? 0), 2)
+            ];
+        }
+
+        // 3. Summary metrics for header cards
+        $sumStmt = $pdo->prepare("
+            SELECT COUNT(*) as total_upis,
+                   COUNT(DISTINCT ua.user_id) as total_sellers,
+                   SUM(CASE WHEN COALESCE(ua.risk_flag_count, 1) <= 1 THEN 1 ELSE 0 END) as ban_4h_count,
+                   SUM(CASE WHEN COALESCE(ua.risk_flag_count, 0) >= 2 THEN 1 ELSE 0 END) as ban_8h_count
+            FROM user_upi_accounts ua
+            JOIN users u ON ua.user_id = u.id
+            WHERE (ua.risk_cooldown_until IS NOT NULL AND ua.risk_cooldown_until > ?)
+               OR ua.is_risk_flagged = 1
+               OR (u.sell_restricted = 1 AND ua.is_primary = 1)
+        ");
+        $sumStmt->execute([$nowUtc]);
+        $sumRow = $sumStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+        // Calculate total hidden active order volume across all restricted UPIs
+        $hiddenVolStmt = $pdo->prepare("
+            SELECT COUNT(*) as cnt, COALESCE(SUM(c.amount), 0) as vol
+            FROM child_orders c
+            WHERE c.status = 'Available'
+              AND EXISTS (
+                  SELECT 1 FROM user_upi_accounts ua
+                  WHERE LOWER(ua.upi_id) = LOWER(c.snapshotted_upi_id)
+                    AND ((ua.risk_cooldown_until IS NOT NULL AND ua.risk_cooldown_until > ?) OR ua.is_risk_flagged = 1)
+              )
+        ");
+        $hiddenVolStmt->execute([$nowUtc]);
+        $hiddenVolRow = $hiddenVolStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+        return [
+            'restrictions' => $restrictions,
+            'total' => $totalCount,
+            'summary' => [
+                'total_restricted_upis' => (int)($sumRow['total_upis'] ?? 0),
+                'total_restricted_sellers' => (int)($sumRow['total_sellers'] ?? 0),
+                'ban_4h_count' => (int)($sumRow['ban_4h_count'] ?? 0),
+                'ban_8h_count' => (int)($sumRow['ban_8h_count'] ?? 0),
+                'hidden_orders_count' => (int)($hiddenVolRow['cnt'] ?? 0),
+                'hidden_orders_volume' => round((float)($hiddenVolRow['vol'] ?? 0), 2)
+            ]
+        ];
+    }
+
+    /**
+     * Admin Action: Remove UPI Sell Restriction ("Remove Restriction" / Make Live)
+     * Instantly clears the risk flag for the specified UPI ID, bypasses the 4h/8h cooldown timer,
+     * and immediately pushes the seller's active sell orders back to the public "Buy" section.
+     */
+    public static function removeUpiSellRestriction(
+        int $adminId,
+        string $upiId,
+        int $userId = 0,
+        bool $resetStrikeCount = true,
+        string $reason = ''
+    ): array {
+        $pdo = Database::getConnection();
+        $cleanUpi = strtolower(trim($upiId));
+
+        if ($cleanUpi === '' && $userId <= 0) {
+            return ['success' => false, 'error' => 'A valid UPI ID or User ID is required to remove the restriction.'];
+        }
+
+        if (empty(trim($reason))) {
+            $reason = "Admin manually removed UPI restriction (Make Live) for {$cleanUpi}";
+        }
+
+        $beforeInfo = $cleanUpi !== '' ? UpiManager::getUpiCooldownInfo($cleanUpi) : [];
+
+        $pdo->beginTransaction();
+        try {
+            $clearRes = UpiManager::clearUpiRestriction($pdo, $cleanUpi, $userId > 0 ? $userId : null, $resetStrikeCount);
+            $resolvedUserId = (int)($clearRes['user_id'] ?? $userId);
+            $liveCount = (int)($clearRes['live_orders_count'] ?? 0);
+            $liveAmount = (float)($clearRes['live_orders_amount'] ?? 0.0);
+
+            self::logAudit(
+                $adminId,
+                'ADMIN_REMOVE_UPI_SELL_RESTRICTION',
+                'user_upi_accounts',
+                $cleanUpi ?: (string)$resolvedUserId,
+                [
+                    'upi_id' => $cleanUpi,
+                    'user_id' => $resolvedUserId,
+                    'was_in_cooldown' => $beforeInfo['is_in_cooldown'] ?? true,
+                    'cooldown_until' => $beforeInfo['cooldown_until'] ?? null,
+                    'risk_flag_count' => $beforeInfo['risk_flag_count'] ?? 1
+                ],
+                [
+                    'is_risk_flagged' => 0,
+                    'risk_cooldown_until' => null,
+                    'live_orders_restored' => $liveCount,
+                    'live_orders_amount' => $liveAmount
+                ],
+                trim($reason)
+            );
+
+            $pdo->commit();
+
+            if ($resolvedUserId > 0 && class_exists('Auth')) {
+                $ordersMsg = $liveCount > 0
+                    ? " Your {$liveCount} active sell order(s) (₹" . number_format($liveAmount, 2) . ") are now live in the public Buy section."
+                    : " You can now list and receive payments on this UPI ID immediately.";
+                Auth::createNotification(
+                    $resolvedUserId,
+                    "UPI Restriction Lifted: {$cleanUpi}",
+                    "Admin has removed the risk cooldown on your UPI ID ({$cleanUpi}).{$ordersMsg}",
+                    'system',
+                    $cleanUpi
+                );
+            }
+
+            $liveSuffix = $liveCount > 0
+                ? " {$liveCount} active sell order(s) totaling ₹" . number_format($liveAmount, 2) . " are now immediately LIVE in the public Buy marketplace!"
+                : " UPI is now live and ready for public Buy marketplace listings.";
+
+            return [
+                'success' => true,
+                'upi_id' => $cleanUpi,
+                'user_id' => $resolvedUserId,
+                'live_orders_count' => $liveCount,
+                'live_orders_amount' => $liveAmount,
+                'message' => "Restriction removed for UPI '{$cleanUpi}'! Cooldown timer bypassed and risk flag cleared.{$liveSuffix}"
+            ];
+        } catch (Exception $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            return ['success' => false, 'error' => 'Failed to remove UPI restriction: ' . $e->getMessage()];
         }
     }
 

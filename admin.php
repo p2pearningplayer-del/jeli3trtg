@@ -105,6 +105,11 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                     <span>Pending Confirmations</span>
                     <span id="navPendingConfBadge" class="px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] font-mono">0</span>
                 </button>
+                <button onclick="switchAdminTab('sell_restrictions')" id="adminNav-sell_restrictions" class="admin-nav-item px-3.5 py-2 rounded-lg flex items-center gap-1.5 whitespace-nowrap text-slate-400 hover:text-white">
+                    <svg class="w-4 h-4 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
+                    <span>Sell Restriction Control</span>
+                    <span id="navSellRestrictionsBadge" class="px-1.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 text-[10px] font-mono">0</span>
+                </button>
                 <button onclick="switchAdminTab('disputes')" id="adminNav-disputes" class="admin-nav-item px-3.5 py-2 rounded-lg flex items-center gap-1.5 whitespace-nowrap text-slate-400 hover:text-white">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
                     <span>Disputes</span>
@@ -830,6 +835,147 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                         </button>
                         <span id="pendConfPageIndicator" class="px-3 py-1.5 text-slate-400 font-mono">Page 1</span>
                         <button id="pendConfNextBtn" onclick="changePendConfPage('next')" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300 rounded-xl font-semibold border border-slate-700 transition">
+                            Next &rarr;
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ========================================== -->
+        <!-- VIEW 3C: SELL RESTRICTION CONTROL (UPI RISK / COOLDOWN OVERRIDE) -->
+        <!-- ========================================== -->
+        <section id="adminView-sell_restrictions" class="admin-view space-y-6 hidden">
+            <!-- Summary Metric Cards -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="bg-slate-900 border border-rose-500/30 rounded-2xl p-5 flex items-center justify-between gap-4 shadow-lg">
+                    <div class="space-y-1">
+                        <div class="flex items-center gap-2">
+                            <span class="w-2.5 h-2.5 rounded-full bg-rose-400 animate-pulse"></span>
+                            <span class="text-xs font-bold uppercase tracking-wider text-rose-400">Restricted UPI IDs</span>
+                        </div>
+                        <div id="sellRestTotalUpis" class="text-2xl sm:text-3xl font-extrabold font-mono text-white">0</div>
+                        <p class="text-[11px] text-slate-400"><span id="sellRestTotalSellers" class="font-bold text-slate-200">0</span> seller(s) currently hidden from Buy pool</p>
+                    </div>
+                    <div class="w-11 h-11 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400 shrink-0">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 border border-amber-500/30 rounded-2xl p-5 flex items-center justify-between gap-4 shadow-lg">
+                    <div class="space-y-1">
+                        <div class="flex items-center gap-2">
+                            <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+                            <span class="text-xs font-bold uppercase tracking-wider text-amber-400">4-Hour Cooldown Bans</span>
+                        </div>
+                        <div id="sellRest4hCount" class="text-2xl sm:text-3xl font-extrabold font-mono text-amber-400">0</div>
+                        <p class="text-[11px] text-slate-400">1st offense UPI risk cooldowns</p>
+                    </div>
+                    <div class="w-11 h-11 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shrink-0">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 border border-red-500/30 rounded-2xl p-5 flex items-center justify-between gap-4 shadow-lg">
+                    <div class="space-y-1">
+                        <div class="flex items-center gap-2">
+                            <span class="w-2 h-2 rounded-full bg-red-400"></span>
+                            <span class="text-xs font-bold uppercase tracking-wider text-red-400">8-Hour Cooldown Bans</span>
+                        </div>
+                        <div id="sellRest8hCount" class="text-2xl sm:text-3xl font-extrabold font-mono text-red-400">0</div>
+                        <p class="text-[11px] text-slate-400">Repeat offense UPI risk cooldowns</p>
+                    </div>
+                    <div class="w-11 h-11 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400 shrink-0">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 border border-indigo-500/30 rounded-2xl p-5 flex items-center justify-between gap-4 shadow-lg">
+                    <div class="space-y-1">
+                        <div class="flex items-center gap-2">
+                            <span class="w-2 h-2 rounded-full bg-indigo-400"></span>
+                            <span class="text-xs font-bold uppercase tracking-wider text-indigo-400">Hidden Sell Orders</span>
+                        </div>
+                        <div id="sellRestHiddenVol" class="text-2xl sm:text-3xl font-extrabold font-mono text-indigo-400">₹0.00</div>
+                        <p class="text-[11px] text-slate-400"><span id="sellRestHiddenCount" class="font-bold text-slate-200">0</span> active order(s) waiting to go live</p>
+                    </div>
+                    <div class="w-11 h-11 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 shrink-0">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Search & Filter Bar -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h3 class="text-lg font-bold text-white">Sell Restriction Control &bull; UPI Risk &amp; Cooldown Override</h3>
+                            <span class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold uppercase">Instant Revive / Make Live</span>
+                        </div>
+                        <p class="text-xs text-slate-400 mt-0.5">
+                            Manage sellers and UPI IDs restricted or hidden from the marketplace by the automated UPI Risk/Failure system (4-hour &amp; 8-hour bans). Click <strong>Remove Restriction (Make Live)</strong> to clear the risk flag, bypass the cooldown timer, and immediately push their active sell orders back to the public Buy section.
+                        </p>
+                    </div>
+                    <div class="flex items-center gap-2 shrink-0">
+                        <button onclick="loadAdminSellRestrictions()" class="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition shadow-md flex items-center gap-1.5">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                            <span>Refresh Restricted List</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                    <div class="sm:col-span-2">
+                        <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Search by Phone Number, User ID, or UPI ID</label>
+                        <input type="text" id="sellRestSearchInput" onkeyup="if(event.key === 'Enter') { sellRestPageOffset=0; loadAdminSellRestrictions(); }"
+                               placeholder="Enter Phone Number (e.g. 9876543210), User ID (e.g. 42), or UPI ID..."
+                               class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-rose-500">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Restriction Status Filter</label>
+                        <select id="sellRestFilterSelect" onchange="sellRestPageOffset=0; loadAdminSellRestrictions()" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-rose-500">
+                            <option value="active">Currently Restricted (Active Bans)</option>
+                            <option value="4h">4-Hour Bans Only</option>
+                            <option value="8h">8-Hour Bans Only</option>
+                            <option value="all">All Flagged UPI History</option>
+                        </select>
+                    </div>
+                    <div class="flex items-end gap-2">
+                        <button onclick="sellRestPageOffset=0; loadAdminSellRestrictions()" class="flex-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition shadow-sm">
+                            Search User / UPI
+                        </button>
+                        <button onclick="document.getElementById('sellRestSearchInput').value=''; document.getElementById('sellRestFilterSelect').value='active'; sellRestPageOffset=0; loadAdminSellRestrictions();" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-xl text-xs font-semibold transition">
+                            Reset
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Restricted Sellers & UPI IDs Table -->
+            <div class="overflow-x-auto bg-slate-900 border border-slate-800 rounded-2xl">
+                <table class="w-full text-left">
+                    <thead class="bg-slate-950 text-slate-400 text-xs uppercase border-b border-slate-800">
+                        <tr>
+                            <th class="p-3">User ID &amp; Phone Number</th>
+                            <th class="p-3">Restricted / Hidden UPI ID</th>
+                            <th class="p-3">Restriction Status (4h / 8h Ban)</th>
+                            <th class="p-3">Cooldown Timer &amp; Reason</th>
+                            <th class="p-3">Hidden Active Sell Orders</th>
+                            <th class="p-3">Admin Action (Make Live / Revive)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="adminSellRestrictionsTableBody" class="divide-y divide-slate-800/60"></tbody>
+                </table>
+
+                <div class="p-4 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                    <span id="sellRestPaginationInfo" class="text-slate-400 font-mono">Showing 0 restricted UPIs</span>
+                    <div class="flex items-center gap-2">
+                        <button id="sellRestPrevBtn" onclick="changeSellRestPage('prev')" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300 rounded-xl font-semibold border border-slate-700 transition">
+                            &larr; Previous
+                        </button>
+                        <span id="sellRestPageIndicator" class="px-3 py-1.5 text-slate-400 font-mono">Page 1</span>
+                        <button id="sellRestNextBtn" onclick="changeSellRestPage('next')" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300 rounded-xl font-semibold border border-slate-700 transition">
                             Next &rarr;
                         </button>
                     </div>

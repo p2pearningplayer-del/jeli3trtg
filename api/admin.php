@@ -55,7 +55,7 @@ $stateModifyingActions = [
     'manual_adjustment', 'dispute_decision', 'set_user_status', 'toggle_flag',
     'mass_cancel_and_freeze', 'reverse_unauthorized_order', 'neutralize_exploiters',
     'reverse_fraudulent_crypto_deposit', 'update_setting', 'force_cancel_order',
-    'fast_track_resolve_order'
+    'fast_track_resolve_order', 'remove_sell_restriction'
 ];
 if (!empty($user['is_impersonating']) && in_array($action, $stateModifyingActions, true)) {
     jsonError('Financial and state-modifying actions are strictly locked while in Admin Support Mode. Please exit Support Mode before executing this action.', 403);
@@ -362,6 +362,36 @@ switch ($action) {
         }
 
         $res = AdminManager::fastTrackResolveOrder($childId, (int)$adminId, $decision, $reason);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
+    case 'sell_restrictions':
+        // Admin "Sell Restriction Control" Panel: list restricted sellers & UPI IDs (4h / 8h bans)
+        $query = $_GET['query'] ?? '';
+        $filter = $_GET['filter'] ?? 'active';
+        $limit = max(1, min(100, (int)($_GET['limit'] ?? 50)));
+        $offset = max(0, (int)($_GET['offset'] ?? 0));
+
+        $res = AdminManager::getSellRestrictions($query, $filter, $limit, $offset);
+        jsonResponse(true, $res);
+        break;
+
+    case 'remove_sell_restriction':
+        // Admin Action (Make Live / Revive): Clear UPI risk flag & cooldown timer and restore active sell orders to Buy pool
+        $upiId = trim((string)($input['upi_id'] ?? $_POST['upi_id'] ?? ''));
+        $targetUserId = (int)($input['user_id'] ?? $_POST['user_id'] ?? 0);
+        $resetStrikes = isset($input['reset_strikes']) ? (bool)$input['reset_strikes'] : true;
+        $reason = trim((string)($input['reason'] ?? $_POST['reason'] ?? ''));
+
+        if ($upiId === '' && $targetUserId <= 0) {
+            jsonError('A valid UPI ID or User ID is required to remove the restriction.');
+        }
+
+        $res = AdminManager::removeUpiSellRestriction((int)$adminId, $upiId, $targetUserId, $resetStrikes, $reason);
         if ($res['success']) {
             jsonResponse(true, $res);
         } else {
