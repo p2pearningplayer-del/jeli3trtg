@@ -564,12 +564,56 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
         <!-- VIEW 3: ORDER MANAGEMENT -->
         <!-- ========================================== -->
         <section id="adminView-orders" class="admin-view space-y-6 hidden">
-            <!-- Requirement 2: Three Distinct Order Sections (Active, Cancelled, Disputed) -->
+            <!-- Daily Volume Metric Cards (Today's Available & Completed Order Balances) -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <!-- Card 1: Today's Available Order Balance -->
+                <div onclick="switchOrderSection('active')" class="bg-slate-900 border border-slate-800 hover:border-indigo-500/40 rounded-2xl p-5 flex items-center justify-between gap-4 transition cursor-pointer shadow-lg">
+                    <div class="space-y-1">
+                        <div class="flex items-center gap-2">
+                            <span class="w-2 h-2 rounded-full bg-indigo-400 animate-pulse"></span>
+                            <span class="text-xs font-bold uppercase tracking-wider text-indigo-400">Today's Available Order Balance</span>
+                        </div>
+                        <div id="orderMetricTodayAvailableBalance" class="text-2xl sm:text-3xl font-extrabold font-mono text-white">₹0.00</div>
+                        <p class="text-[11px] text-slate-400">Total value of all active, unsold orders currently listed today</p>
+                    </div>
+                    <div class="flex flex-col items-end gap-2 shrink-0">
+                        <div class="w-11 h-11 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+                        </div>
+                        <span id="orderMetricTodayAvailableCount" class="px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 text-[10px] font-mono font-bold">0 Unsold Listed Today</span>
+                    </div>
+                </div>
+
+                <!-- Card 2: Today's Completed Order Balance -->
+                <div onclick="switchOrderSection('completed')" class="bg-slate-900 border border-slate-800 hover:border-emerald-500/40 rounded-2xl p-5 flex items-center justify-between gap-4 transition cursor-pointer shadow-lg">
+                    <div class="space-y-1">
+                        <div class="flex items-center gap-2">
+                            <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                            <span class="text-xs font-bold uppercase tracking-wider text-emerald-400">Today's Completed Order Balance</span>
+                        </div>
+                        <div id="orderMetricTodayCompletedBalance" class="text-2xl sm:text-3xl font-extrabold font-mono text-emerald-400">₹0.00</div>
+                        <p class="text-[11px] text-slate-400">Total value of all orders successfully completed today</p>
+                    </div>
+                    <div class="flex flex-col items-end gap-2 shrink-0">
+                        <div class="w-11 h-11 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                        </div>
+                        <span id="orderMetricTodayCompletedCount" class="px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 text-[10px] font-mono font-bold">0 Completed Today</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Four Distinct Order Sections (Active, Completed, Cancelled, Disputed) -->
             <div class="flex flex-wrap items-center gap-2 border-b border-slate-800 pb-3">
                 <button type="button" onclick="switchOrderSection('active')" id="orderSecTab-active"
                         class="order-sec-tab px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 bg-indigo-600 text-white shadow-md shadow-indigo-600/20">
                     <span>Active Orders</span>
                     <span id="orderSecCount-active" class="px-1.5 py-0.5 rounded-full bg-white/20 text-[10px]">0</span>
+                </button>
+                <button type="button" onclick="switchOrderSection('completed')" id="orderSecTab-completed"
+                        class="order-sec-tab px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 bg-slate-800 text-slate-400 hover:text-white">
+                    <span>Completed Orders</span>
+                    <span id="orderSecCount-completed" class="px-1.5 py-0.5 rounded-full bg-slate-900 text-emerald-400 text-[10px] border border-emerald-500/20">0</span>
                 </button>
                 <button type="button" onclick="switchOrderSection('cancelled')" id="orderSecTab-cancelled"
                         class="order-sec-tab px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 bg-slate-800 text-slate-400 hover:text-white">

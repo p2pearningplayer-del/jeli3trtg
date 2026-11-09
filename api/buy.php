@@ -188,7 +188,7 @@ switch ($action) {
 
         // Rate limit custom allocation requests
         $rateKeyAlloc = "custom_alloc_{$user['id']}";
-        if (!RateLimiter::checkWithBan($rateKeyAlloc, 'custom_allocation', 15, 60, $clientIp)) {
+        if (!RateLimiter::checkWithBan($rateKeyAlloc, 'custom_allocation', 25, 60, $clientIp)) {
             jsonError('Too many allocation requests. Please wait a minute before trying again.', 429);
         }
 
@@ -206,9 +206,9 @@ switch ($action) {
             jsonError('Proof submission is disabled in Admin Support Mode.', 403);
         }
 
-        // Rate limit proof submissions
+        // Rate limit proof submissions (supports up to 10 concurrent buy orders)
         $rateKeyProof = "submit_proof_{$user['id']}";
-        if (!RateLimiter::checkWithBan($rateKeyProof, 'submit_proof', 10, 60, $clientIp)) {
+        if (!RateLimiter::checkWithBan($rateKeyProof, 'submit_proof', 25, 60, $clientIp)) {
             jsonError('Too many proof submissions. Please wait a minute before trying again.', 429);
         }
 
@@ -274,6 +274,7 @@ switch ($action) {
 
     case 'active_order':
         $pdo = Database::getConnection();
+        $maxConcurrent = defined('MAX_CONCURRENT_BUY_ORDERS') ? (int)MAX_CONCURRENT_BUY_ORDERS : 10;
         $stmt = $pdo->prepare("
             SELECT c.*, (c.amount + c.snapshotted_reward_amount) as total_credit,
                    p.utr_number, p.screenshot_path, p.created_at as proof_uploaded_at,
@@ -282,18 +283,35 @@ switch ($action) {
             LEFT JOIN payment_proofs p ON c.id = p.child_order_id
             LEFT JOIN disputes d ON c.id = d.child_order_id
             WHERE c.buyer_id = ? AND c.status IN ('Reserved', 'Payment Proof Submitted', 'Seller Confirmation Pending', 'Disputed')
-            ORDER BY c.id DESC
-            LIMIT 1
+            ORDER BY CASE WHEN c.status = 'Reserved' THEN 0 ELSE 1 END ASC, c.id DESC
+            LIMIT 10
         ");
         $stmt->execute([(int)$user['id']]);
-        $activeOrder = $stmt->fetch();
+        $activeRows = $stmt->fetchAll();
 
-        if (!$activeOrder) {
-            jsonResponse(true, ['has_active' => false, 'order' => null]);
+        if (empty($activeRows)) {
+            jsonResponse(true, [
+                'has_active' => false,
+                'active_count' => 0,
+                'max_concurrent_orders' => $maxConcurrent,
+                'order' => null,
+                'orders' => []
+            ]);
         }
 
-        $activeOrder = formatChildOrderResponse($activeOrder, time());
-        jsonResponse(true, ['has_active' => true, 'order' => $activeOrder]);
+        $now = time();
+        $formattedOrders = [];
+        foreach ($activeRows as $r) {
+            $formattedOrders[] = formatChildOrderResponse($r, $now);
+        }
+
+        jsonResponse(true, [
+            'has_active' => true,
+            'active_count' => count($formattedOrders),
+            'max_concurrent_orders' => $maxConcurrent,
+            'order' => $formattedOrders[0],
+            'orders' => $formattedOrders
+        ]);
         break;
 
     case 'my_purchases':

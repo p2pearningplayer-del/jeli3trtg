@@ -658,9 +658,11 @@ class AdminManager {
         $where = ["1=1"];
         $params = [];
 
-        // Requirement 2: Three distinct sections (active, cancelled, disputed)
+        // Four distinct sections (active, completed, cancelled, disputed)
         if ($section === 'active') {
             $where[] = "c.status IN ('Available', 'Reserved', 'Payment Proof Submitted', 'Seller Confirmation Pending', 'Seller Response Timeout')";
+        } elseif ($section === 'completed') {
+            $where[] = "c.status IN ('Completed', 'completed')";
         } elseif ($section === 'cancelled') {
             $where[] = "c.status IN ('Cancelled / Reversed', 'Cancelled')";
         } elseif ($section === 'disputed') {
@@ -687,11 +689,19 @@ class AdminManager {
         }
 
         if (!empty(trim($dateFrom))) {
-            $where[] = "c.created_at >= ?";
+            if ($section === 'completed') {
+                $where[] = "COALESCE(c.completed_at, c.created_at) >= ?";
+            } else {
+                $where[] = "c.created_at >= ?";
+            }
             $params[] = trim($dateFrom) . " 00:00:00";
         }
         if (!empty(trim($dateTo))) {
-            $where[] = "c.created_at <= ?";
+            if ($section === 'completed') {
+                $where[] = "COALESCE(c.completed_at, c.created_at) <= ?";
+            } else {
+                $where[] = "c.created_at <= ?";
+            }
             $params[] = trim($dateTo) . " 23:59:59";
         }
 
@@ -711,6 +721,8 @@ class AdminManager {
         $countStmt->execute($params);
         $totalCount = (int)$countStmt->fetchColumn();
 
+        $orderByClause = ($section === 'completed') ? "COALESCE(c.completed_at, c.created_at) DESC, c.id DESC" : "c.id DESC";
+
         $stmt = $pdo->prepare("
             SELECT c.*, p.utr_number, p.screenshot_path,
                    ps.snapshotted_upi_id as parent_snapshotted_upi_id, ps.snapshotted_account_holder as parent_snapshotted_account_holder,
@@ -724,7 +736,7 @@ class AdminManager {
             LEFT JOIN payment_proofs p ON c.id = p.child_order_id
             LEFT JOIN disputes d ON c.id = d.child_order_id
             WHERE {$whereClause}
-            ORDER BY c.id DESC
+            ORDER BY {$orderByClause}
             LIMIT ? OFFSET ?
         ");
         $bindIdx = 1;
@@ -756,8 +768,39 @@ class AdminManager {
         unset($ord);
 
         $countActive = (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE status IN ('Available', 'Reserved', 'Payment Proof Submitted', 'Seller Confirmation Pending', 'Seller Response Timeout')")->fetchColumn();
+        $countCompleted = (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE status IN ('Completed', 'completed')")->fetchColumn();
         $countCancelled = (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE status IN ('Cancelled / Reversed', 'Cancelled')")->fetchColumn();
         $countDisputed = (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE status IN ('Disputed', 'Appealed', 'In Dispute Review')")->fetchColumn();
+
+        // Daily Volume Metrics for Orders Section Header Cards (UTC Today)
+        $todayUtc = gmdate('Y-m-d');
+        $todayStart = $todayUtc . ' 00:00:00';
+        $todayEnd = $todayUtc . ' 23:59:59';
+
+        // 1. Today's Available Order Balance: Total value of all active, unsold orders currently listed today
+        $availTodayStmt = $pdo->prepare("
+            SELECT COALESCE(SUM(amount), 0) as total_balance, COUNT(*) as order_count
+            FROM child_orders
+            WHERE status = 'Available'
+              AND created_at >= ? AND created_at <= ?
+        ");
+        $availTodayStmt->execute([$todayStart, $todayEnd]);
+        $availTodayRow = $availTodayStmt->fetch(PDO::FETCH_ASSOC);
+        $todayAvailableBalance = (float)($availTodayRow['total_balance'] ?? 0.0);
+        $todayAvailableCount = (int)($availTodayRow['order_count'] ?? 0);
+
+        // 2. Today's Completed Order Balance: Total value of all orders successfully completed today
+        $compTodayStmt = $pdo->prepare("
+            SELECT COALESCE(SUM(amount), 0) as total_balance, COUNT(*) as order_count
+            FROM child_orders
+            WHERE status IN ('Completed', 'completed')
+              AND COALESCE(completed_at, updated_at, created_at) >= ?
+              AND COALESCE(completed_at, updated_at, created_at) <= ?
+        ");
+        $compTodayStmt->execute([$todayStart, $todayEnd]);
+        $compTodayRow = $compTodayStmt->fetch(PDO::FETCH_ASSOC);
+        $todayCompletedBalance = (float)($compTodayRow['total_balance'] ?? 0.0);
+        $todayCompletedCount = (int)($compTodayRow['order_count'] ?? 0);
 
         return [
             'orders' => $orders,
@@ -765,9 +808,17 @@ class AdminManager {
             'section' => $section,
             'counts' => [
                 'active' => $countActive,
+                'completed' => $countCompleted,
                 'cancelled' => $countCancelled,
                 'disputed' => $countDisputed,
-                'total' => $countActive + $countCancelled + $countDisputed
+                'total' => $countActive + $countCompleted + $countCancelled + $countDisputed
+            ],
+            'daily_metrics' => [
+                'date_utc' => $todayUtc,
+                'today_available_balance' => round($todayAvailableBalance, 2),
+                'today_available_count' => $todayAvailableCount,
+                'today_completed_balance' => round($todayCompletedBalance, 2),
+                'today_completed_count' => $todayCompletedCount
             ]
         ];
     }

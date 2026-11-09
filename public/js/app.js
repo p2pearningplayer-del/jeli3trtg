@@ -932,7 +932,7 @@ async function syncHomeActiveOrder(silent = false) {
             const subtextEl = document.getElementById('homeActiveOrderSubtext');
             const cancelBtn = document.getElementById('homeActiveOrderCancelBtn');
 
-            if (idEl) idEl.innerText = formatOrderId(ord.id);
+            if (idEl) idEl.innerText = data.active_count > 1 ? `${formatOrderId(ord.id)} (+${data.active_count - 1} more active, ${data.active_count}/10)` : formatOrderId(ord.id);
             if (amtEl) amtEl.innerText = `₹${parseFloat(ord.amount).toLocaleString('en-IN')}`;
 
             if (badgeEl) {
@@ -1518,7 +1518,7 @@ async function loadBuyPageHistory(silent = false) {
                         <th class="p-2.5 sm:p-3">Total Credit</th>
                         <th class="p-2.5 sm:p-3">Seller Details</th>
                         <th class="p-2.5 sm:p-3">UTR / Proof</th>
-                        <th class="p-2.5 sm:p-3">Status</th>
+                        <th class="p-2.5 sm:p-3">Status & Actions</th>
                         <th class="p-2.5 sm:p-3">Date</th>
                     </tr>
                 </thead>
@@ -1538,9 +1538,24 @@ async function loadBuyPageHistory(silent = false) {
                                 ${row.screenshot_path ? `<button type="button" onclick="openUserEvidenceLightbox('${escapeHtml(row.screenshot_path)}', 'Payment Proof - Order ${formatOrderId(row.id)}')" class="text-[11px] text-indigo-400 hover:text-indigo-300 underline font-sans cursor-pointer">View Proof</button>` : ''}
                             </td>
                             <td class="p-2.5 sm:p-3 font-sans">
-                                <span class="px-2.5 py-0.5 rounded text-[10px] font-bold ${getStatusBadgeClass(row.status)}">
-                                    ${row.status}
-                                </span>
+                                <div class="flex items-center gap-1.5 flex-wrap">
+                                    <span class="px-2.5 py-0.5 rounded text-[10px] font-bold ${getStatusBadgeClass(row.status)}">
+                                        ${row.status}
+                                    </span>
+                                    ${row.status === 'Reserved' ? `
+                                        <button type="button" onclick="openProofModal(${row.id}, ${row.amount}, '${escapeHtml(row.snapshotted_upi_id || row.seller_upi_id || '')}', '${escapeHtml(row.snapshotted_account_holder || row.seller_name_masked || 'Peer')}', ${row.seconds_remaining || 600})" class="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[10px] font-bold transition cursor-pointer">
+                                            Pay / Submit Proof
+                                        </button>
+                                        <button type="button" onclick="openCancelReasonModal(${row.id})" class="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[10px] font-semibold transition cursor-pointer">
+                                            Cancel
+                                        </button>
+                                    ` : ''}
+                                    ${['Payment Proof Submitted', 'Seller Confirmation Pending', 'Disputed'].includes(row.status) ? `
+                                        <button type="button" onclick="openActiveOrderStatusModal(${row.id})" class="px-2 py-0.5 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 rounded text-[10px] font-semibold transition cursor-pointer">
+                                            View Status
+                                        </button>
+                                    ` : ''}
+                                </div>
                             </td>
                             <td class="p-2.5 sm:p-3 text-slate-500 text-[11px] font-sans">${row.created_at}</td>
                         </tr>

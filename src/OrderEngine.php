@@ -316,20 +316,24 @@ class OrderEngine {
         }
         $pdo = Database::getConnection();
 
-        // Enforce "One Active Buy Order" limit (Part 5, Item 2)
+        // Enforce concurrent active/pending buy order limit (up to 10 simultaneous orders)
+        $maxConcurrent = defined('MAX_CONCURRENT_BUY_ORDERS') ? (int)MAX_CONCURRENT_BUY_ORDERS : 10;
         $activeBuyStmt = $pdo->prepare("
             SELECT id, status FROM child_orders
             WHERE buyer_id = ? AND status IN ('Reserved', 'Payment Proof Submitted', 'Seller Confirmation Pending', 'Disputed')
-            LIMIT 1
+            ORDER BY id DESC
         ");
         $activeBuyStmt->execute([$buyerId]);
-        $activeBuy = $activeBuyStmt->fetch();
-        if ($activeBuy) {
-            $formattedId = sprintf('#%04d', (int)$activeBuy['id']);
+        $activeBuys = $activeBuyStmt->fetchAll();
+        if (count($activeBuys) >= $maxConcurrent) {
+            $latestActiveId = (int)$activeBuys[0]['id'];
+            $formattedId = sprintf('#%04d', $latestActiveId);
             return [
                 'success' => false,
-                'active_order_id' => (int)$activeBuy['id'],
-                'error' => "You already have an active buy order in progress ({$formattedId}). Please complete or resolve it before initiating a new order."
+                'active_order_id' => $latestActiveId,
+                'active_orders_count' => count($activeBuys),
+                'max_concurrent_orders' => $maxConcurrent,
+                'error' => "You have reached the maximum limit of {$maxConcurrent} active/pending buy orders simultaneously (latest: {$formattedId}). Please wait for an existing order to settle or resolve before initiating another."
             ];
         }
 

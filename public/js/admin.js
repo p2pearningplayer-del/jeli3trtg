@@ -804,6 +804,15 @@ function switchOrderSection(sec) {
                 <option value="Seller Response Timeout">Response Timeout Only</option>
             `;
         }
+    } else if (sec === 'completed') {
+        if (heading) heading.innerText = 'Completed Orders';
+        if (subtext) subtext.innerText = 'Monitor and filter all successfully settled buy and sell transactions in one place.';
+        if (statusSel) {
+            statusSel.innerHTML = `
+                <option value="all">All Completed Statuses</option>
+                <option value="Completed">Completed Only</option>
+            `;
+        }
     } else if (sec === 'cancelled') {
         if (heading) heading.innerText = 'Cancelled Orders';
         if (subtext) subtext.innerText = 'Orders cancelled by traders or administration (expired reservations not merged unless cancelled).';
@@ -866,8 +875,31 @@ async function loadAdminOrders() {
                 if (el) el.innerText = count || 0;
             };
             setBadge('orderSecCount-active', data.counts.active || 0);
+            setBadge('orderSecCount-completed', data.counts.completed || 0);
             setBadge('orderSecCount-cancelled', data.counts.cancelled || 0);
             setBadge('orderSecCount-disputed', data.counts.disputed || 0);
+        }
+
+        // Sync Daily Volume Metric Cards (Today's Available & Completed Order Balances)
+        if (data.daily_metrics) {
+            const dm = data.daily_metrics;
+            const availBalEl = document.getElementById('orderMetricTodayAvailableBalance');
+            const availCntEl = document.getElementById('orderMetricTodayAvailableCount');
+            const compBalEl = document.getElementById('orderMetricTodayCompletedBalance');
+            const compCntEl = document.getElementById('orderMetricTodayCompletedCount');
+
+            if (availBalEl) {
+                availBalEl.innerText = `₹${parseFloat(dm.today_available_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            }
+            if (availCntEl) {
+                availCntEl.innerText = `${dm.today_available_count || 0} Unsold Listed Today`;
+            }
+            if (compBalEl) {
+                compBalEl.innerText = `₹${parseFloat(dm.today_completed_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            }
+            if (compCntEl) {
+                compCntEl.innerText = `${dm.today_completed_count || 0} Completed Today`;
+            }
         }
 
         const total = data.total || 0;
@@ -930,7 +962,8 @@ async function loadAdminOrders() {
                         ` : '<span class="text-slate-600">-</span>'}
                     </td>
                     <td class="p-3 text-[11px] text-slate-500">
-                        ${o.created_at}
+                        <div>${escapeHtml(o.created_at || '-')}</div>
+                        ${o.completed_at ? `<div class="text-[10px] text-emerald-400 font-semibold mt-0.5">Done: ${escapeHtml(o.completed_at)}</div>` : ''}
                     </td>
                     <td class="p-3 font-sans">
                         <div class="flex items-center gap-1.5 flex-wrap">
@@ -938,6 +971,9 @@ async function loadAdminOrders() {
                                 <button onclick="openDisputeOrderDetailsModal(${o.dispute_id})" class="px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded text-[11px] font-semibold transition cursor-pointer" title="Inspect Disputed Seller Payment Details">
                                     Dispute
                                 </button>
+                            ` : ''}
+                            ${o.status === 'Completed' ? `
+                                <span class="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded text-[10px] font-bold">Settled ✓</span>
                             ` : ''}
                             ${!['Completed', 'Cancelled / Reversed', 'Cancelled'].includes(o.status) ? `
                                 <button onclick="cancelAdminOrder(${o.id})" class="px-2 py-1 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/30 rounded text-[11px] font-semibold transition cursor-pointer" title="Cancel & Release Tokens to Seller">

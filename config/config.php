@@ -40,6 +40,7 @@ define('WEEKLY_SELLING_TARGET', 400000.00);     // ₹4,00,000 target
 define('BUYER_PAYMENT_WINDOW_SECONDS', 600);    // 10 minutes (600 seconds)
 define('SELLER_VERIFY_WINDOW_SECONDS', 900);    // 15 minutes (900 seconds)
 define('MAX_CHILD_SPLITS', 8);                  // Up to 8 child micro-orders
+define('MAX_CONCURRENT_BUY_ORDERS', 10);        // Up to 10 active/pending buy orders per buyer simultaneously
 
 // Hostinger Email / SMTP Configuration
 define('SMTP_HOST', getenv('SMTP_HOST') ?: 'smtp.hostinger.com');

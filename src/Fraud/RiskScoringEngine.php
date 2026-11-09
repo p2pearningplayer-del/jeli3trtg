@@ -114,8 +114,8 @@ class RiskScoringEngine {
             $explanations[] = sprintf('High historical order cancellation/expiry rate (%.1f%% of %d orders).', $userSignals['cancellation_rate'], $userSignals['total_orders']);
         }
 
-        // Rapid retry spamming (> 3 attempts in last 10 minutes)
-        if ($userSignals['recent_attempts_10m'] >= 3) {
+        // Rapid retry spamming (> 15 attempts in last 10 minutes, allowing up to 10 concurrent orders)
+        if ($userSignals['recent_attempts_10m'] >= 15) {
             $score += 20;
             $reasons[] = 'RAPID_SUBMISSION_RETRY';
             $explanations[] = "Account submitted {$userSignals['recent_attempts_10m']} payment attempts within the last 10 minutes.";

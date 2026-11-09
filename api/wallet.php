@@ -47,7 +47,7 @@ switch ($action) {
         $stmt = $pdo->prepare("
             SELECT c.id, c.parent_order_id, c.amount, c.snapshotted_reward_rate,
                    c.snapshotted_reward_amount, c.snapshotted_upi_id, c.snapshotted_account_holder,
-                   c.status, c.created_at, c.picked_at,
+                   c.status, c.created_at, c.picked_at, c.payment_deadline, c.verification_deadline,
                    p.utr_number, p.screenshot_path, p.created_at as payment_submitted_at,
                    u.account_holder_name as seller_name, u.phone as seller_phone
             FROM child_orders c
@@ -61,6 +61,7 @@ switch ($action) {
         $orders = $stmt->fetchAll();
         $isAdmin = ($user['role'] === 'admin') || !empty($user['real_admin_id']);
         $finalStates = ['completed', 'cancelled', 'expired', 'cancelled / reversed'];
+        $now = time();
         foreach ($orders as &$ord) {
             $ord['formatted_id'] = sprintf('#%04d', (int)$ord['id']);
             $ord['amount'] = (float)$ord['amount'];
@@ -71,6 +72,12 @@ switch ($action) {
             $ord['seller_upi_id'] = $ord['snapshotted_upi_id'] ?? '';
             if (!empty($ord['seller_phone'])) {
                 $ord['seller_phone_masked'] = Validator::maskPhone($ord['seller_phone']);
+            }
+            $ord['seconds_remaining'] = 0;
+            if ($ord['status'] === 'Reserved' && !empty($ord['payment_deadline'])) {
+                $ord['seconds_remaining'] = max(0, strtotime($ord['payment_deadline'] . ' UTC') - $now);
+            } elseif (in_array($ord['status'], ['Payment Proof Submitted', 'Seller Confirmation Pending'], true) && !empty($ord['verification_deadline'])) {
+                $ord['seconds_remaining'] = max(0, strtotime($ord['verification_deadline'] . ' UTC') - $now);
             }
             // Part 12, Item 3: Screenshot Privacy & History Security
             if (!$isAdmin && in_array(strtolower($ord['status'] ?? ''), $finalStates)) {
