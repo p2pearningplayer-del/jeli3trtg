@@ -43,16 +43,10 @@ class RateLimiter {
     }
 
     /**
-     * Check rate limit and automatically ban IP if repeatedly violated.
+     * Check rate limit (IP ban escalation removed to prevent shared IP lockouts).
      */
     public static function checkWithBan(string $identifier, string $action, int $maxHits = 5, int $windowSeconds = 300, ?string $clientIp = null): bool {
-        $allowed = self::check($identifier, $action, $maxHits, $windowSeconds);
-        if (!$allowed && $clientIp) {
-            require_once __DIR__ . '/Security/IPBanManager.php';
-            // Escalate to IP ban on severe abuse
-            IPBanManager::recordViolation($clientIp, "Rate limit exceeded on '{$action}' ({$maxHits} req / {$windowSeconds}s)", 'RATE_LIMIT_ABUSE', 2);
-        }
-        return $allowed;
+        return self::check($identifier, $action, $maxHits, $windowSeconds);
     }
 
     /**

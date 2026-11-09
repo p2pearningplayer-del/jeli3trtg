@@ -12,11 +12,7 @@ require_once __DIR__ . '/../src/RateLimiter.php';
 require_once __DIR__ . '/../src/Security/IPBanManager.php';
 require_once __DIR__ . '/response.php';
 
-// IP Ban and Rate Limit Enforcement
 $clientIp = IPBanManager::getClientIp();
-if (IPBanManager::isBanned($clientIp)) {
-    jsonError('Access Denied: Your IP address is temporarily banned due to security policy violations.', 403);
-}
 
 $user = Auth::getCurrentUser();
 if (!$user) {
@@ -136,7 +132,6 @@ switch ($action) {
 
         // IDOR Check 1: Buyer attempting to confirm their own buy order
         if ((int)$orderRecord['buyer_id'] === (int)$user['id']) {
-            IPBanManager::recordViolation($clientIp, "Critical IDOR violation: Buyer #{$user['id']} attempted to confirm/settle order #{$childOrderId}", 'IDOR_VIOLATION', 24);
             require_once __DIR__ . '/../src/AdminManager.php';
             AdminManager::logAudit(
                 0,
@@ -152,7 +147,6 @@ switch ($action) {
 
         // IDOR Check 2: Unauthorized third party who is not the seller
         if ((int)$orderRecord['seller_id'] !== (int)$user['id']) {
-            IPBanManager::recordViolation($clientIp, "Unauthorized settlement attempt: User #{$user['id']} is not seller on order #{$childOrderId}", 'UNAUTHORIZED_SETTLEMENT', 6);
             jsonError('Access Denied: Unauthorized. This sell order does not belong to your account.', 403);
         }
 
@@ -186,7 +180,6 @@ switch ($action) {
         $orderRecord = $chkOrderStmt->fetch();
 
         if ($orderRecord && (int)$orderRecord['seller_id'] !== (int)$user['id']) {
-            IPBanManager::recordViolation($clientIp, "IDOR attempt on raise_appeal: User #{$user['id']} is not seller on order #{$childOrderId}", 'IDOR_APPEAL_ATTEMPT', 6);
             jsonError('Access Denied: Unauthorized. You can only appeal sell orders belonging to your account.', 403);
         }
 

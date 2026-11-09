@@ -12,11 +12,7 @@ require_once __DIR__ . '/../src/RateLimiter.php';
 require_once __DIR__ . '/../src/Security/IPBanManager.php';
 require_once __DIR__ . '/response.php';
 
-// IP Ban and Rate Limit Enforcement
 $clientIp = IPBanManager::getClientIp();
-if (IPBanManager::isBanned($clientIp)) {
-    jsonError('Access Denied: Your IP address is temporarily banned due to security policy violations.', 403);
-}
 
 $user = Auth::getCurrentUser();
 if (!$user) {
@@ -162,7 +158,6 @@ switch ($action) {
         }
 
         if ((int)$orderRec['buyer_id'] !== (int)$user['id']) {
-            IPBanManager::recordViolation($clientIp, "IDOR attempt on order cancellation: User #{$user['id']} is not buyer on order #{$orderId}", 'IDOR_CANCEL_ATTEMPT', 6);
             jsonError('Access Denied: Unauthorized. You can only cancel reservations initiated by your account.', 403);
         }
 
@@ -232,7 +227,6 @@ switch ($action) {
         }
 
         if ((int)$orderRec['buyer_id'] !== (int)$user['id']) {
-            IPBanManager::recordViolation($clientIp, "IDOR attempt on payment proof submission: User #{$user['id']} is not buyer on order #{$orderId}", 'IDOR_PROOF_ATTEMPT', 12);
             jsonError('Access Denied: Unauthorized. You can only submit payment proof for orders reserved by your account.', 403);
         }
 

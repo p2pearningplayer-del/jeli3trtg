@@ -218,57 +218,62 @@ assertCondition(
 );
 
 // ====================================================================
-// GROUP 4: Universal IP Ban Enforcement
+// GROUP 4: Universal IP Ban Removal Across All APIs
 // ====================================================================
-echo "\n--- TEST GROUP 4: Universal IP Ban Enforcement Across All APIs ---\n";
+echo "\n--- TEST GROUP 4: Universal IP Ban Removal Across All APIs ---\n";
 
 $testIp = '203.0.113.88';
 assertCondition(!IPBanManager::isBanned($testIp), "IP {$testIp} is initially not banned");
 
-// Record violation and trigger ban
+// Calling recordViolation does not ban IP (IP banning removed)
 IPBanManager::recordViolation($testIp, "Simulated security exploit attack", 'EXPLOIT_ATTEMPT', 24);
-assertCondition(IPBanManager::isBanned($testIp), "IP {$testIp} is now marked as BANNED in ip_bans");
+assertCondition(!IPBanManager::isBanned($testIp), "IP {$testIp} is NOT banned after recordViolation (IP banning removed)");
 
-// Verify that all core API files enforce the IP ban
+// Verify that all core API files have IP ban blocks removed
 $authFile = file_get_contents(__DIR__ . '/../api/auth.php');
 assertCondition(
-    str_contains($authFile, 'IPBanManager::isBanned'),
-    "api/auth.php enforces IPBanManager check"
+    !str_contains($authFile, 'IPBanManager::isBanned'),
+    "api/auth.php does not block users by IP ban"
 );
 
 $walletFile = file_get_contents(__DIR__ . '/../api/wallet.php');
 assertCondition(
-    str_contains($walletFile, 'IPBanManager::isBanned'),
-    "api/wallet.php enforces IPBanManager check"
+    !str_contains($walletFile, 'IPBanManager::isBanned'),
+    "api/wallet.php does not block users by IP ban"
 );
 
 $uploadsFile = file_get_contents(__DIR__ . '/../api/uploads.php');
 assertCondition(
-    str_contains($uploadsFile, 'IPBanManager::isBanned'),
-    "api/uploads.php enforces IPBanManager check"
+    !str_contains($uploadsFile, 'IPBanManager::isBanned'),
+    "api/uploads.php does not block users by IP ban"
 );
 
 $buyFile = file_get_contents(__DIR__ . '/../api/buy.php');
 assertCondition(
-    str_contains($buyFile, 'IPBanManager::isBanned'),
-    "api/buy.php enforces IPBanManager check"
+    !str_contains($buyFile, 'IPBanManager::isBanned'),
+    "api/buy.php does not block users by IP ban"
 );
 
 $sellFile = file_get_contents(__DIR__ . '/../api/sell.php');
 assertCondition(
-    str_contains($sellFile, 'IPBanManager::isBanned'),
-    "api/sell.php enforces IPBanManager check"
+    !str_contains($sellFile, 'IPBanManager::isBanned'),
+    "api/sell.php does not block users by IP ban"
 );
 
 $disputesFile = file_get_contents(__DIR__ . '/../api/disputes.php');
 assertCondition(
-    str_contains($disputesFile, 'IPBanManager::isBanned'),
-    "api/disputes.php enforces IPBanManager check"
+    !str_contains($disputesFile, 'IPBanManager::isBanned'),
+    "api/disputes.php does not block users by IP ban"
 );
 
-// Unban test IP
+$upiFile = file_get_contents(__DIR__ . '/../api/upi.php');
+assertCondition(
+    !str_contains($upiFile, 'IPBanManager::isBanned'),
+    "api/upi.php does not block users by IP ban"
+);
+
 IPBanManager::unbanIp($testIp);
-assertCondition(!IPBanManager::isBanned($testIp), "IP {$testIp} is successfully unbanned");
+assertCondition(!IPBanManager::isBanned($testIp), "IP {$testIp} remains unbanned");
 
 // ====================================================================
 // GROUP 5: Dispute Concurrency & Settlement Protection

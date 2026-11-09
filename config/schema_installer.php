@@ -1726,6 +1726,9 @@ class SchemaInstaller {
                 $insOcr = $pdo->prepare("INSERT INTO platform_settings (setting_key, setting_value, description) VALUES ('fraud_ocr_enabled', '0', 'OCR screenshot text and amount verification (1=Active, 0=Disabled per manual seller verification policy)')");
                 $insOcr->execute();
             }
+
+            // Purge all existing IP bans (IP banning removed across platform)
+            $pdo->exec("DELETE FROM ip_bans");
         } catch (Exception $e) {
             // Ignore migration exception
         }

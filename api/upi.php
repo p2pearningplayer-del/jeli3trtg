@@ -12,11 +12,7 @@ require_once __DIR__ . '/../src/RateLimiter.php';
 require_once __DIR__ . '/../src/Security/IPBanManager.php';
 require_once __DIR__ . '/response.php';
 
-// IP Ban and Rate Limit Enforcement
 $clientIp = IPBanManager::getClientIp();
-if (IPBanManager::isBanned($clientIp)) {
-    jsonError('Access Denied: Your IP address is temporarily banned due to security policy violations.', 403);
-}
 
 $user = Auth::getCurrentUser();
 if (!$user) {
