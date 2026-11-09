@@ -54,7 +54,8 @@ if (!$adminId) {
 $stateModifyingActions = [
     'manual_adjustment', 'dispute_decision', 'set_user_status', 'toggle_flag',
     'mass_cancel_and_freeze', 'reverse_unauthorized_order', 'neutralize_exploiters',
-    'reverse_fraudulent_crypto_deposit', 'update_setting', 'force_cancel_order'
+    'reverse_fraudulent_crypto_deposit', 'update_setting', 'force_cancel_order',
+    'fast_track_resolve_order'
 ];
 if (!empty($user['is_impersonating']) && in_array($action, $stateModifyingActions, true)) {
     jsonError('Financial and state-modifying actions are strictly locked while in Admin Support Mode. Please exit Support Mode before executing this action.', 403);
@@ -322,7 +323,7 @@ switch ($action) {
         break;
 
     case 'orders':
-        // Requirement 2: Order Management with 3 distinct sections & server pagination
+        // Requirement 2: Order Management with distinct sections & server pagination
         $status = $_GET['status'] ?? 'all';
         $type = $_GET['type'] ?? 'child';
         $query = $_GET['query'] ?? '';
@@ -334,6 +335,38 @@ switch ($action) {
 
         $res = AdminManager::getOrders($status, $type, $query, $limit, $offset, $section, $dateFrom, $dateTo);
         jsonResponse(true, $res);
+        break;
+
+    case 'pending_confirmations':
+        // Live queue of orders where buyer uploaded payment screenshot & UTR and seller hasn't confirmed yet
+        $query = $_GET['query'] ?? '';
+        $status = $_GET['status'] ?? 'all';
+        $limit = max(1, min(100, (int)($_GET['limit'] ?? 50)));
+        $offset = max(0, (int)($_GET['offset'] ?? 0));
+
+        $res = AdminManager::getPendingConfirmations($query, $status, $limit, $offset);
+        jsonResponse(true, $res);
+        break;
+
+    case 'fast_track_resolve_order':
+        // Fast-Track Admin Resolution (Instant Override): Resolve for Buyer (Force Settle) or Resolve for Seller (Cancel Order)
+        $childId = (int)($input['order_id'] ?? $_POST['order_id'] ?? 0);
+        $decision = trim((string)($input['decision'] ?? $_POST['decision'] ?? ''));
+        $reason = trim((string)($input['reason'] ?? $_POST['reason'] ?? ''));
+
+        if ($childId <= 0) {
+            jsonError('Valid Order ID required.');
+        }
+        if (empty($decision)) {
+            jsonError("Resolution decision required ('resolve_buyer' or 'resolve_seller').");
+        }
+
+        $res = AdminManager::fastTrackResolveOrder($childId, (int)$adminId, $decision, $reason);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error']);
+        }
         break;
 
     case 'cancel_order':

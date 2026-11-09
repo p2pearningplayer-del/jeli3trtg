@@ -13,7 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(periodicAdminSync, 10000);
     window.addEventListener('hashchange', () => {
         const hashTab = window.location.hash.replace('#', '');
-        const validTabs = ['dashboard', 'users', 'orders', 'disputes', 'fraud', 'rewards', 'content', 'reports', 'audit', 'admins', 'agents', 'risk'];
+        const validTabs = ['dashboard', 'users', 'orders', 'pending_confirmations', 'disputes', 'fraud', 'rewards', 'content', 'reports', 'audit', 'admins', 'agents', 'risk'];
         if (hashTab && validTabs.includes(hashTab) && hashTab !== currentAdminTab) {
             switchAdminTab(hashTab);
         }
@@ -25,7 +25,7 @@ async function initAdmin() {
     const tabParam = urlParams.get('tab');
     const hashTab = window.location.hash.replace('#', '');
     const savedTab = localStorage.getItem('adminActiveTab');
-    const validTabs = ['dashboard', 'users', 'orders', 'disputes', 'fraud', 'rewards', 'content', 'reports', 'audit', 'admins', 'agents', 'risk'];
+    const validTabs = ['dashboard', 'users', 'orders', 'pending_confirmations', 'disputes', 'fraud', 'rewards', 'content', 'reports', 'audit', 'admins', 'agents', 'risk'];
 
     let initialTab = 'dashboard';
     if (tabParam && validTabs.includes(tabParam)) {
@@ -53,7 +53,7 @@ window.setBadge = setBadge;
 window.setTxt = setTxt;
 
 function switchAdminTab(tabId, filterOptions = null) {
-    const validTabs = ['dashboard', 'users', 'orders', 'disputes', 'fraud', 'rewards', 'content', 'reports', 'audit', 'admins', 'agents', 'risk'];
+    const validTabs = ['dashboard', 'users', 'orders', 'pending_confirmations', 'disputes', 'fraud', 'rewards', 'content', 'reports', 'audit', 'admins', 'agents', 'risk'];
     if (!validTabs.includes(tabId)) {
         tabId = 'dashboard';
     }
@@ -121,6 +121,7 @@ function switchAdminTab(tabId, filterOptions = null) {
     if (tabId === 'dashboard') loadAdminDashboard();
     if (tabId === 'users') loadAdminUsers();
     if (tabId === 'orders') loadAdminOrders();
+    if (tabId === 'pending_confirmations') loadAdminPendingConfirmations();
     if (tabId === 'disputes') loadAdminDisputes();
     if (tabId === 'fraud') loadAdminFraudAssessments();
     if (tabId === 'rewards') loadAdminRewardSettings();
@@ -134,6 +135,7 @@ function switchAdminTab(tabId, filterOptions = null) {
 
 function periodicAdminSync() {
     if (currentAdminTab === 'dashboard') loadAdminDashboard(true);
+    if (currentAdminTab === 'pending_confirmations') loadAdminPendingConfirmations(true);
 }
 
 // -------------------------------------------------------------
@@ -211,6 +213,7 @@ async function loadAdminDashboard(silent = false) {
         setTxt('dashOrdersCancelledTotal', m.orders_cancelled_total ?? (orders.cancelled ?? 0));
 
         setTxt('dashOrdersPendingConfirm', orders.pending_confirmation ?? 0);
+        setTxt('navPendingConfBadge', orders.pending_confirmation ?? 0);
 
         // Tokens in Circulation (13 & 14)
         const circToday = parseFloat(m.token_circulation_today ?? circulation);
@@ -804,6 +807,17 @@ function switchOrderSection(sec) {
                 <option value="Seller Response Timeout">Response Timeout Only</option>
             `;
         }
+    } else if (sec === 'pending_confirmations') {
+        if (heading) heading.innerText = 'Pending Payment Confirmations (Fast-Track Resolution)';
+        if (subtext) subtext.innerText = 'Orders where buyers uploaded screenshot & UTR and are waiting for seller confirmation. Use Resolve for Buyer or Resolve for Seller for instant override.';
+        if (statusSel) {
+            statusSel.innerHTML = `
+                <option value="all">All Pending Confirmation Statuses</option>
+                <option value="Payment Proof Submitted">Payment Proof Submitted</option>
+                <option value="Seller Confirmation Pending">Seller Confirmation Pending</option>
+                <option value="Seller Response Timeout">Seller Response Timeout</option>
+            `;
+        }
     } else if (sec === 'completed') {
         if (heading) heading.innerText = 'Completed Orders';
         if (subtext) subtext.innerText = 'Monitor and filter all successfully settled buy and sell transactions in one place.';
@@ -875,6 +889,8 @@ async function loadAdminOrders() {
                 if (el) el.innerText = count || 0;
             };
             setBadge('orderSecCount-active', data.counts.active || 0);
+            setBadge('orderSecCount-pending_confirmations', data.counts.pending_confirmations || 0);
+            setBadge('navPendingConfBadge', data.counts.pending_confirmations || 0);
             setBadge('orderSecCount-completed', data.counts.completed || 0);
             setBadge('orderSecCount-cancelled', data.counts.cancelled || 0);
             setBadge('orderSecCount-disputed', data.counts.disputed || 0);
@@ -975,11 +991,18 @@ async function loadAdminOrders() {
                             ${o.status === 'Completed' ? `
                                 <span class="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded text-[10px] font-bold">Settled ✓</span>
                             ` : ''}
-                            ${!['Completed', 'Cancelled / Reversed', 'Cancelled'].includes(o.status) ? `
+                            ${['Payment Proof Submitted', 'Seller Confirmation Pending', 'Seller Response Timeout', 'Disputed', 'Appealed', 'In Dispute Review'].includes(o.status) || (o.buyer_id && o.utr_number && !['Completed', 'Cancelled / Reversed', 'Cancelled'].includes(o.status)) ? `
+                                <button onclick="fastTrackResolveOrder(${o.id}, 'resolve_buyer')" class="px-2 py-1 bg-emerald-600/20 hover:bg-emerald-600/35 text-emerald-400 border border-emerald-500/30 rounded text-[11px] font-bold transition cursor-pointer" title="Force Settle: Release tokens to Buyer">
+                                    Resolve for Buyer
+                                </button>
+                                <button onclick="fastTrackResolveOrder(${o.id}, 'resolve_seller')" class="px-2 py-1 bg-rose-600/20 hover:bg-rose-600/35 text-rose-400 border border-rose-500/30 rounded text-[11px] font-bold transition cursor-pointer" title="Cancel Order: Return tokens to Seller">
+                                    Resolve for Seller
+                                </button>
+                            ` : (!['Completed', 'Cancelled / Reversed', 'Cancelled'].includes(o.status) ? `
                                 <button onclick="cancelAdminOrder(${o.id})" class="px-2 py-1 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/30 rounded text-[11px] font-semibold transition cursor-pointer" title="Cancel & Release Tokens to Seller">
                                     Cancel
                                 </button>
-                            ` : ''}
+                            ` : '')}
                         </div>
                     </td>
                 </tr>
@@ -987,6 +1010,175 @@ async function loadAdminOrders() {
         }).join('');
     } catch (e) {
         console.error('Failed to load orders:', e);
+    }
+}
+
+let pendConfPageOffset = 0;
+let pendConfPageLimit = 50;
+let pendConfTotalRecords = 0;
+
+function changePendConfPage(direction) {
+    if (direction === 'prev' && pendConfPageOffset > 0) {
+        pendConfPageOffset = Math.max(0, pendConfPageOffset - pendConfPageLimit);
+        loadAdminPendingConfirmations();
+    } else if (direction === 'next' && (pendConfPageOffset + pendConfPageLimit) < pendConfTotalRecords) {
+        pendConfPageOffset += pendConfPageLimit;
+        loadAdminPendingConfirmations();
+    }
+}
+
+function formatDurationSeconds(sec) {
+    const s = Math.max(0, parseInt(sec, 10) || 0);
+    const hrs = Math.floor(s / 3600);
+    const mins = Math.floor((s % 3600) / 60);
+    const rem = s % 60;
+    if (hrs > 0) return `${hrs}h ${mins}m`;
+    return `${mins}m ${rem}s`;
+}
+
+async function loadAdminPendingConfirmations(silent = false) {
+    const query = document.getElementById('pendConfSearchInput')?.value || '';
+    const status = document.getElementById('pendConfStatusFilter')?.value || 'all';
+    const tbody = document.getElementById('adminPendingConfirmationsTableBody');
+
+    try {
+        const url = `/api/admin.php?action=pending_confirmations&query=${encodeURIComponent(query)}&status=${encodeURIComponent(status)}&limit=${pendConfPageLimit}&offset=${pendConfPageOffset}`;
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (data.summary) {
+            const sum = data.summary;
+            setTxt('pendConfTotalCount', sum.total_pending_count || 0);
+            setTxt('navPendingConfBadge', sum.total_pending_count || 0);
+            setTxt('orderSecCount-pending_confirmations', sum.total_pending_count || 0);
+            setTxt('pendConfTotalVolume', `₹${parseFloat(sum.total_pending_volume || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+            setTxt('pendConfTimedOutCount', sum.timed_out_count || 0);
+        }
+
+        if (!tbody) return;
+
+        pendConfTotalRecords = data.total || 0;
+        const from = pendConfTotalRecords > 0 ? (pendConfPageOffset + 1) : 0;
+        const to = Math.min(pendConfTotalRecords, pendConfPageOffset + pendConfPageLimit);
+        setTxt('pendConfPaginationInfo', `Showing ${from} to ${to} of ${pendConfTotalRecords} pending confirmations`);
+
+        const prevBtn = document.getElementById('pendConfPrevBtn');
+        const nextBtn = document.getElementById('pendConfNextBtn');
+        if (prevBtn) prevBtn.disabled = (pendConfPageOffset === 0);
+        if (nextBtn) nextBtn.disabled = (pendConfPageOffset + pendConfPageLimit >= pendConfTotalRecords);
+        setTxt('pendConfPageIndicator', `Page ${Math.floor(pendConfPageOffset / pendConfPageLimit) + 1} of ${Math.max(1, Math.ceil(pendConfTotalRecords / pendConfPageLimit))}`);
+
+        if (!data.success || !data.orders || data.orders.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-slate-500 font-sans">No pending payment confirmations in the queue right now.</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = data.orders.map(o => {
+            const isTimedOut = o.status === 'Seller Response Timeout' || (parseInt(o.seconds_remaining || 0, 10) <= 0);
+            const badgeClass = isTimedOut
+                ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                : 'bg-amber-500/15 text-amber-400 border border-amber-500/30';
+            const waitingText = formatDurationSeconds(o.waiting_seconds || 0);
+            const slaText = isTimedOut
+                ? 'SLA Timed Out (Ready to Override)'
+                : `SLA Left: ${formatDurationSeconds(o.seconds_remaining || 0)}`;
+
+            return `
+                <tr class="hover:bg-slate-900/80 transition text-xs font-mono">
+                    <td class="p-3 text-slate-300 font-bold">
+                        #${o.id}
+                        ${o.parent_order_id ? `<span class="text-[10px] text-slate-500 block font-normal">Parent #${o.parent_order_id}</span>` : ''}
+                    </td>
+                    <td class="p-3">
+                        <span class="text-white font-bold block">${escapeHtml(o.buyer_phone || 'Buyer #' + o.buyer_id)}</span>
+                        <span class="text-[10px] text-slate-400 font-sans block">${escapeHtml(o.buyer_name || 'Peer Buyer')} (ID #${o.buyer_id})</span>
+                    </td>
+                    <td class="p-3">
+                        <span class="text-white font-bold block">${escapeHtml(o.seller_phone || 'Seller #' + o.seller_id)}</span>
+                        <span class="text-[10px] text-slate-400 font-sans block">${escapeHtml(o.seller_name || 'Peer Seller')} (ID #${o.seller_id})</span>
+                        <span class="text-[10px] text-emerald-400 font-mono block">UPI: ${escapeHtml(o.seller_order_upi_id || '-')}</span>
+                    </td>
+                    <td class="p-3">
+                        <span class="text-emerald-400 font-bold text-sm">₹${parseFloat(o.amount).toLocaleString('en-IN')}</span>
+                        <span class="text-[10px] text-indigo-400 block">+${o.snapshotted_reward_rate || 9}% Rew (₹${parseFloat(o.snapshotted_reward_amount || (o.amount * 0.09)).toFixed(2)})</span>
+                    </td>
+                    <td class="p-3 font-sans">
+                        <div class="space-y-1">
+                            <div class="font-mono text-white font-bold text-xs">UTR: ${escapeHtml(o.utr_number || 'Not Provided')}</div>
+                            ${o.screenshot_path ? `
+                                <button type="button" onclick="openEvidenceLightbox('${escapeHtml(o.screenshot_path)}', 'Buyer Payment Proof - Order #${o.id} (UTR: ${escapeHtml(o.utr_number || '')})')"
+                                        class="px-2.5 py-1 bg-indigo-600/20 hover:bg-indigo-600/35 text-indigo-300 border border-indigo-500/30 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                                    <span>View Screenshot</span>
+                                </button>
+                            ` : '<span class="text-[10px] text-slate-500 italic">No screenshot uploaded</span>'}
+                        </div>
+                    </td>
+                    <td class="p-3 font-sans">
+                        <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase ${badgeClass} inline-block mb-1">
+                            ${escapeHtml(o.status)}
+                        </span>
+                        <div class="text-[11px] text-slate-300 font-semibold">Waiting: ${waitingText}</div>
+                        <div class="text-[10px] ${isTimedOut ? 'text-rose-400 font-bold' : 'text-slate-400'}">${slaText}</div>
+                    </td>
+                    <td class="p-3 font-sans">
+                        <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-1.5">
+                            <button type="button" onclick="fastTrackResolveOrder(${o.id}, 'resolve_buyer')"
+                                    class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[11px] font-bold transition shadow-sm cursor-pointer whitespace-nowrap"
+                                    title="Force Settle: Instantly release tokens + reward to Buyer">
+                                ✓ Resolve for Buyer
+                            </button>
+                            <button type="button" onclick="fastTrackResolveOrder(${o.id}, 'resolve_seller')"
+                                    class="px-3 py-1.5 bg-rose-600/25 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/40 rounded-lg text-[11px] font-bold transition cursor-pointer whitespace-nowrap"
+                                    title="Cancel Order: Instantly cancel order and return reserved tokens to Seller">
+                                ✕ Resolve for Seller
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    } catch (e) {
+        console.error('Failed to load pending confirmations:', e);
+    }
+}
+
+async function fastTrackResolveOrder(orderId, decision) {
+    const isBuyer = (decision === 'resolve_buyer' || decision === 'force_settle');
+    const actionLabel = isBuyer
+        ? 'RESOLVE FOR BUYER (Force Settle & Release Tokens to Buyer)'
+        : 'RESOLVE FOR SELLER (Cancel Order & Return Tokens to Seller)';
+    const defaultNote = isBuyer
+        ? 'Verified valid payment proof & UTR via Admin Fast-Track Resolution'
+        : 'Invalid/unverified payment proof — Cancelled via Admin Fast-Track Resolution';
+
+    const reason = prompt(
+        `Fast-Track Admin Override for Order #${orderId}:\nAction: ${actionLabel}\n\nEnter resolution note (or press OK to use default):`,
+        defaultNote
+    );
+    if (reason === null) return;
+
+    try {
+        const res = await fetch('/api/admin.php?action=fast_track_resolve_order', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                order_id: orderId,
+                decision: decision,
+                reason: reason.trim() || defaultNote
+            })
+        });
+        const data = await res.json();
+        if (data.success) {
+            alert(data.message || `Order #${orderId} resolved successfully.`);
+            loadAdminPendingConfirmations();
+            loadAdminOrders();
+            loadAdminDashboard(true);
+        } else {
+            alert(data.error || 'Failed to resolve order.');
+        }
+    } catch (e) {
+        alert('Network error executing fast-track resolution.');
     }
 }
 
@@ -1751,13 +1943,29 @@ async function loadAdminContentSettings() {
             if (tg) {
                 const input = document.getElementById('quickTelegramUrlInput');
                 const testBtn = document.getElementById('quickTelegramTestBtn');
-                if (input && !input.value) input.value = tg.setting_value;
+                if (input) input.value = tg.setting_value;
                 if (testBtn) testBtn.href = tg.setting_value;
+            }
+            const grp = data.settings.find(s => s.setting_key === 'jelipay_group_url');
+            if (grp) {
+                const input = document.getElementById('quickGroupUrlInput');
+                const testBtn = document.getElementById('quickGroupTestBtn');
+                if (input) input.value = grp.setting_value;
+                if (testBtn) testBtn.href = grp.setting_value;
+            }
+            const prio = data.settings.find(s => s.setting_key === 'jelipay_priority_support_url');
+            if (prio) {
+                const input = document.getElementById('quickPrioritySupportUrlInput');
+                const testBtn = document.getElementById('quickPrioritySupportTestBtn');
+                if (input) input.value = prio.setting_value;
+                if (testBtn) testBtn.href = prio.setting_value;
             }
         }
     } catch (e) {}
 
     loadSettingsIntoGrid('contentSettingsGrid', [
+        'jelipay_priority_support_url',
+        'jelipay_group_url',
         'telegram_support_url',
         'telegram_support_username',
         'platform_mode',
@@ -1788,19 +1996,18 @@ async function loadAdminContentSettings() {
     ]);
 }
 
-async function saveQuickTelegramUrl() {
-    const input = document.getElementById('quickTelegramUrlInput');
+async function saveQuickSupportUrl(settingKey, inputId, testBtnId, label = 'Support') {
+    const input = document.getElementById(inputId);
     let val = input ? input.value.trim() : '';
     if (!val) {
-        alert('Please enter a valid Telegram link (e.g. t.me/amilacorp or https://t.me/amilacorp) or username.');
+        alert(`Please enter a valid ${label} URL or username.`);
         return;
     }
 
-    // Normalize to complete clickable https:// URL
     let fullUrl = val;
     if (fullUrl.startsWith('@')) {
         fullUrl = `https://t.me/${fullUrl.substring(1)}`;
-    } else if (fullUrl.startsWith('t.me/')) {
+    } else if (fullUrl.startsWith('t.me/') || fullUrl.startsWith('wa.me/')) {
         fullUrl = `https://${fullUrl}`;
     } else if (!fullUrl.startsWith('http://') && !fullUrl.startsWith('https://')) {
         fullUrl = `https://t.me/${fullUrl.replace(/^\/+/, '')}`;
@@ -1811,26 +2018,30 @@ async function saveQuickTelegramUrl() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                setting_key: 'telegram_support_url',
+                setting_key: settingKey,
                 setting_value: fullUrl,
-                reason: 'Dynamic admin update for Telegram Support link'
+                reason: `Dynamic admin update for ${label} link`
             })
         });
         const data = await res.json();
         if (data.success) {
             if (input) input.value = fullUrl;
-            const testBtn = document.getElementById('quickTelegramTestBtn');
+            const testBtn = document.getElementById(testBtnId);
             if (testBtn) testBtn.href = fullUrl;
-            const gridInp = document.getElementById('settingInput_telegram_support_url');
+            const gridInp = document.getElementById(`settingInput_${settingKey}`);
             if (gridInp) gridInp.value = fullUrl;
-            alert('Official Telegram Support link updated successfully! It is now live across the platform.');
+            alert(`${label} link updated successfully! It is now live across the user dashboard.`);
             loadAdminContentSettings();
         } else {
-            alert(data.error || 'Failed to update Telegram link.');
+            alert(data.error || `Failed to update ${label} link.`);
         }
     } catch (e) {
-        alert('Network error updating Telegram link.');
+        alert(`Network error updating ${label} link.`);
     }
+}
+
+async function saveQuickTelegramUrl() {
+    return saveQuickSupportUrl('telegram_support_url', 'quickTelegramUrlInput', 'quickTelegramTestBtn', 'Telegram Support');
 }
 
 async function purgeDemoAccountsAndEnforceLive() {
@@ -1893,11 +2104,11 @@ async function loadSettingsIntoGrid(containerId, keys) {
 async function saveGlobalSetting(key, btn = null) {
     const input = document.getElementById(`settingInput_${key}`);
     let val = input ? input.value : '';
-    if (key === 'telegram_support_url' && val) {
+    if ((key === 'telegram_support_url' || key === 'jelipay_group_url' || key === 'jelipay_priority_support_url') && val) {
         let normVal = val.trim();
         if (normVal.startsWith('@')) {
             normVal = `https://t.me/${normVal.substring(1)}`;
-        } else if (normVal.startsWith('t.me/')) {
+        } else if (normVal.startsWith('t.me/') || normVal.startsWith('wa.me/')) {
             normVal = `https://${normVal}`;
         } else if (!normVal.startsWith('http://') && !normVal.startsWith('https://')) {
             normVal = `https://t.me/${normVal.replace(/^\/+/, '')}`;

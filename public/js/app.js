@@ -1038,15 +1038,39 @@ async function loadSupportConfig() {
     try {
         const res = await fetch('/api/support.php?action=config');
         const data = await res.json();
-        if (data.success && data.telegram_support_url) {
-            let tg = data.telegram_support_url;
-            if (!tg.startsWith('http://') && !tg.startsWith('https://')) {
-                tg = tg.startsWith('t.me/') ? ('https://' + tg) : ('https://t.me/' + tg.replace(/^[@/]+/, ''));
+        if (data.success) {
+            const normalizeLink = (raw) => {
+                if (!raw) return '';
+                let url = String(raw).trim();
+                if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                    url = (url.startsWith('t.me/') || url.startsWith('wa.me/'))
+                        ? ('https://' + url)
+                        : ('https://t.me/' + url.replace(/^[@/]+/, ''));
+                }
+                return url;
+            };
+
+            if (data.telegram_support_url) {
+                const tg = normalizeLink(data.telegram_support_url);
+                const tgLink = document.getElementById('supportTelegramLink');
+                if (tgLink) tgLink.href = tg;
+                const profTgLink = document.getElementById('profileTelegramSupportLink');
+                if (profTgLink) profTgLink.href = tg;
             }
-            const tgLink = document.getElementById('supportTelegramLink');
-            if (tgLink) tgLink.href = tg;
-            const profTgLink = document.getElementById('profileTelegramSupportLink');
-            if (profTgLink) profTgLink.href = tg;
+            if (data.jelipay_group_url) {
+                const grp = normalizeLink(data.jelipay_group_url);
+                const grpLink = document.getElementById('supportGroupLink');
+                if (grpLink) grpLink.href = grp;
+                const profGrpLink = document.getElementById('profileGroupSupportLink');
+                if (profGrpLink) profGrpLink.href = grp;
+            }
+            if (data.jelipay_priority_support_url) {
+                const prio = normalizeLink(data.jelipay_priority_support_url);
+                const prioLink = document.getElementById('supportPriorityLink');
+                if (prioLink) prioLink.href = prio;
+                const profPrioLink = document.getElementById('profilePrioritySupportLink');
+                if (profPrioLink) profPrioLink.href = prio;
+            }
         }
     } catch (e) {
         // Fallback default url is already in HTML

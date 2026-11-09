@@ -100,6 +100,11 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
                     <span>Orders</span>
                 </button>
+                <button onclick="switchAdminTab('pending_confirmations')" id="adminNav-pending_confirmations" class="admin-nav-item px-3.5 py-2 rounded-lg flex items-center gap-1.5 whitespace-nowrap text-slate-400 hover:text-white">
+                    <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <span>Pending Confirmations</span>
+                    <span id="navPendingConfBadge" class="px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] font-mono">0</span>
+                </button>
                 <button onclick="switchAdminTab('disputes')" id="adminNav-disputes" class="admin-nav-item px-3.5 py-2 rounded-lg flex items-center gap-1.5 whitespace-nowrap text-slate-400 hover:text-white">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
                     <span>Disputes</span>
@@ -603,12 +608,17 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                 </div>
             </div>
 
-            <!-- Four Distinct Order Sections (Active, Completed, Cancelled, Disputed) -->
+            <!-- Five Distinct Order Sections (Active, Pending Confirmations, Completed, Cancelled, Disputed) -->
             <div class="flex flex-wrap items-center gap-2 border-b border-slate-800 pb-3">
                 <button type="button" onclick="switchOrderSection('active')" id="orderSecTab-active"
                         class="order-sec-tab px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 bg-indigo-600 text-white shadow-md shadow-indigo-600/20">
                     <span>Active Orders</span>
                     <span id="orderSecCount-active" class="px-1.5 py-0.5 rounded-full bg-white/20 text-[10px]">0</span>
+                </button>
+                <button type="button" onclick="switchOrderSection('pending_confirmations')" id="orderSecTab-pending_confirmations"
+                        class="order-sec-tab px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 bg-slate-800 text-slate-400 hover:text-white">
+                    <span>Pending Confirmations</span>
+                    <span id="orderSecCount-pending_confirmations" class="px-1.5 py-0.5 rounded-full bg-slate-900 text-amber-400 text-[10px] border border-amber-500/20">0</span>
                 </button>
                 <button type="button" onclick="switchOrderSection('completed')" id="orderSecTab-completed"
                         class="order-sec-tab px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 bg-slate-800 text-slate-400 hover:text-white">
@@ -700,6 +710,126 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                         </button>
                         <span id="orderPageIndicator" class="px-3 py-1.5 text-slate-400 font-mono">Page 1</span>
                         <button id="orderNextBtn" onclick="changeOrderPage('next')" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-slate-800 text-slate-300 rounded-xl font-semibold border border-slate-700 transition">
+                            Next &rarr;
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ========================================== -->
+        <!-- VIEW 3B: PENDING PAYMENT CONFIRMATIONS (FAST-TRACK RESOLUTION) -->
+        <!-- ========================================== -->
+        <section id="adminView-pending_confirmations" class="admin-view space-y-6 hidden">
+            <!-- Summary Cards -->
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div class="bg-slate-900 border border-amber-500/30 rounded-2xl p-5 flex items-center justify-between gap-4 shadow-lg">
+                    <div class="space-y-1">
+                        <div class="flex items-center gap-2">
+                            <span class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping"></span>
+                            <span class="text-xs font-bold uppercase tracking-wider text-amber-400">Live Waiting Queue</span>
+                        </div>
+                        <div id="pendConfTotalCount" class="text-2xl sm:text-3xl font-extrabold font-mono text-white">0</div>
+                        <p class="text-[11px] text-slate-400">Buyers waiting for seller confirmation after uploading UTR &amp; screenshot</p>
+                    </div>
+                    <div class="w-11 h-11 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shrink-0">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 border border-indigo-500/30 rounded-2xl p-5 flex items-center justify-between gap-4 shadow-lg">
+                    <div class="space-y-1">
+                        <div class="flex items-center gap-2">
+                            <span class="w-2 h-2 rounded-full bg-indigo-400"></span>
+                            <span class="text-xs font-bold uppercase tracking-wider text-indigo-400">Pending Confirmation Volume</span>
+                        </div>
+                        <div id="pendConfTotalVolume" class="text-2xl sm:text-3xl font-extrabold font-mono text-indigo-400">₹0.00</div>
+                        <p class="text-[11px] text-slate-400">Total token value locked in pending confirmations</p>
+                    </div>
+                    <div class="w-11 h-11 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 shrink-0">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 border border-rose-500/30 rounded-2xl p-5 flex items-center justify-between gap-4 shadow-lg">
+                    <div class="space-y-1">
+                        <div class="flex items-center gap-2">
+                            <span class="w-2 h-2 rounded-full bg-rose-400"></span>
+                            <span class="text-xs font-bold uppercase tracking-wider text-rose-400">Seller SLA Timed Out</span>
+                        </div>
+                        <div id="pendConfTimedOutCount" class="text-2xl sm:text-3xl font-extrabold font-mono text-rose-400">0</div>
+                        <p class="text-[11px] text-slate-400">Orders where seller 15-min timer expired without response</p>
+                    </div>
+                    <div class="w-11 h-11 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400 shrink-0">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Controls & Search Bar -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h3 class="text-lg font-bold text-white">Pending Payment Confirmations &bull; Fast-Track Resolution</h3>
+                            <span class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold uppercase">Instant Override Active</span>
+                        </div>
+                        <p class="text-xs text-slate-400 mt-0.5">
+                            Live queue of orders where buyers have submitted their payment screenshot and UTR. Inspect proof and immediately Resolve for Buyer (Force Settle) or Resolve for Seller (Cancel Order) without waiting for timers or disputes.
+                        </p>
+                    </div>
+                    <div class="flex items-center gap-2 shrink-0">
+                        <button onclick="loadAdminPendingConfirmations()" class="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold transition shadow-md flex items-center gap-1.5">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                            <span>Refresh Queue</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div class="sm:col-span-2">
+                        <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Search Order ID / Buyer / Seller / UTR Number</label>
+                        <input type="text" id="pendConfSearchInput" onkeyup="if(event.key === 'Enter') { pendConfPageOffset=0; loadAdminPendingConfirmations(); }"
+                               placeholder="Search by Order ID, UTR, Buyer/Seller phone or name..."
+                               class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-amber-500">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Queue Status Filter</label>
+                        <select id="pendConfStatusFilter" onchange="pendConfPageOffset=0; loadAdminPendingConfirmations()" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500">
+                            <option value="all">All Pending Confirmations</option>
+                            <option value="Payment Proof Submitted">Payment Proof Submitted</option>
+                            <option value="Seller Confirmation Pending">Seller Confirmation Pending</option>
+                            <option value="Seller Response Timeout">Seller Response Timeout</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Live Queue Table -->
+            <div class="overflow-x-auto bg-slate-900 border border-slate-800 rounded-2xl">
+                <table class="w-full text-left">
+                    <thead class="bg-slate-950 text-slate-400 text-xs uppercase border-b border-slate-800">
+                        <tr>
+                            <th class="p-3">Order ID</th>
+                            <th class="p-3">Buyer (Waiting)</th>
+                            <th class="p-3">Seller &amp; Target UPI</th>
+                            <th class="p-3">Amount &amp; Reward</th>
+                            <th class="p-3">UTR &amp; Payment Proof</th>
+                            <th class="p-3">Waiting / SLA Status</th>
+                            <th class="p-3">Fast-Track Instant Override</th>
+                        </tr>
+                    </thead>
+                    <tbody id="adminPendingConfirmationsTableBody" class="divide-y divide-slate-800/60"></tbody>
+                </table>
+
+                <div class="p-4 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                    <span id="pendConfPaginationInfo" class="text-slate-400 font-mono">Showing 0 pending confirmations</span>
+                    <div class="flex items-center gap-2">
+                        <button id="pendConfPrevBtn" onclick="changePendConfPage('prev')" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300 rounded-xl font-semibold border border-slate-700 transition">
+                            &larr; Previous
+                        </button>
+                        <span id="pendConfPageIndicator" class="px-3 py-1.5 text-slate-400 font-mono">Page 1</span>
+                        <button id="pendConfNextBtn" onclick="changePendConfPage('next')" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300 rounded-xl font-semibold border border-slate-700 transition">
                             Next &rarr;
                         </button>
                     </div>
@@ -826,7 +956,7 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
 
             <!-- Dynamic Telegram Support & Live Operations Highlight Deck (Part 9, Items 1 & 4) -->
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <!-- Telegram Control Card -->
+                <!-- Dynamic Support Menu & Channel Links Control Card -->
                 <div class="bg-gradient-to-br from-slate-900 to-[#102336] border border-[#229ED9]/40 rounded-2xl p-5 shadow-lg space-y-4">
                     <div class="flex items-center justify-between border-b border-slate-800 pb-3">
                         <div class="flex items-center gap-3">
@@ -834,28 +964,54 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                                 <svg class="w-5 h-5 fill-current" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.52 2.77-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/></svg>
                             </div>
                             <div>
-                                <h4 class="text-sm font-bold text-white">Dynamic Telegram Support Control</h4>
-                                <p class="text-[11px] text-slate-400">Updates support destination in real-time across user interfaces</p>
+                                <h4 class="text-sm font-bold text-white">Dynamic User Support Menu Links</h4>
+                                <p class="text-[11px] text-slate-400">Configure Jelipay High Priority Support, Jelipay Group &amp; Telegram Support links in real-time</p>
                             </div>
                         </div>
                         <span class="px-2 py-0.5 rounded bg-[#229ED9]/20 text-[#229ED9] text-[10px] font-bold font-mono">24/7 SUPPORT</span>
                     </div>
 
-                    <div class="space-y-3">
-                        <div>
-                            <label class="text-[11px] font-bold uppercase tracking-wider text-slate-300 block mb-1">Telegram Support Channel / Username URL</label>
-                            <input type="text" id="quickTelegramUrlInput" placeholder="https://t.me/amilacorp (or t.me/amilacorp)" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white font-mono focus:border-[#229ED9] focus:outline-none">
+                    <div class="space-y-4">
+                        <!-- 1. Jelipay High Priority Support Link -->
+                        <div class="bg-slate-950/70 border border-amber-500/20 rounded-xl p-3 space-y-2">
+                            <label class="text-[11px] font-bold uppercase tracking-wider text-amber-400 block">Jelipay High Priority Support URL (VIP / Escalated Support)</label>
+                            <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                                <input type="text" id="quickPrioritySupportUrlInput" placeholder="https://t.me/amilacorp or WhatsApp/VIP Support URL" class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white font-mono focus:border-amber-500 focus:outline-none">
+                                <button onclick="saveQuickSupportUrl('jelipay_priority_support_url', 'quickPrioritySupportUrlInput', 'quickPrioritySupportTestBtn', 'Jelipay High Priority Support')" class="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-xl text-xs uppercase tracking-wider transition shadow-md whitespace-nowrap">
+                                    Save Priority Link
+                                </button>
+                                <a id="quickPrioritySupportTestBtn" href="https://t.me/amilacorp" target="_blank" rel="noopener noreferrer" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold transition text-center whitespace-nowrap">
+                                    Test &nearr;
+                                </a>
+                            </div>
                         </div>
 
-                        <div class="flex items-center gap-2">
-                            <button onclick="saveQuickTelegramUrl()" class="flex-1 bg-gradient-to-r from-[#229ED9] to-blue-600 hover:from-[#1b8ec5] hover:to-blue-500 text-white font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition shadow-md flex items-center justify-center gap-1.5">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-                                <span>Save & Apply Telegram Link</span>
-                            </button>
-                            <a id="quickTelegramTestBtn" href="https://t.me/amilacorp" target="_blank" rel="noopener noreferrer" class="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold transition flex items-center gap-1">
-                                <span>Test Link</span>
-                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
-                            </a>
+                        <!-- 2. Jelipay Group Link -->
+                        <div class="bg-slate-950/70 border border-indigo-500/20 rounded-xl p-3 space-y-2">
+                            <label class="text-[11px] font-bold uppercase tracking-wider text-indigo-400 block">Jelipay Group URL (Official Community / Telegram Group)</label>
+                            <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                                <input type="text" id="quickGroupUrlInput" placeholder="https://t.me/jelipay" class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white font-mono focus:border-indigo-500 focus:outline-none">
+                                <button onclick="saveQuickSupportUrl('jelipay_group_url', 'quickGroupUrlInput', 'quickGroupTestBtn', 'Jelipay Group')" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs uppercase tracking-wider transition shadow-md whitespace-nowrap">
+                                    Save Group Link
+                                </button>
+                                <a id="quickGroupTestBtn" href="https://t.me/jelipay" target="_blank" rel="noopener noreferrer" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold transition text-center whitespace-nowrap">
+                                    Test &nearr;
+                                </a>
+                            </div>
+                        </div>
+
+                        <!-- 3. Standard Telegram Support Link -->
+                        <div class="bg-slate-950/70 border border-[#229ED9]/20 rounded-xl p-3 space-y-2">
+                            <label class="text-[11px] font-bold uppercase tracking-wider text-[#229ED9] block">Telegram Support Channel / Username URL</label>
+                            <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                                <input type="text" id="quickTelegramUrlInput" placeholder="https://t.me/amilacorp (or t.me/amilacorp)" class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white font-mono focus:border-[#229ED9] focus:outline-none">
+                                <button onclick="saveQuickTelegramUrl()" class="px-4 py-2 bg-gradient-to-r from-[#229ED9] to-blue-600 hover:from-[#1b8ec5] hover:to-blue-500 text-white font-bold rounded-xl text-xs uppercase tracking-wider transition shadow-md whitespace-nowrap">
+                                    Save Telegram Link
+                                </button>
+                                <a id="quickTelegramTestBtn" href="https://t.me/amilacorp" target="_blank" rel="noopener noreferrer" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold transition text-center whitespace-nowrap">
+                                    Test &nearr;
+                                </a>
+                            </div>
                         </div>
                     </div>
                 </div>

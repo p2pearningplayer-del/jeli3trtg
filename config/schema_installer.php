@@ -1665,6 +1665,8 @@ class SchemaInstaller {
             ['reward_eligible_types', 'ALL', 'Eligible transaction types for reward calculation'],
             ['telegram_support_url', 'https://t.me/amilacorp', 'Official Telegram Support Channel or Username URL'],
             ['telegram_support_username', '@amilacorp', 'Official Telegram Support handle/username'],
+            ['jelipay_group_url', 'https://t.me/jelipay', 'Official JeliPay Community or Telegram Group URL'],
+            ['jelipay_priority_support_url', 'https://t.me/amilacorp', 'JeliPay High Priority / VIP Escalated Support URL'],
             ['platform_mode', 'live', 'Platform operating mode (live / test)'],
             ['allow_user_registration', '1', 'Allow public user registrations (1=Active, 0=Disabled)'],
             ['allow_sell_listings', '1', 'Allow peer users to list new sell orders (1=Active, 0=Disabled)'],

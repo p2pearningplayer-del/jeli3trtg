@@ -658,9 +658,11 @@ class AdminManager {
         $where = ["1=1"];
         $params = [];
 
-        // Four distinct sections (active, completed, cancelled, disputed)
+        // Distinct sections (active, pending_confirmations, completed, cancelled, disputed)
         if ($section === 'active') {
             $where[] = "c.status IN ('Available', 'Reserved', 'Payment Proof Submitted', 'Seller Confirmation Pending', 'Seller Response Timeout')";
+        } elseif ($section === 'pending_confirmations') {
+            $where[] = "c.status IN ('Payment Proof Submitted', 'Seller Confirmation Pending', 'Seller Response Timeout')";
         } elseif ($section === 'completed') {
             $where[] = "c.status IN ('Completed', 'completed')";
         } elseif ($section === 'cancelled') {
@@ -768,6 +770,7 @@ class AdminManager {
         unset($ord);
 
         $countActive = (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE status IN ('Available', 'Reserved', 'Payment Proof Submitted', 'Seller Confirmation Pending', 'Seller Response Timeout')")->fetchColumn();
+        $countPendingConfirmations = (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE status IN ('Payment Proof Submitted', 'Seller Confirmation Pending', 'Seller Response Timeout')")->fetchColumn();
         $countCompleted = (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE status IN ('Completed', 'completed')")->fetchColumn();
         $countCancelled = (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE status IN ('Cancelled / Reversed', 'Cancelled')")->fetchColumn();
         $countDisputed = (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE status IN ('Disputed', 'Appealed', 'In Dispute Review')")->fetchColumn();
@@ -808,6 +811,7 @@ class AdminManager {
             'section' => $section,
             'counts' => [
                 'active' => $countActive,
+                'pending_confirmations' => $countPendingConfirmations,
                 'completed' => $countCompleted,
                 'cancelled' => $countCancelled,
                 'disputed' => $countDisputed,
@@ -821,6 +825,384 @@ class AdminManager {
                 'today_completed_count' => $todayCompletedCount
             ]
         ];
+    }
+
+    /**
+     * Get live queue of Pending Payment Confirmations (Active Transactions where buyer submitted proof
+     * and seller has not yet confirmed/released tokens).
+     */
+    public static function getPendingConfirmations(
+        string $query = '',
+        string $statusFilter = 'all',
+        int $limit = 50,
+        int $offset = 0
+    ): array {
+        $pdo = Database::getConnection();
+
+        $where = [
+            "c.status IN ('Payment Proof Submitted', 'Seller Confirmation Pending', 'Seller Response Timeout')"
+        ];
+        $params = [];
+
+        if ($statusFilter !== 'all' && $statusFilter !== '') {
+            $where[] = "c.status = ?";
+            $params[] = $statusFilter;
+        }
+
+        if (!empty(trim($query))) {
+            $q = '%' . trim($query) . '%';
+            $where[] = "(c.id = ? OR c.parent_order_id = ? OR p.utr_number LIKE ? OR u_seller.phone LIKE ? OR u_buyer.phone LIKE ? OR u_seller.account_holder_name LIKE ? OR u_buyer.account_holder_name LIKE ? OR CAST(c.seller_id AS CHAR) = ? OR CAST(c.buyer_id AS CHAR) = ?)";
+            $params[] = trim($query);
+            $params[] = trim($query);
+            $params[] = $q;
+            $params[] = $q;
+            $params[] = $q;
+            $params[] = $q;
+            $params[] = $q;
+            $params[] = trim($query);
+            $params[] = trim($query);
+        }
+
+        $whereClause = implode(" AND ", $where);
+
+        $countSql = "
+            SELECT COUNT(*)
+            FROM child_orders c
+            LEFT JOIN parent_sell_orders ps ON c.parent_order_id = ps.id
+            JOIN users u_seller ON c.seller_id = u_seller.id
+            LEFT JOIN users u_buyer ON c.buyer_id = u_buyer.id
+            LEFT JOIN payment_proofs p ON c.id = p.child_order_id
+            WHERE {$whereClause}
+        ";
+        $countStmt = $pdo->prepare($countSql);
+        $countStmt->execute($params);
+        $totalCount = (int)$countStmt->fetchColumn();
+
+        $stmt = $pdo->prepare("
+            SELECT c.*,
+                   p.utr_number, p.screenshot_path, p.notes as proof_notes, p.created_at as proof_created_at,
+                   ps.snapshotted_upi_id as parent_snapshotted_upi_id,
+                   ps.snapshotted_account_holder as parent_snapshotted_account_holder,
+                   u_seller.phone as seller_phone, u_seller.account_holder_name as seller_name,
+                   u_buyer.phone as buyer_phone, u_buyer.account_holder_name as buyer_name,
+                   d.id as dispute_id, d.status as dispute_status
+            FROM child_orders c
+            LEFT JOIN parent_sell_orders ps ON c.parent_order_id = ps.id
+            JOIN users u_seller ON c.seller_id = u_seller.id
+            LEFT JOIN users u_buyer ON c.buyer_id = u_buyer.id
+            LEFT JOIN payment_proofs p ON c.id = p.child_order_id
+            LEFT JOIN disputes d ON c.id = d.child_order_id
+            WHERE {$whereClause}
+            ORDER BY COALESCE(c.proof_submitted_at, p.created_at, c.created_at) ASC, c.id ASC
+            LIMIT ? OFFSET ?
+        ");
+        $bindIdx = 1;
+        foreach ($params as $p) {
+            $stmt->bindValue($bindIdx++, $p);
+        }
+        $stmt->bindValue($bindIdx++, $limit, PDO::PARAM_INT);
+        $stmt->bindValue($bindIdx++, $offset, PDO::PARAM_INT);
+        $stmt->execute();
+
+        $nowTs = time();
+        $orders = $stmt->fetchAll();
+        foreach ($orders as &$ord) {
+            $childUpi = trim((string)($ord['snapshotted_upi_id'] ?? ''));
+            $parentUpi = trim((string)($ord['parent_snapshotted_upi_id'] ?? ''));
+            $resolvedUpi = ($childUpi !== '') ? $childUpi : $parentUpi;
+            if ($resolvedUpi !== '') {
+                $ord['seller_order_upi_id'] = $resolvedUpi;
+                $ord['has_historical_upi'] = true;
+            } else {
+                $ord['seller_order_upi_id'] = 'Historical UPI Details Unavailable';
+                $ord['has_historical_upi'] = false;
+            }
+            $childHolder = trim((string)($ord['snapshotted_account_holder'] ?? ''));
+            $parentHolder = trim((string)($ord['parent_snapshotted_account_holder'] ?? ''));
+            $resolvedHolder = ($childHolder !== '') ? $childHolder : $parentHolder;
+            $ord['seller_order_account_holder'] = ($resolvedHolder !== '') ? $resolvedHolder : ($ord['seller_name'] ?: 'Unavailable');
+            $ord['payment_method'] = 'UPI';
+
+            $submittedAtStr = $ord['proof_submitted_at'] ?: ($ord['proof_created_at'] ?: $ord['created_at']);
+            $submittedTs = $submittedAtStr ? strtotime($submittedAtStr . ' UTC') : $nowTs;
+            $ord['waiting_seconds'] = max(0, $nowTs - $submittedTs);
+
+            if (!empty($ord['verification_deadline'])) {
+                $deadlineTs = strtotime($ord['verification_deadline'] . ' UTC');
+                $ord['seconds_remaining'] = max(0, $deadlineTs - $nowTs);
+            } else {
+                $ord['seconds_remaining'] = 0;
+            }
+        }
+        unset($ord);
+
+        // Summary metrics for the Pending Confirmations dashboard
+        $summaryStmt = $pdo->query("
+            SELECT COUNT(*) as total_pending,
+                   COALESCE(SUM(amount), 0) as total_volume,
+                   SUM(CASE WHEN status = 'Seller Response Timeout' THEN 1 ELSE 0 END) as timed_out_count
+            FROM child_orders
+            WHERE status IN ('Payment Proof Submitted', 'Seller Confirmation Pending', 'Seller Response Timeout')
+        ");
+        $summaryRow = $summaryStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+        return [
+            'orders' => $orders,
+            'total' => $totalCount,
+            'summary' => [
+                'total_pending_count' => (int)($summaryRow['total_pending'] ?? 0),
+                'total_pending_volume' => round((float)($summaryRow['total_volume'] ?? 0), 2),
+                'timed_out_count' => (int)($summaryRow['timed_out_count'] ?? 0)
+            ]
+        ];
+    }
+
+    /**
+     * Fast-Track Admin Resolution (Instant Override) for Pending Payment Confirmations & Active Orders.
+     * Allows the admin to immediately Resolve for Buyer (Force Settle) or Resolve for Seller (Cancel Order)
+     * without waiting for the SLA timer to expire or for a formal dispute to be opened.
+     *
+     * @param int $childOrderId
+     * @param int $adminId
+     * @param string $decision 'resolve_buyer' | 'force_settle' | 'resolve_seller' | 'cancel_order'
+     * @param string $reason Optional admin resolution note
+     */
+    public static function fastTrackResolveOrder(
+        int $childOrderId,
+        int $adminId,
+        string $decision,
+        string $reason = ''
+    ): array {
+        $pdo = Database::getConnection();
+
+        $normalizedDecision = strtolower(trim($decision));
+        if (in_array($normalizedDecision, ['resolve_buyer', 'force_settle', 'buyer'], true)) {
+            $actionMode = 'resolve_buyer';
+            if (empty(trim($reason))) {
+                $reason = 'Fast-track admin resolution: Payment proof verified, tokens force-settled to buyer.';
+            }
+        } elseif (in_array($normalizedDecision, ['resolve_seller', 'cancel_order', 'cancel_reverse', 'seller'], true)) {
+            $actionMode = 'resolve_seller';
+            if (empty(trim($reason))) {
+                $reason = 'Fast-track admin resolution: Payment proof invalid/unverified, order cancelled and tokens returned to seller.';
+            }
+        } else {
+            return [
+                'success' => false,
+                'error' => "Invalid resolution decision '{$decision}'. Use 'resolve_buyer' (Force Settle) or 'resolve_seller' (Cancel Order)."
+            ];
+        }
+
+        $stmt = $pdo->prepare("SELECT * FROM child_orders WHERE id = ?");
+        $stmt->execute([$childOrderId]);
+        $order = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$order) {
+            return ['success' => false, 'error' => "Order #{$childOrderId} not found."];
+        }
+
+        $currentStatus = (string)($order['status'] ?? '');
+        if (in_array($currentStatus, ['Completed', 'completed', 'Cancelled / Reversed', 'Cancelled', 'Available'], true)) {
+            return [
+                'success' => false,
+                'error' => "Cannot fast-track resolve Order #{$childOrderId} because it is already in '{$currentStatus}' status."
+            ];
+        }
+
+        $sellerId = (int)$order['seller_id'];
+        $buyerId = (int)($order['buyer_id'] ?? 0);
+        $amount = (float)$order['amount'];
+        $rewardAmount = isset($order['snapshotted_reward_amount']) && (float)$order['snapshotted_reward_amount'] > 0
+            ? (float)$order['snapshotted_reward_amount']
+            : round($amount * 0.09, 2);
+        $parentOrderId = (int)($order['parent_order_id'] ?? 0);
+        $resolvedAt = gmdate('Y-m-d H:i:s');
+        $cleanReason = trim($reason);
+
+        if ($actionMode === 'resolve_buyer' && $buyerId <= 0) {
+            return ['success' => false, 'error' => "Order #{$childOrderId} does not have an assigned buyer to settle tokens to."];
+        }
+
+        $pdo->beginTransaction();
+        try {
+            if ($actionMode === 'resolve_buyer') {
+                // 1. Atomically transition child_order to Completed
+                $updOrder = $pdo->prepare("
+                    UPDATE child_orders
+                    SET status = 'Completed', completed_at = ?
+                    WHERE id = ? AND status NOT IN ('Completed', 'completed', 'Cancelled / Reversed', 'Cancelled')
+                ");
+                $updOrder->execute([$resolvedAt, $childOrderId]);
+                if ($updOrder->rowCount() === 0) {
+                    $pdo->rollBack();
+                    return ['success' => false, 'error' => "Order #{$childOrderId} was already resolved by a concurrent request."];
+                }
+
+                // 2. Settle seller reserved tokens
+                Wallet::settleSellOrder($sellerId, $amount, (string)$childOrderId);
+
+                // 3. Credit buyer tokens + purchase reward
+                Wallet::creditBuyer($buyerId, $amount, $rewardAmount, (string)$childOrderId);
+
+                // 4. Distribute L1/L2 referral commissions & Agent commissions
+                ReferralEngine::distributeCommissions($buyerId, $amount, (string)$childOrderId);
+                AgentManager::onOrderCompleted($childOrderId, $buyerId, $amount, $resolvedAt);
+
+                // 5. Update parent sell order counters
+                if ($parentOrderId > 0) {
+                    $updParent = $pdo->prepare("
+                        UPDATE parent_sell_orders
+                        SET completed_amount = completed_amount + ?,
+                            reserved_amount = CASE WHEN reserved_amount >= ? THEN reserved_amount - ? ELSE 0 END
+                        WHERE id = ?
+                    ");
+                    $updParent->execute([$amount, $amount, $amount, $parentOrderId]);
+
+                    // Mark parent order Completed if fully settled
+                    $pCheck = $pdo->prepare("SELECT original_amount, completed_amount, status FROM parent_sell_orders WHERE id = ?");
+                    $pCheck->execute([$parentOrderId]);
+                    $pRow = $pCheck->fetch(PDO::FETCH_ASSOC);
+                    if ($pRow && (float)$pRow['completed_amount'] >= (float)$pRow['original_amount'] && $pRow['status'] !== 'Completed') {
+                        $pDone = $pdo->prepare("UPDATE parent_sell_orders SET status = 'Completed' WHERE id = ?");
+                        $pDone->execute([$parentOrderId]);
+                    }
+                }
+
+                // 6. Close any associated open dispute automatically
+                $updDisp = $pdo->prepare("
+                    UPDATE disputes
+                    SET status = 'resolved_buyer', resolution_notes = ?, resolved_by_admin_id = ?, resolved_at = ?
+                    WHERE child_order_id = ? AND status NOT IN ('resolved_buyer', 'resolved_seller')
+                ");
+                $updDisp->execute([$cleanReason, $adminId, $resolvedAt, $childOrderId]);
+
+                // 7. Record immutable admin audit log
+                self::logAudit(
+                    $adminId,
+                    'ADMIN_FAST_TRACK_RESOLVE_BUYER',
+                    'child_orders',
+                    (string)$childOrderId,
+                    ['status' => $currentStatus, 'amount' => $amount, 'buyer_id' => $buyerId, 'seller_id' => $sellerId],
+                    ['status' => 'Completed', 'completed_at' => $resolvedAt, 'credited_buyer' => $amount + $rewardAmount],
+                    $cleanReason
+                );
+
+                $pdo->commit();
+
+                // Send notifications outside transaction
+                if (class_exists('Auth')) {
+                    $totalCredited = number_format($amount + $rewardAmount, 2);
+                    Auth::createNotification(
+                        $buyerId,
+                        "Order #{$childOrderId} Confirmed & Settled",
+                        "Admin verified your payment proof for Order #{$childOrderId} and released ₹{$totalCredited} (including reward) to your wallet.",
+                        'order',
+                        (string)$childOrderId
+                    );
+                    Auth::createNotification(
+                        $sellerId,
+                        "Order #{$childOrderId} Force Settled by Admin",
+                        "Order #{$childOrderId} (₹" . number_format($amount, 2) . ") was verified and settled in favor of the buyer by Admin.",
+                        'order',
+                        (string)$childOrderId
+                    );
+                }
+
+                return [
+                    'success' => true,
+                    'decision' => 'resolve_buyer',
+                    'order_id' => $childOrderId,
+                    'new_status' => 'Completed',
+                    'message' => "Order #{$childOrderId} resolved for Buyer! ₹" . number_format($amount + $rewardAmount, 2) . " (₹{$amount} + ₹{$rewardAmount} reward) credited to Buyer #{$buyerId}."
+                ];
+            } else {
+                // resolve_seller (Cancel Order & return reserved tokens to Seller)
+                $updOrder = $pdo->prepare("
+                    UPDATE child_orders
+                    SET status = 'Cancelled / Reversed', cancelled_at = ?
+                    WHERE id = ? AND status NOT IN ('Completed', 'completed', 'Cancelled / Reversed', 'Cancelled')
+                ");
+                $updOrder->execute([$resolvedAt, $childOrderId]);
+                if ($updOrder->rowCount() === 0) {
+                    $pdo->rollBack();
+                    return ['success' => false, 'error' => "Order #{$childOrderId} was already resolved by a concurrent request."];
+                }
+
+                // Reverse any agent commissions if applicable
+                AgentManager::onOrderReversed($childOrderId);
+
+                // Release seller reserved tokens back to seller's available balance
+                Wallet::releaseReserved(
+                    $sellerId,
+                    $amount,
+                    (string)$childOrderId,
+                    "Admin fast-track resolved for seller on order #{$childOrderId}: " . $cleanReason
+                );
+
+                // Update parent order reserved_amount
+                if ($parentOrderId > 0) {
+                    $updParent = $pdo->prepare("
+                        UPDATE parent_sell_orders
+                        SET reserved_amount = CASE WHEN reserved_amount >= ? THEN reserved_amount - ? ELSE 0 END
+                        WHERE id = ?
+                    ");
+                    $updParent->execute([$amount, $amount, $parentOrderId]);
+                }
+
+                // Close any associated open dispute automatically
+                $updDisp = $pdo->prepare("
+                    UPDATE disputes
+                    SET status = 'resolved_seller', resolution_notes = ?, resolved_by_admin_id = ?, resolved_at = ?
+                    WHERE child_order_id = ? AND status NOT IN ('resolved_buyer', 'resolved_seller')
+                ");
+                $updDisp->execute([$cleanReason, $adminId, $resolvedAt, $childOrderId]);
+
+                // Record immutable admin audit log
+                self::logAudit(
+                    $adminId,
+                    'ADMIN_FAST_TRACK_RESOLVE_SELLER',
+                    'child_orders',
+                    (string)$childOrderId,
+                    ['status' => $currentStatus, 'amount' => $amount, 'buyer_id' => $buyerId, 'seller_id' => $sellerId],
+                    ['status' => 'Cancelled / Reversed', 'cancelled_at' => $resolvedAt, 'returned_to_seller' => $amount],
+                    $cleanReason
+                );
+
+                $pdo->commit();
+
+                if (class_exists('Auth')) {
+                    Auth::createNotification(
+                        $sellerId,
+                        "Order #{$childOrderId} Resolved for Seller",
+                        "Admin cancelled Order #{$childOrderId} and returned ₹" . number_format($amount, 2) . " to your Available Balance.",
+                        'order',
+                        (string)$childOrderId
+                    );
+                    if ($buyerId > 0) {
+                        Auth::createNotification(
+                            $buyerId,
+                            "Order #{$childOrderId} Cancelled by Admin",
+                            "Order #{$childOrderId} was cancelled by Admin after payment proof review: {$cleanReason}",
+                            'order',
+                            (string)$childOrderId
+                        );
+                    }
+                }
+
+                return [
+                    'success' => true,
+                    'decision' => 'resolve_seller',
+                    'order_id' => $childOrderId,
+                    'new_status' => 'Cancelled / Reversed',
+                    'message' => "Order #{$childOrderId} resolved for Seller! Order cancelled and ₹" . number_format($amount, 2) . " returned to Seller #{$sellerId}'s available balance."
+                ];
+            }
+        } catch (Exception $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            return ['success' => false, 'error' => 'Fast-track resolution failed: ' . $e->getMessage()];
+        }
     }
 
     /**

@@ -76,9 +76,21 @@ $announcementActive = ($platformSettings['announcement_banner_active'] ?? '0') =
 $announcementText = htmlspecialchars($platformSettings['announcement_banner_text'] ?? '');
 $rawTgUrl = $platformSettings['telegram_support_url'] ?? 'https://t.me/amilacorp';
 if (!preg_match('#^https?://#i', $rawTgUrl)) {
-    $rawTgUrl = str_starts_with($rawTgUrl, 't.me/') ? ('https://' . $rawTgUrl) : ('https://t.me/' . ltrim($rawTgUrl, '@/'));
+    $rawTgUrl = str_starts_with($rawTgUrl, 't.me/') || str_starts_with($rawTgUrl, 'wa.me/') ? ('https://' . $rawTgUrl) : ('https://t.me/' . ltrim($rawTgUrl, '@/'));
 }
 $telegramSupportUrl = htmlspecialchars($rawTgUrl);
+
+$rawGroupUrl = $platformSettings['jelipay_group_url'] ?? 'https://t.me/jelipay';
+if (!preg_match('#^https?://#i', $rawGroupUrl)) {
+    $rawGroupUrl = str_starts_with($rawGroupUrl, 't.me/') || str_starts_with($rawGroupUrl, 'wa.me/') ? ('https://' . $rawGroupUrl) : ('https://t.me/' . ltrim($rawGroupUrl, '@/'));
+}
+$jelipayGroupUrl = htmlspecialchars($rawGroupUrl);
+
+$rawPriorityUrl = $platformSettings['jelipay_priority_support_url'] ?? 'https://t.me/amilacorp';
+if (!preg_match('#^https?://#i', $rawPriorityUrl)) {
+    $rawPriorityUrl = str_starts_with($rawPriorityUrl, 't.me/') || str_starts_with($rawPriorityUrl, 'wa.me/') ? ('https://' . $rawPriorityUrl) : ('https://t.me/' . ltrim($rawPriorityUrl, '@/'));
+}
+$jelipayPrioritySupportUrl = htmlspecialchars($rawPriorityUrl);
 $isAdminUser = $currentUser && ($currentUser['role'] === 'admin' || !empty($currentUser['real_admin_id']));
 
 // Maintenance Mode Enforcement for non-admins
@@ -1271,7 +1283,34 @@ endif;
                     </div>
                     <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse hidden sm:block" title="Support Online"></span>
                 </div>
-                <div class="pt-1">
+                <div class="pt-1 space-y-2.5">
+                    <a id="profilePrioritySupportLink" href="<?= $jelipayPrioritySupportUrl ?>" target="_blank" rel="noopener noreferrer" class="bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 rounded-2xl p-4 flex items-center justify-between transition group">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center flex-shrink-0">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                            </div>
+                            <div>
+                                <div class="flex items-center gap-2">
+                                    <h4 class="text-sm font-bold text-white">Jelipay High Priority Support</h4>
+                                    <span class="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[9px] font-black uppercase tracking-wider">VIP / Priority</span>
+                                </div>
+                                <p class="text-xs text-slate-400">Escalated priority assistance for urgent order &amp; payment issues</p>
+                            </div>
+                        </div>
+                        <span class="text-sm font-bold text-slate-400 group-hover:text-white">&rarr;</span>
+                    </a>
+                    <a id="profileGroupSupportLink" href="<?= $jelipayGroupUrl ?>" target="_blank" rel="noopener noreferrer" class="bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-400 border border-indigo-500/30 rounded-2xl p-4 flex items-center justify-between transition group">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-xl bg-indigo-500/20 flex items-center justify-center flex-shrink-0">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                            </div>
+                            <div>
+                                <h4 class="text-sm font-bold text-white">Jelipay Group</h4>
+                                <p class="text-xs text-slate-400">Join the official Jelipay community &amp; Telegram trader group</p>
+                            </div>
+                        </div>
+                        <span class="text-sm font-bold text-slate-400 group-hover:text-white">&rarr;</span>
+                    </a>
                     <a id="profileTelegramSupportLink" href="<?= $telegramSupportUrl ?>" target="_blank" rel="noopener noreferrer" class="bg-[#229ED9]/15 hover:bg-[#229ED9]/25 text-[#229ED9] border border-[#229ED9]/30 rounded-2xl p-4 flex items-center justify-between transition group">
                         <div class="flex items-center gap-3">
                             <div class="w-10 h-10 rounded-xl bg-[#229ED9]/20 flex items-center justify-center flex-shrink-0">
@@ -1279,7 +1318,7 @@ endif;
                             </div>
                             <div>
                                 <h4 class="text-sm font-bold text-white">Telegram Support Channel</h4>
-                                <p class="text-xs text-slate-400">Join official channel & contact verified support agents</p>
+                                <p class="text-xs text-slate-400">Join official channel &amp; contact verified support agents</p>
                             </div>
                         </div>
                         <span class="text-sm font-bold text-slate-400 group-hover:text-white">&rarr;</span>
@@ -2298,15 +2337,42 @@ endif;
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                 </button>
             </div>
-            <p class="text-[11px] text-slate-400 leading-relaxed">Need help with payments, disputes, or account setup? Connect directly with our official support team:</p>
+            <p class="text-[11px] text-slate-400 leading-relaxed">Select a support channel below for payments, disputes, or community assistance:</p>
             <div class="space-y-2 pt-1">
-                <!-- Telegram Support Button -->
+                <!-- Jelipay High Priority Support Button -->
+                <a id="supportPriorityLink" href="<?= $jelipayPrioritySupportUrl ?>" target="_blank" rel="noopener noreferrer" class="w-full bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 rounded-xl px-3.5 py-2.5 text-xs font-bold flex items-center justify-between transition group">
+                    <div class="flex items-center gap-2.5">
+                        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                        <div>
+                            <span class="block text-white">Jelipay High Priority Support</span>
+                            <span class="block text-[10px] font-normal text-amber-300/80">Escalated VIP / Priority Assistance</span>
+                        </div>
+                    </div>
+                    <span class="text-[10px] text-amber-300 group-hover:text-white transition flex-shrink-0">Connect &rarr;</span>
+                </a>
+
+                <!-- Jelipay Group Button -->
+                <a id="supportGroupLink" href="<?= $jelipayGroupUrl ?>" target="_blank" rel="noopener noreferrer" class="w-full bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-400 border border-indigo-500/30 rounded-xl px-3.5 py-2.5 text-xs font-bold flex items-center justify-between transition group">
+                    <div class="flex items-center gap-2.5">
+                        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                        <div>
+                            <span class="block text-white">Jelipay Group</span>
+                            <span class="block text-[10px] font-normal text-indigo-300/80">Official Community &amp; Telegram Group</span>
+                        </div>
+                    </div>
+                    <span class="text-[10px] text-indigo-300 group-hover:text-white transition flex-shrink-0">Join Group &rarr;</span>
+                </a>
+
+                <!-- Standard Telegram Support Button -->
                 <a id="supportTelegramLink" href="<?= $telegramSupportUrl ?>" target="_blank" rel="noopener noreferrer" class="w-full bg-[#229ED9]/15 hover:bg-[#229ED9]/25 text-[#229ED9] border border-[#229ED9]/30 rounded-xl px-3.5 py-2.5 text-xs font-bold flex items-center justify-between transition group">
                     <div class="flex items-center gap-2.5">
                         <svg class="w-4 h-4 fill-current flex-shrink-0" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.52 2.77-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/></svg>
-                        <span>Telegram Support</span>
+                        <div>
+                            <span class="block text-white">Telegram Support</span>
+                            <span class="block text-[10px] font-normal text-[#229ED9]/80">Standard 24/7 Support Channel</span>
+                        </div>
                     </div>
-                    <span class="text-[10px] text-slate-400 group-hover:text-white transition">Join Channel &rarr;</span>
+                    <span class="text-[10px] text-slate-400 group-hover:text-white transition flex-shrink-0">Join Channel &rarr;</span>
                 </a>
             </div>
         </div>

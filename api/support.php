@@ -42,16 +42,35 @@ $pdo = Database::getConnection();
 
 switch ($action) {
     case 'config':
-        $stmt = $pdo->prepare("SELECT setting_value FROM platform_settings WHERE setting_key = 'telegram_support_url'");
+        $stmt = $pdo->prepare("
+            SELECT setting_key, setting_value
+            FROM platform_settings
+            WHERE setting_key IN ('telegram_support_url', 'jelipay_group_url', 'jelipay_priority_support_url')
+        ");
         $stmt->execute();
-        $row = $stmt->fetch();
-        $telegramUrl = $row['setting_value'] ?? 'https://t.me/amilacorp';
-        if (!preg_match('#^https?://#i', $telegramUrl)) {
-            $telegramUrl = str_starts_with($telegramUrl, 't.me/') ? ('https://' . $telegramUrl) : ('https://t.me/' . ltrim($telegramUrl, '@/'));
-        }
+        $rows = $stmt->fetchAll(PDO::FETCH_KEY_PAIR) ?: [];
+
+        $normalizeSupportUrl = static function (string $rawUrl, string $fallback): string {
+            $url = trim($rawUrl);
+            if ($url === '') {
+                $url = $fallback;
+            }
+            if (!preg_match('#^https?://#i', $url)) {
+                $url = str_starts_with($url, 't.me/') || str_starts_with($url, 'wa.me/')
+                    ? ('https://' . $url)
+                    : ('https://t.me/' . ltrim($url, '@/'));
+            }
+            return $url;
+        };
+
+        $telegramUrl = $normalizeSupportUrl((string)($rows['telegram_support_url'] ?? ''), 'https://t.me/amilacorp');
+        $groupUrl = $normalizeSupportUrl((string)($rows['jelipay_group_url'] ?? ''), 'https://t.me/jelipay');
+        $priorityUrl = $normalizeSupportUrl((string)($rows['jelipay_priority_support_url'] ?? ''), 'https://t.me/amilacorp');
 
         jsonResponse(true, [
             'telegram_support_url' => $telegramUrl,
+            'jelipay_group_url' => $groupUrl,
+            'jelipay_priority_support_url' => $priorityUrl,
             'default_support_email' => 'support@jelipay.in',
             'support_hours' => '24/7 Live Assistance',
             'average_response_minutes' => 2
