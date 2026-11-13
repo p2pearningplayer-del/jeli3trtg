@@ -70,7 +70,7 @@ UpiManager::getUserUpiAccounts($sellerId);
 
 // 1. Seller lists a ₹500 sell order (creates ₹300 and ₹200 child orders)
 echo "--- 1. Automated UPI Risk Flagging & Hiding from Buy Section ---\n";
-$sellRes = OrderEngine::createSellOrder($sellerId, 500.00, '1234', 'Restricted Seller', $sellerUpi);
+$sellRes = OrderEngine::createSellOrder($sellerId, 500.00, '1234', 'Restricted Seller', $sellerUpi, false);
 assertTrue(!empty($sellRes['success']), "Seller created ₹500 sell listing with UPI {$sellerUpi}");
 
 // Trigger 1st automated UPI risk flag (4-hour ban)

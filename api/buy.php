@@ -46,7 +46,8 @@ switch ($action) {
                    COALESCE(u.upi_risk_flag, 0) as upi_risk_flag
             FROM child_orders c
             LEFT JOIN users u ON c.seller_id = u.id
-            WHERE c.status = 'Available' AND c.seller_id != ?
+            LEFT JOIN parent_sell_orders pso ON c.parent_order_id = pso.id
+            WHERE c.status = 'Available' AND (pso.status = 'active' OR pso.id IS NULL) AND c.seller_id != ?
         ";
         $params = [(int)$user['id']];
 

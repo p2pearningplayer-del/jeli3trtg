@@ -288,7 +288,7 @@ Auth::setTPIN($sellerId, '5555');
 $pdo->prepare("UPDATE wallets SET available_balance = 1000.00 WHERE user_id = ?")->execute([$sellerId]);
 
 // Create sell order
-$sellOrder = OrderEngine::createSellOrder($sellerId, 500.00, '5555');
+$sellOrder = OrderEngine::createSellOrder($sellerId, 500.00, '5555', null, null, false);
 $parentOrderId = (int)$sellOrder['parent_order_id'];
 
 // Pick child order as buyer

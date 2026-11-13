@@ -53,7 +53,7 @@ window.setBadge = setBadge;
 window.setTxt = setTxt;
 
 function switchAdminTab(tabId, filterOptions = null) {
-    const validTabs = ['dashboard', 'users', 'orders', 'pending_confirmations', 'sell_restrictions', 'disputes', 'fraud', 'rewards', 'content', 'reports', 'audit', 'admins', 'agents', 'risk'];
+    const validTabs = ['dashboard', 'users', 'orders', 'pending_sell_orders', 'pending_confirmations', 'sell_restrictions', 'disputes', 'fraud', 'rewards', 'content', 'reports', 'audit', 'admins', 'agents', 'risk'];
     if (!validTabs.includes(tabId)) {
         tabId = 'dashboard';
     }
@@ -121,6 +121,7 @@ function switchAdminTab(tabId, filterOptions = null) {
     if (tabId === 'dashboard') loadAdminDashboard();
     if (tabId === 'users') loadAdminUsers();
     if (tabId === 'orders') loadAdminOrders();
+    if (tabId === 'pending_sell_orders') loadAdminPendingSellOrders();
     if (tabId === 'pending_confirmations') loadAdminPendingConfirmations();
     if (tabId === 'sell_restrictions') loadAdminSellRestrictions();
     if (tabId === 'disputes') loadAdminDisputes();
@@ -136,6 +137,7 @@ function switchAdminTab(tabId, filterOptions = null) {
 
 function periodicAdminSync() {
     if (currentAdminTab === 'dashboard') loadAdminDashboard(true);
+    if (currentAdminTab === 'pending_sell_orders') loadAdminPendingSellOrders(true);
     if (currentAdminTab === 'pending_confirmations') loadAdminPendingConfirmations(true);
     if (currentAdminTab === 'sell_restrictions') loadAdminSellRestrictions(true);
 }
@@ -216,6 +218,7 @@ async function loadAdminDashboard(silent = false) {
 
         setTxt('dashOrdersPendingConfirm', orders.pending_confirmation ?? 0);
         setTxt('navPendingConfBadge', orders.pending_confirmation ?? 0);
+        setTxt('navPendingSellOrdersBadge', orders.pending_sell_orders ?? 0);
 
         // Tokens in Circulation (13 & 14)
         const circToday = parseFloat(m.token_circulation_today ?? circulation);
@@ -1012,6 +1015,190 @@ async function loadAdminOrders() {
         }).join('');
     } catch (e) {
         console.error('Failed to load orders:', e);
+    }
+}
+
+let pendSellPageOffset = 0;
+let pendSellPageLimit = 50;
+let pendSellTotalRecords = 0;
+
+function changePendSellPage(direction) {
+    if (direction === 'prev' && pendSellPageOffset > 0) {
+        pendSellPageOffset = Math.max(0, pendSellPageOffset - pendSellPageLimit);
+        loadAdminPendingSellOrders();
+    } else if (direction === 'next' && (pendSellPageOffset + pendSellPageLimit) < pendSellTotalRecords) {
+        pendSellPageOffset += pendSellPageLimit;
+        loadAdminPendingSellOrders();
+    }
+}
+
+async function loadAdminPendingSellOrders(silent = false) {
+    try {
+        const queryInput = document.getElementById('pendSellSearchInput');
+        const query = queryInput ? queryInput.value.trim() : '';
+
+        const tbody = document.getElementById('adminPendingSellOrdersTableBody');
+        if (!silent && tbody && tbody.innerHTML.trim() === '') {
+            tbody.innerHTML = '<tr><td colspan="7" class="p-8 text-center text-slate-500 font-mono text-xs">Loading pending sell orders...</td></tr>';
+        }
+
+        const url = `/api/admin.php?action=pending_sell_orders&query=${encodeURIComponent(query)}&limit=${pendSellPageLimit}&offset=${pendSellPageOffset}`;
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (!data.success) {
+            console.error('Failed to load pending sell orders:', data.error);
+            return;
+        }
+
+        const sum = data.summary || {};
+        setTxt('pendSellTotalCount', sum.pending_count || 0);
+        setTxt('pendSellTotalVolume', sum.pending_volume_formatted || '₹0.00');
+        setTxt('pendSellUniqueSellers', sum.unique_sellers || 0);
+        setBadge('navPendingSellOrdersBadge', sum.pending_count || 0);
+
+        if (!tbody) return;
+
+        pendSellTotalRecords = data.total || 0;
+        const from = pendSellTotalRecords > 0 ? (pendSellPageOffset + 1) : 0;
+        const to = Math.min(pendSellTotalRecords, pendSellPageOffset + pendSellPageLimit);
+        const pagInfo = document.getElementById('pendSellPaginationInfo');
+        if (pagInfo) {
+            pagInfo.innerText = `Showing ${from}-${to} of ${pendSellTotalRecords} pending sell orders`;
+        }
+
+        const prevBtn = document.getElementById('pendSellPrevBtn');
+        const nextBtn = document.getElementById('pendSellNextBtn');
+        const pageInd = document.getElementById('pendSellPageIndicator');
+        const currentPage = Math.floor(pendSellPageOffset / pendSellPageLimit) + 1;
+        const totalPages = Math.max(1, Math.ceil(pendSellTotalRecords / pendSellPageLimit));
+        if (pageInd) pageInd.innerText = `Page ${currentPage} of ${totalPages}`;
+        if (prevBtn) prevBtn.disabled = (pendSellPageOffset === 0);
+        if (nextBtn) nextBtn.disabled = ((pendSellPageOffset + pendSellPageLimit) >= pendSellTotalRecords);
+
+        if (!data.orders || data.orders.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="7" class="p-12 text-center text-slate-400">
+                        <div class="max-w-md mx-auto space-y-2">
+                            <div class="w-12 h-12 rounded-2xl bg-sky-500/10 border border-sky-500/20 text-sky-400 flex items-center justify-center mx-auto mb-2">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                            </div>
+                            <p class="font-bold text-white text-sm">No Pending Sell Orders</p>
+                            <p class="text-xs text-slate-500">All sell listings submitted by users have been reviewed. New orders will appear here automatically.</p>
+                        </div>
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        tbody.innerHTML = data.orders.map(o => {
+            const upiId = o.snapshotted_upi_id || 'Not specified';
+            const accHolder = o.snapshotted_account_holder || o.seller_name || 'Seller';
+            const splitsCount = o.split_count || 1;
+
+            return `
+                <tr class="hover:bg-slate-800/40 transition">
+                    <td class="p-3">
+                        <div class="font-mono text-xs font-bold text-sky-400">${escapeHtml(o.formatted_id || ('#' + o.id))}</div>
+                        <span class="text-[10px] px-2 py-0.5 rounded font-mono uppercase bg-sky-500/15 text-sky-300 border border-sky-500/30">Pending Approval</span>
+                    </td>
+                    <td class="p-3">
+                        <div class="text-xs font-bold text-white flex items-center gap-1.5">
+                            <span>User #${o.seller_id}</span>
+                            ${o.seller_health_score !== undefined ? `<span class="px-1.5 py-0.2 rounded text-[10px] font-mono ${o.seller_health_score >= 80 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}">Health ${o.seller_health_score}</span>` : ''}
+                        </div>
+                        <div class="text-[11px] text-slate-400">${escapeHtml(o.seller_name || 'Anonymous')}</div>
+                        <div class="font-mono text-[10px] text-slate-500">${escapeHtml(o.seller_phone || '')}</div>
+                    </td>
+                    <td class="p-3">
+                        <div class="text-sm font-extrabold text-white font-mono">${escapeHtml(o.amount_formatted || ('₹' + parseFloat(o.original_amount).toFixed(2)))}</div>
+                        <div class="text-[10px] text-slate-400">Locked in Reserved Balance</div>
+                    </td>
+                    <td class="p-3">
+                        <div class="font-mono text-xs text-amber-300 font-bold flex items-center gap-1">
+                            <svg class="w-3.5 h-3.5 text-amber-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                            <span>${escapeHtml(upiId)}</span>
+                        </div>
+                        <div class="text-[11px] text-slate-400 mt-0.5">Holder: <span class="text-slate-200">${escapeHtml(accHolder)}</span></div>
+                    </td>
+                    <td class="p-3">
+                        <span class="px-2 py-0.5 rounded text-xs font-mono bg-slate-800 text-slate-300 border border-slate-700">${splitsCount} split(s)</span>
+                    </td>
+                    <td class="p-3">
+                        <div class="text-xs text-slate-300">${escapeHtml(o.created_at_formatted || o.created_at || 'Just now')}</div>
+                    </td>
+                    <td class="p-3 text-right">
+                        <div class="flex items-center justify-end gap-2">
+                            <button onclick="approvePendingSellOrder(${o.id}, '${escapeHtml(o.amount_formatted)}')" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-emerald-600/20 cursor-pointer">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                                <span>Approve (Make Live)</span>
+                            </button>
+                            <button onclick="rejectPendingSellOrder(${o.id}, '${escapeHtml(o.amount_formatted)}', ${o.seller_id})" class="px-3 py-1.5 bg-rose-600/20 hover:bg-rose-600/35 text-rose-400 border border-rose-500/30 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                                <span>Reject (Refund)</span>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    } catch (e) {
+        console.error('Failed to load pending sell orders:', e);
+    }
+}
+
+async function approvePendingSellOrder(parentOrderId, amountFormatted) {
+    if (!confirm(`Are you sure you want to APPROVE Sell Order #${parentOrderId} (${amountFormatted})?\n\nThis will immediately change the order status to Active/Live and push its portions into the public Buy marketplace.`)) {
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/admin.php?action=approve_sell_order', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ order_id: parentOrderId })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            alert(`Success! Sell Order #${parentOrderId} approved and is now live on the marketplace.`);
+            loadAdminPendingSellOrders();
+            if (typeof loadAdminOrders === 'function') loadAdminOrders();
+            if (typeof loadAdminDashboard === 'function') loadAdminDashboard(true);
+        } else {
+            alert(data.error || 'Failed to approve sell order.');
+        }
+    } catch (e) {
+        console.error('Approve error:', e);
+        alert('Network error communicating with server.');
+    }
+}
+
+async function rejectPendingSellOrder(parentOrderId, amountFormatted, sellerId) {
+    const reason = prompt(`Enter rejection reason for Sell Order #${parentOrderId} (${amountFormatted}):\n\n(This will cancel the sell order and instantly refund ${amountFormatted} tokens back to Seller #${sellerId}'s available wallet balance)`, 'Listing rejected by administrator review');
+    if (reason === null) return; // cancelled prompt
+
+    try {
+        const res = await fetch('/api/admin.php?action=reject_sell_order', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ order_id: parentOrderId, reason: reason.trim() })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            alert(`Order #${parentOrderId} rejected. Locked tokens have been refunded back to user #${sellerId}'s available balance.`);
+            loadAdminPendingSellOrders();
+            if (typeof loadAdminOrders === 'function') loadAdminOrders();
+            if (typeof loadAdminDashboard === 'function') loadAdminDashboard(true);
+        } else {
+            alert(data.error || 'Failed to reject sell order.');
+        }
+    } catch (e) {
+        console.error('Reject error:', e);
+        alert('Network error communicating with server.');
     }
 }
 

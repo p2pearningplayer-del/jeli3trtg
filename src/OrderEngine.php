@@ -77,7 +77,7 @@ class OrderEngine {
     /**
      * Create a new Parent Sell Order and automatically spawn child micro-orders (FR-011, FR-012, FR-013)
      */
-    public static function createSellOrder(int $sellerId, float $amount, string $tpin, ?string $accountHolderName = null, ?string $upiId = null): array {
+    public static function createSellOrder(int $sellerId, float $amount, string $tpin, ?string $accountHolderName = null, ?string $upiId = null, bool $requireApproval = true): array {
         // Step 1: Validate Amount (FR-011)
         $val = Validator::validateSellAmount($amount);
         if (!$val['valid']) {
@@ -245,14 +245,17 @@ class OrderEngine {
                 return ['success' => false, 'error' => $res['error']];
             }
 
-            // Step 6: Insert Parent Sell Order
+            // Step 6: Insert Parent Sell Order (Pending Admin Approval by default)
+            $parentStatus = $requireApproval ? 'pending_approval' : 'active';
+            $childStatus = $requireApproval ? 'Pending Approval' : 'Available';
+
             $parentInsert = $pdo->prepare("
                 INSERT INTO parent_sell_orders (
                     seller_id, original_amount, remaining_amount, reserved_amount, completed_amount,
                     status, snapshotted_upi_id, snapshotted_account_holder, created_at
-                ) VALUES (?, ?, ?, 0.00, 0.00, 'active', ?, ?, ?)
+                ) VALUES (?, ?, ?, 0.00, 0.00, ?, ?, ?, ?)
             ");
-            $parentInsert->execute([$sellerId, $amount, $amount, $snapUpi, $snapHolder, $nowUtc]);
+            $parentInsert->execute([$sellerId, $amount, $amount, $parentStatus, $snapUpi, $snapHolder, $nowUtc]);
             $parentId = (int)$pdo->lastInsertId();
 
             // Step 7: Split into Child Micro-Orders (FR-012)
@@ -262,7 +265,7 @@ class OrderEngine {
                     parent_order_id, seller_id, buyer_id, amount, snapshotted_reward_rate,
                     snapshotted_reward_amount, snapshotted_upi_id, snapshotted_account_holder,
                     status, created_at
-                ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, 'Available', ?)
+                ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)
             ");
 
             $createdChildOrders = [];
@@ -276,13 +279,15 @@ class OrderEngine {
                     $calc['reward_amount'],
                     $snapUpi,
                     $snapHolder,
+                    $childStatus,
                     $nowUtc
                 ]);
                 $createdChildOrders[] = [
                     'id' => (int)$pdo->lastInsertId(),
                     'amount' => $childAmount,
                     'reward' => $calc['reward_amount'],
-                    'total_credit' => $calc['total_credit']
+                    'total_credit' => $calc['total_credit'],
+                    'status' => $childStatus
                 ];
             }
 
@@ -295,6 +300,8 @@ class OrderEngine {
             return [
                 'success' => true,
                 'parent_order_id' => $parentId,
+                'status' => $parentStatus,
+                'requires_approval' => $requireApproval,
                 'total_amount' => $amount,
                 'splits_count' => count($splits),
                 'children' => $createdChildOrders
@@ -337,11 +344,13 @@ class OrderEngine {
             ];
         }
 
-        // Look for exact match first (excluding UPIs in cooldown)
+        // Look for exact match first (excluding UPIs in cooldown and unapproved parent orders)
         $exactStmt = $pdo->prepare("
-            SELECT * FROM child_orders
-            WHERE status = 'Available' AND amount = ? AND seller_id != ?
-            ORDER BY id ASC
+            SELECT c.* FROM child_orders c
+            LEFT JOIN parent_sell_orders pso ON c.parent_order_id = pso.id
+            WHERE c.status = 'Available' AND (pso.status = 'active' OR pso.id IS NULL)
+              AND c.amount = ? AND c.seller_id != ?
+            ORDER BY c.id ASC
         ");
         $exactStmt->execute([$amount, $buyerId]);
         $exactOrders = $exactStmt->fetchAll();
@@ -352,11 +361,13 @@ class OrderEngine {
             }
         }
 
-        // Search for a larger unpicked child order that can be split (excluding UPIs in cooldown)
+        // Search for a larger unpicked child order that can be split (excluding UPIs in cooldown and unapproved parent orders)
         $largerStmt = $pdo->prepare("
-            SELECT * FROM child_orders
-            WHERE status = 'Available' AND amount > ? AND (amount - ?) >= 100 AND seller_id != ?
-            ORDER BY amount ASC, id ASC
+            SELECT c.* FROM child_orders c
+            LEFT JOIN parent_sell_orders pso ON c.parent_order_id = pso.id
+            WHERE c.status = 'Available' AND (pso.status = 'active' OR pso.id IS NULL)
+              AND c.amount > ? AND (c.amount - ?) >= 100 AND c.seller_id != ?
+            ORDER BY c.amount ASC, c.id ASC
         ");
         $largerStmt->execute([$amount, $amount, $buyerId]);
         $candidates = $largerStmt->fetchAll();
@@ -504,12 +515,12 @@ class OrderEngine {
             return ['success' => false, 'error' => 'Parent sell order not found.'];
         }
 
-        if (in_array($parent['status'], ['cancelled', 'completed'])) {
+        if (in_array(strtolower($parent['status']), ['cancelled', 'completed', 'rejected'])) {
             return ['success' => false, 'error' => "Sell order is already {$parent['status']}."];
         }
 
-        // Find all unsold/available child portions in the market
-        $childStmt = $pdo->prepare("SELECT * FROM child_orders WHERE parent_order_id = ? AND LOWER(status) = 'available'");
+        // Find all unsold/available/pending child portions in the market
+        $childStmt = $pdo->prepare("SELECT * FROM child_orders WHERE parent_order_id = ? AND LOWER(status) IN ('available', 'pending approval')");
         $childStmt->execute([$parentOrderId]);
         $availableChildren = $childStmt->fetchAll();
 
@@ -551,13 +562,13 @@ class OrderEngine {
         $nowUtc = gmdate('Y-m-d H:i:s');
         $pdo->beginTransaction();
         try {
-            // Cancel all available portions so they are removed from the Buy Pool
+            // Cancel all available and pending portions so they are removed from the market
             if (!empty($availableChildren)) {
                 $updChild = $pdo->prepare("
                     UPDATE child_orders
                     SET status = 'Cancelled',
                         cancelled_at = ?
-                    WHERE parent_order_id = ? AND LOWER(status) = 'available'
+                    WHERE parent_order_id = ? AND LOWER(status) IN ('available', 'pending approval')
                 ");
                 $updChild->execute([$nowUtc, $parentOrderId]);
             }

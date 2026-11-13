@@ -100,6 +100,11 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
                     <span>Orders</span>
                 </button>
+                <button onclick="switchAdminTab('pending_sell_orders')" id="adminNav-pending_sell_orders" class="admin-nav-item px-3.5 py-2 rounded-lg flex items-center gap-1.5 whitespace-nowrap text-slate-400 hover:text-white">
+                    <svg class="w-4 h-4 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <span>Pending Sell Orders</span>
+                    <span id="navPendingSellOrdersBadge" class="px-1.5 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30 text-[10px] font-mono">0</span>
+                </button>
                 <button onclick="switchAdminTab('pending_confirmations')" id="adminNav-pending_confirmations" class="admin-nav-item px-3.5 py-2 rounded-lg flex items-center gap-1.5 whitespace-nowrap text-slate-400 hover:text-white">
                     <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                     <span>Pending Confirmations</span>
@@ -715,6 +720,117 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                         </button>
                         <span id="orderPageIndicator" class="px-3 py-1.5 text-slate-400 font-mono">Page 1</span>
                         <button id="orderNextBtn" onclick="changeOrderPage('next')" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-slate-800 text-slate-300 rounded-xl font-semibold border border-slate-700 transition">
+                            Next &rarr;
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ========================================== -->
+        <!-- VIEW 3A: PENDING SELL ORDERS (ADMIN APPROVAL WORKFLOW) -->
+        <!-- ========================================== -->
+        <section id="adminView-pending_sell_orders" class="admin-view space-y-6 hidden">
+            <!-- Summary Cards -->
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div class="bg-slate-900 border border-sky-500/30 rounded-2xl p-5 flex items-center justify-between gap-4 shadow-lg">
+                    <div class="space-y-1">
+                        <div class="flex items-center gap-2">
+                            <span class="w-2.5 h-2.5 rounded-full bg-sky-400 animate-ping"></span>
+                            <span class="text-xs font-bold uppercase tracking-wider text-sky-400">Waiting Approval Queue</span>
+                        </div>
+                        <div id="pendSellTotalCount" class="text-2xl sm:text-3xl font-extrabold font-mono text-white">0</div>
+                        <p class="text-[11px] text-slate-400">Newly created sell listings waiting for manual admin approval</p>
+                    </div>
+                    <div class="w-11 h-11 rounded-2xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400 shrink-0">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 border border-indigo-500/30 rounded-2xl p-5 flex items-center justify-between gap-4 shadow-lg">
+                    <div class="space-y-1">
+                        <div class="flex items-center gap-2">
+                            <span class="w-2 h-2 rounded-full bg-indigo-400"></span>
+                            <span class="text-xs font-bold uppercase tracking-wider text-indigo-400">Pending Sell Volume</span>
+                        </div>
+                        <div id="pendSellTotalVolume" class="text-2xl sm:text-3xl font-extrabold font-mono text-indigo-400">₹0.00</div>
+                        <p class="text-[11px] text-slate-400">Total token value reserved and awaiting market publication</p>
+                    </div>
+                    <div class="w-11 h-11 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 shrink-0">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 border border-emerald-500/30 rounded-2xl p-5 flex items-center justify-between gap-4 shadow-lg">
+                    <div class="space-y-1">
+                        <div class="flex items-center gap-2">
+                            <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                            <span class="text-xs font-bold uppercase tracking-wider text-emerald-400">Distinct Sellers</span>
+                        </div>
+                        <div id="pendSellUniqueSellers" class="text-2xl sm:text-3xl font-extrabold font-mono text-emerald-400">0</div>
+                        <p class="text-[11px] text-slate-400">Unique seller accounts awaiting listing approval</p>
+                    </div>
+                    <div class="w-11 h-11 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Controls & Search Bar -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h3 class="text-lg font-bold text-white">Pending Sell Orders &bull; Manual Approval Workflow</h3>
+                            <span class="px-2 py-0.5 rounded bg-sky-500/15 text-sky-400 border border-sky-500/30 text-[10px] font-bold uppercase">Manual Gate Active</span>
+                        </div>
+                        <p class="text-xs text-slate-400 mt-0.5">
+                            Sell orders submitted by users are safely locked and do not appear in the marketplace until approved. Approve to push live into the public Buy section, or Reject to cancel and instantly refund the locked tokens to the user's available balance.
+                        </p>
+                    </div>
+                    <div class="flex items-center gap-2 shrink-0">
+                        <button onclick="loadAdminPendingSellOrders()" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition shadow-md flex items-center gap-1.5">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                            <span>Refresh Queue</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div class="sm:col-span-3">
+                        <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Search Order ID / User ID / Phone / Name / UPI ID</label>
+                        <input type="text" id="pendSellSearchInput" onkeyup="if(event.key === 'Enter') { pendSellPageOffset=0; loadAdminPendingSellOrders(); }"
+                               placeholder="Search by Parent Order ID, User ID, phone, name, or UPI ID..."
+                               class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-sky-500">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Queue Table -->
+            <div class="overflow-x-auto bg-slate-900 border border-slate-800 rounded-2xl">
+                <table class="w-full text-left">
+                    <thead class="bg-slate-950 text-slate-400 text-xs uppercase border-b border-slate-800">
+                        <tr>
+                            <th class="p-3">Order ID</th>
+                            <th class="p-3">Seller (User ID)</th>
+                            <th class="p-3">Token Amount</th>
+                            <th class="p-3">Selected UPI ID</th>
+                            <th class="p-3">Portions</th>
+                            <th class="p-3">Submitted At</th>
+                            <th class="p-3 text-right">Admin Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="adminPendingSellOrdersTableBody" class="divide-y divide-slate-800/60"></tbody>
+                </table>
+
+                <div class="p-4 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                    <span id="pendSellPaginationInfo" class="text-slate-400 font-mono">Showing 0 pending sell orders</span>
+                    <div class="flex items-center gap-2">
+                        <button id="pendSellPrevBtn" onclick="changePendSellPage('prev')" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300 rounded-xl font-semibold border border-slate-700 transition">
+                            &larr; Previous
+                        </button>
+                        <span id="pendSellPageIndicator" class="px-3 py-1.5 text-slate-400 font-mono">Page 1</span>
+                        <button id="pendSellNextBtn" onclick="changePendSellPage('next')" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300 rounded-xl font-semibold border border-slate-700 transition">
                             Next &rarr;
                         </button>
                     </div>

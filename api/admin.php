@@ -55,7 +55,7 @@ $stateModifyingActions = [
     'manual_adjustment', 'dispute_decision', 'set_user_status', 'toggle_flag',
     'mass_cancel_and_freeze', 'reverse_unauthorized_order', 'neutralize_exploiters',
     'reverse_fraudulent_crypto_deposit', 'update_setting', 'force_cancel_order',
-    'fast_track_resolve_order', 'remove_sell_restriction'
+    'fast_track_resolve_order', 'remove_sell_restriction', 'approve_sell_order', 'reject_sell_order'
 ];
 if (!empty($user['is_impersonating']) && in_array($action, $stateModifyingActions, true)) {
     jsonError('Financial and state-modifying actions are strictly locked while in Admin Support Mode. Please exit Support Mode before executing this action.', 403);
@@ -335,6 +335,47 @@ switch ($action) {
 
         $res = AdminManager::getOrders($status, $type, $query, $limit, $offset, $section, $dateFrom, $dateTo);
         jsonResponse(true, $res);
+        break;
+
+    case 'pending_sell_orders':
+        // List sell orders waiting for manual Admin Approval
+        $query = $_GET['query'] ?? '';
+        $limit = max(1, min(100, (int)($_GET['limit'] ?? 50)));
+        $offset = max(0, (int)($_GET['offset'] ?? 0));
+
+        $res = AdminManager::getPendingSellOrders($query, $limit, $offset);
+        jsonResponse(true, $res);
+        break;
+
+    case 'approve_sell_order':
+        // Admin Action: Approve Sell Order & push live to public Buy marketplace
+        $parentOrderId = (int)($input['order_id'] ?? $input['parent_order_id'] ?? $_POST['order_id'] ?? 0);
+        if ($parentOrderId <= 0) {
+            jsonError('Valid Parent Sell Order ID required.');
+        }
+
+        $res = AdminManager::approveSellOrder($parentOrderId, (int)$adminId);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error']);
+        }
+        break;
+
+    case 'reject_sell_order':
+        // Admin Action: Reject Sell Order, cancel listing, and instantly refund locked tokens
+        $parentOrderId = (int)($input['order_id'] ?? $input['parent_order_id'] ?? $_POST['order_id'] ?? 0);
+        $reason = trim((string)($input['reason'] ?? $_POST['reason'] ?? ''));
+        if ($parentOrderId <= 0) {
+            jsonError('Valid Parent Sell Order ID required.');
+        }
+
+        $res = AdminManager::rejectSellOrder($parentOrderId, (int)$adminId, $reason);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error']);
+        }
         break;
 
     case 'pending_confirmations':

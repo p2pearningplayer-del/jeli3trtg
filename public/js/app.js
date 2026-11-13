@@ -1464,7 +1464,7 @@ async function submitSellOrder() {
         });
         const data = await res.json();
         if (data.success) {
-            alert(`Success! Parent Sell Order #${data.parent_order_id} created and automatically divided into ${data.splits_count} micro-orders.`);
+            alert(`Success! Parent Sell Order #${data.parent_order_id} created and submitted for Admin Approval. Your ₹${parseFloat(amount).toLocaleString('en-IN')} tokens are safely reserved. It will appear live on the public marketplace once approved.`);
             amountInput.value = '';
             tpinInput.value = '';
             fetchSession();
@@ -1633,14 +1633,15 @@ async function loadSellerDashboard(silent = false) {
         const historyParents = [];
 
         data.parent_orders.forEach(parent => {
+            const isPending = (parent.status === 'pending_approval' || parent.status === 'Pending Approval');
             const runningChildren = (parent.children || []).filter(c => 
-                ['Available', 'Reserved', 'Payment Proof Submitted', 'Seller Confirmation Pending', 'Seller Response Timeout', 'Disputed'].includes(c.status)
+                ['Available', 'Pending Approval', 'Reserved', 'Payment Proof Submitted', 'Seller Confirmation Pending', 'Seller Response Timeout', 'Disputed'].includes(c.status)
             );
             const historyChildren = (parent.children || []).filter(c => 
-                ['Completed', 'Expired', 'Cancelled', 'Cancelled / Reversed'].includes(c.status)
+                ['Completed', 'Expired', 'Cancelled', 'Cancelled / Reversed', 'rejected', 'Rejected'].includes(c.status)
             );
 
-            const isParentRunning = (parent.status === 'active' || (parseFloat(parent.remaining_amount) > 0 && !parent.status.includes('cancelled') && parent.status !== 'completed') || runningChildren.length > 0);
+            const isParentRunning = (isPending || parent.status === 'active' || (parseFloat(parent.remaining_amount) > 0 && !parent.status.includes('cancelled') && !parent.status.includes('rejected') && parent.status !== 'completed') || runningChildren.length > 0);
 
             if (isParentRunning) {
                 runningParents.push({
@@ -1732,7 +1733,11 @@ async function loadSellerDashboard(silent = false) {
                         <div>
                             <div class="flex items-center gap-2">
                                 <span class="text-xs font-mono font-bold text-indigo-400">Parent ${formatOrderId(parent.id)}</span>
-                                <span class="text-[10px] px-2 py-0.5 rounded uppercase font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Active Running</span>
+                                ${(parent.status === 'pending_approval' || parent.status === 'Pending Approval') ? `
+                                    <span class="text-[10px] px-2 py-0.5 rounded uppercase font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>Pending Admin Approval</span>
+                                ` : `
+                                    <span class="text-[10px] px-2 py-0.5 rounded uppercase font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Active Running</span>
+                                `}
                             </div>
                             <p class="text-[11px] text-slate-400 mt-0.5">UPI: <span class="font-mono text-slate-200">${escapeHtml(parent.snapshotted_upi_id)}</span></p>
                         </div>
@@ -1740,7 +1745,7 @@ async function loadSellerDashboard(silent = false) {
                             <div><span class="text-slate-500 block text-[10px]">Total</span> <strong class="text-white">₹${parseFloat(parent.original_amount).toLocaleString('en-IN')}</strong></div>
                             <div><span class="text-slate-500 block text-[10px]">Completed</span> <strong class="text-emerald-400">₹${parseFloat(parent.completed_amount).toLocaleString('en-IN')}</strong></div>
                             <div><span class="text-slate-500 block text-[10px]">Remaining</span> <strong class="text-slate-300">₹${parseFloat(parent.remaining_amount).toLocaleString('en-IN')}</strong></div>
-                            ${(parent.status === 'active' || (parseFloat(parent.remaining_amount) > 0 && !parent.status.includes('cancelled') && parent.status !== 'completed')) ? `
+                            ${(parent.status === 'pending_approval' || parent.status === 'Pending Approval' || parent.status === 'active' || (parseFloat(parent.remaining_amount) > 0 && !parent.status.includes('cancelled') && !parent.status.includes('rejected') && parent.status !== 'completed')) ? `
                                 <button onclick="cancelParentSellOrder(${parent.id})" class="ml-1 sm:ml-2 px-2.5 py-1 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/30 rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-sm">
                                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                                     <span>Cancel</span>
@@ -1748,6 +1753,16 @@ async function loadSellerDashboard(silent = false) {
                             ` : ''}
                         </div>
                     </div>
+
+                    ${(parent.status === 'pending_approval' || parent.status === 'Pending Approval') ? `
+                        <div class="bg-amber-500/10 border border-amber-500/25 rounded-xl p-3 text-xs text-amber-200 flex items-start gap-2.5">
+                            <svg class="w-4 h-4 text-amber-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            <div>
+                                <p class="font-bold text-amber-300">Listing Pending Admin Approval</p>
+                                <p class="text-[11px] text-amber-200/80 mt-0.5">Your ₹${parseFloat(parent.original_amount).toLocaleString('en-IN')} tokens are safely reserved. An administrator must approve this order before it appears on the public marketplace.</p>
+                            </div>
+                        </div>
+                    ` : ''}
 
                     <!-- Child portions list -->
                     <div class="space-y-1.5">
@@ -1805,6 +1820,7 @@ async function loadSellerDashboard(silent = false) {
 
 function renderSellerChildCard(child) {
     const statusBadges = {
+        'Pending Approval': 'bg-amber-500/10 text-amber-300 border border-amber-500/30',
         'Available': 'bg-slate-800 text-slate-400',
         'Reserved': 'bg-amber-500/10 text-amber-400 border border-amber-500/20',
         'Payment Proof Submitted': 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20',
@@ -1832,10 +1848,10 @@ function renderSellerChildCard(child) {
                 ${child.screenshot_path ? `<button type="button" onclick="openUserEvidenceLightbox('${escapeHtml(child.screenshot_path)}', 'Buyer Proof - Order ${formatOrderId(child.id)}')" class="text-xs text-indigo-400 hover:text-indigo-300 underline font-semibold ml-auto cursor-pointer">View Buyer Proof</button>` : ''}
             </div>
         `;
-    } else if (['Available', 'Expired'].includes(child.status)) {
+    } else if (['Available', 'Expired', 'Pending Approval'].includes(child.status)) {
         actions = `
             <div class="flex items-center justify-between mt-2 pt-2 border-t border-slate-800/80">
-                <span class="text-[11px] text-slate-500">${child.status === 'Expired' ? 'Buyer Timed Out' : 'Unsold in Buy Pool'}</span>
+                <span class="text-[11px] text-slate-500">${child.status === 'Pending Approval' ? 'Awaiting Admin Approval' : (child.status === 'Expired' ? 'Buyer Timed Out' : 'Unsold in Buy Pool')}</span>
                 <button onclick="cancelChildSellPortion(${child.id})" class="px-2.5 py-1 bg-red-600/15 hover:bg-red-600/25 text-red-400 border border-red-500/25 rounded-lg text-[11px] font-bold transition flex items-center gap-1">
                     <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                     <span>Cancel</span>
@@ -1866,7 +1882,7 @@ function renderSellerChildCard(child) {
                 <div class="flex items-center gap-2">
                     <span class="font-mono font-bold text-slate-400">${formatOrderId(child.id)}</span>
                     <span class="font-bold text-white font-mono">₹${parseFloat(child.amount).toLocaleString('en-IN')}</span>
-                    <span class="text-[10px] font-mono px-2 py-0.5 rounded ${statusBadges[child.status] || 'bg-slate-800 text-slate-400'}">${child.status}</span>
+                    <span class="text-[10px] font-mono px-2 py-0.5 rounded ${statusBadges[child.status] || 'bg-slate-800 text-slate-400'}">${child.status === 'Pending Approval' ? 'Pending Admin Approval' : child.status}</span>
                 </div>
                 <div class="text-right">
                     ${child.seconds_remaining > 0 ? `
@@ -1875,7 +1891,7 @@ function renderSellerChildCard(child) {
                         </span>
                     ` : `
                         <span class="text-[10px] text-slate-500 font-mono" id="elapsed_child_${child.id}">
-                            On Sale: ${formatElapsed(elapsedSecs)}
+                            ${child.status === 'Pending Approval' ? 'Awaiting Review' : `On Sale: ${formatElapsed(elapsedSecs)}`}
                         </span>
                     `}
                 </div>

@@ -79,7 +79,7 @@ $pdo->prepare("INSERT INTO wallets (user_id, available_balance, reserved_balance
 UpiManager::getUserUpiAccounts($sellerId);
 
 // Seller creates a ₹1000 sell listing
-$sellRes = OrderEngine::createSellOrder($sellerId, 1000.00, '1234', 'Five Strike Seller', $sellerUpi);
+$sellRes = OrderEngine::createSellOrder($sellerId, 1000.00, '1234', 'Five Strike Seller', $sellerUpi, false);
 assertTrue(!empty($sellRes['success']), "Seller created ₹1000 sell listing with UPI {$sellerUpi}");
 $parentOrderId = (int)$sellRes['parent_order_id'];
 

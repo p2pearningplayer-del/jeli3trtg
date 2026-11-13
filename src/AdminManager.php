@@ -131,6 +131,7 @@ class AdminManager {
             'completed' => (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE LOWER(status) IN ('completed', 'success')")->fetchColumn(),
             'cancelled' => (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE LOWER(status) IN ('cancelled', 'cancelled / reversed', 'reversed', 'expired')")->fetchColumn(),
             'expired' => (int)$pdo->query("SELECT COUNT(*) FROM child_orders WHERE LOWER(status) = 'expired'")->fetchColumn(),
+            'pending_sell_orders' => (int)$pdo->query("SELECT COUNT(*) FROM parent_sell_orders WHERE LOWER(status) IN ('pending_approval', 'pending approval')")->fetchColumn(),
         ];
 
         // -------------------------------------------------------------
@@ -959,6 +960,249 @@ class AdminManager {
     }
 
     /**
+     * Get list of sell orders currently waiting for Admin Approval.
+     * Displays User ID, Token Amount, selected UPI ID, and status.
+     */
+    public static function getPendingSellOrders(string $query = '', int $limit = 50, int $offset = 0): array {
+        $pdo = Database::getConnection();
+
+        $where = ["p.status IN ('pending_approval', 'Pending Approval')"];
+        $params = [];
+
+        if (!empty(trim($query))) {
+            $cleanQ = trim($query);
+            $numericId = is_numeric(ltrim($cleanQ, '#')) ? (int)ltrim($cleanQ, '#') : -1;
+            $q = '%' . $cleanQ . '%';
+            $where[] = "(p.id = ? OR p.seller_id = ? OR u.phone LIKE ? OR u.account_holder_name LIKE ? OR p.snapshotted_upi_id LIKE ?)";
+            $params[] = $numericId;
+            $params[] = $numericId;
+            $params[] = $q;
+            $params[] = $q;
+            $params[] = $q;
+        }
+
+        $whereClause = implode(" AND ", $where);
+
+        // Count and metrics
+        $countStmt = $pdo->prepare("
+            SELECT COUNT(*) as total_count,
+                   COALESCE(SUM(p.original_amount), 0) as total_volume,
+                   COUNT(DISTINCT p.seller_id) as total_sellers
+            FROM parent_sell_orders p
+            JOIN users u ON p.seller_id = u.id
+            WHERE {$whereClause}
+        ");
+        $countStmt->execute($params);
+        $summary = $countStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+        $totalCount = (int)($summary['total_count'] ?? 0);
+        $totalVolume = (float)($summary['total_volume'] ?? 0.0);
+        $totalSellers = (int)($summary['total_sellers'] ?? 0);
+
+        // Fetch records
+        $stmt = $pdo->prepare("
+            SELECT p.id, p.seller_id, p.original_amount, p.remaining_amount,
+                   p.reserved_amount, p.completed_amount, p.status,
+                   p.snapshotted_upi_id, p.snapshotted_account_holder, p.created_at,
+                   u.phone as seller_phone, u.account_holder_name as seller_name,
+                   u.health_score as seller_health_score,
+                   (SELECT COUNT(*) FROM child_orders WHERE parent_order_id = p.id) as split_count
+            FROM parent_sell_orders p
+            JOIN users u ON p.seller_id = u.id
+            WHERE {$whereClause}
+            ORDER BY p.id ASC
+            LIMIT ? OFFSET ?
+        ");
+
+        $bindIdx = 1;
+        foreach ($params as $p) {
+            $stmt->bindValue($bindIdx++, $p);
+        }
+        $stmt->bindValue($bindIdx++, $limit, PDO::PARAM_INT);
+        $stmt->bindValue($bindIdx++, $offset, PDO::PARAM_INT);
+        $stmt->execute();
+        $orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        foreach ($orders as &$ord) {
+            $ord['formatted_id'] = sprintf('#%04d', (int)$ord['id']);
+            $ord['amount_formatted'] = '₹' . number_format((float)$ord['original_amount'], 2);
+            $ord['created_at_formatted'] = !empty($ord['created_at']) ? date('d M Y, h:i A', strtotime($ord['created_at'])) : '';
+        }
+        unset($ord);
+
+        return [
+            'orders' => $orders,
+            'total' => $totalCount,
+            'summary' => [
+                'pending_count' => $totalCount,
+                'pending_volume' => round($totalVolume, 2),
+                'pending_volume_formatted' => '₹' . number_format($totalVolume, 2),
+                'unique_sellers' => $totalSellers
+            ]
+        ];
+    }
+
+    /**
+     * Admin Action: Approve Sell Order.
+     * Transitions parent status to 'active' and child orders to 'Available',
+     * pushing the order portions live into the public Buy marketplace.
+     */
+    public static function approveSellOrder(int $parentOrderId, int $adminId): array {
+        $pdo = Database::getConnection();
+
+        $stmt = $pdo->prepare("SELECT * FROM parent_sell_orders WHERE id = ?");
+        $stmt->execute([$parentOrderId]);
+        $parent = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$parent) {
+            return ['success' => false, 'error' => 'Sell order not found.'];
+        }
+
+        $currentStatus = strtolower(trim((string)$parent['status']));
+        if ($currentStatus === 'active') {
+            return ['success' => false, 'error' => "Sell order #{$parentOrderId} is already active/approved."];
+        }
+
+        if ($currentStatus !== 'pending_approval') {
+            return ['success' => false, 'error' => "Only sell orders in 'Pending Approval' status can be approved (current status: {$parent['status']})."];
+        }
+
+        $nowUtc = gmdate('Y-m-d H:i:s');
+        $pdo->beginTransaction();
+        try {
+            // 1. Update parent order status to active
+            $updParent = $pdo->prepare("UPDATE parent_sell_orders SET status = 'active', updated_at = ? WHERE id = ?");
+            $updParent->execute([$nowUtc, $parentOrderId]);
+
+            // 2. Update all child micro-portions to Available so they enter the public Buy pool
+            $updChildren = $pdo->prepare("UPDATE child_orders SET status = 'Available' WHERE parent_order_id = ? AND status = 'Pending Approval'");
+            $updChildren->execute([$parentOrderId]);
+            $publishedCount = $updChildren->rowCount();
+
+            // 3. Log Admin Audit
+            self::logAudit(
+                $adminId,
+                'APPROVE_SELL_ORDER',
+                'parent_sell_orders',
+                (string)$parentOrderId,
+                ['status' => $parent['status']],
+                ['status' => 'active', 'published_portions' => $publishedCount],
+                "Admin approved sell order #{$parentOrderId} (Amount: ₹" . number_format((float)$parent['original_amount'], 2) . ", UPI: {$parent['snapshotted_upi_id']}) and published {$publishedCount} portion(s) to public marketplace."
+            );
+
+            // 4. Notify Seller
+            try {
+                $notifStmt = $pdo->prepare("INSERT INTO notifications (user_id, title, message, type, reference_id) VALUES (?, ?, ?, 'order_approved', ?)");
+                $notifStmt->execute([
+                    $parent['seller_id'],
+                    'Sell Listing Approved',
+                    "Your sell listing #{$parentOrderId} for ₹" . number_format((float)$parent['original_amount'], 2) . " has been approved by admin and is now live on the marketplace.",
+                    (string)$parentOrderId
+                ]);
+            } catch (Exception $eNotif) {}
+
+            $pdo->commit();
+
+            return [
+                'success' => true,
+                'parent_order_id' => $parentOrderId,
+                'status' => 'active',
+                'published_portions' => $publishedCount,
+                'message' => "Sell order #{$parentOrderId} successfully approved and published live to the public Buy section ({$publishedCount} portion(s) active)."
+            ];
+        } catch (Exception $e) {
+            $pdo->rollBack();
+            return ['success' => false, 'error' => 'Failed to approve sell order: ' . $e->getMessage()];
+        }
+    }
+
+    /**
+     * Admin Action: Reject Sell Order.
+     * Cancels the sell order, marks child orders Cancelled,
+     * and instantly refunds the locked tokens back to the user's available wallet balance.
+     */
+    public static function rejectSellOrder(int $parentOrderId, int $adminId, string $reason = ''): array {
+        $pdo = Database::getConnection();
+
+        $stmt = $pdo->prepare("SELECT * FROM parent_sell_orders WHERE id = ?");
+        $stmt->execute([$parentOrderId]);
+        $parent = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$parent) {
+            return ['success' => false, 'error' => 'Sell order not found.'];
+        }
+
+        $currentStatus = strtolower(trim((string)$parent['status']));
+        if ($currentStatus !== 'pending_approval') {
+            return ['success' => false, 'error' => "Only sell orders in 'Pending Approval' status can be rejected (current status: {$parent['status']})."];
+        }
+
+        $sellerId = (int)$parent['seller_id'];
+        $refundAmount = (float)$parent['remaining_amount'];
+        if ($refundAmount <= 0) {
+            $refundAmount = (float)$parent['original_amount'];
+        }
+        $refundAmount = round($refundAmount, 2);
+
+        $nowUtc = gmdate('Y-m-d H:i:s');
+        $pdo->beginTransaction();
+        try {
+            // 1. Mark child orders as Cancelled
+            $updChildren = $pdo->prepare("UPDATE child_orders SET status = 'Cancelled', cancelled_at = ? WHERE parent_order_id = ? AND status = 'Pending Approval'");
+            $updChildren->execute([$nowUtc, $parentOrderId]);
+
+            // 2. Mark parent order as rejected
+            $updParent = $pdo->prepare("UPDATE parent_sell_orders SET status = 'rejected', remaining_amount = 0.00, updated_at = ? WHERE id = ?");
+            $updParent->execute([$nowUtc, $parentOrderId]);
+
+            // 3. Instantly refund locked tokens back to user's available wallet balance
+            if ($refundAmount > 0) {
+                $refNote = "Admin rejected sell listing #{$parentOrderId}" . (!empty($reason) ? ": {$reason}" : "");
+                $relRes = Wallet::releaseReserved($sellerId, $refundAmount, (string)$parentOrderId, $refNote);
+                if (!$relRes['success']) {
+                    $pdo->rollBack();
+                    return ['success' => false, 'error' => 'Failed to refund locked tokens: ' . ($relRes['error'] ?? 'Unknown error')];
+                }
+            }
+
+            // 4. Log Admin Audit
+            self::logAudit(
+                $adminId,
+                'REJECT_SELL_ORDER',
+                'parent_sell_orders',
+                (string)$parentOrderId,
+                ['status' => $parent['status'], 'remaining_amount' => $refundAmount],
+                ['status' => 'rejected', 'refunded_amount' => $refundAmount, 'reason' => $reason],
+                "Admin rejected sell order #{$parentOrderId}. " . (!empty($reason) ? "Reason: {$reason}. " : "") . "Refunded ₹" . number_format($refundAmount, 2) . " locked tokens back to user #{$sellerId}."
+            );
+
+            // 5. Notify Seller
+            try {
+                $notifStmt = $pdo->prepare("INSERT INTO notifications (user_id, title, message, type, reference_id) VALUES (?, ?, ?, 'order_rejected', ?)");
+                $notifStmt->execute([
+                    $sellerId,
+                    'Sell Listing Rejected',
+                    "Your sell listing #{$parentOrderId} for ₹" . number_format($refundAmount, 2) . " was rejected by admin." . (!empty($reason) ? " Reason: {$reason}." : "") . " All locked tokens have been refunded to your Available Balance.",
+                    (string)$parentOrderId
+                ]);
+            } catch (Exception $eNotif) {}
+
+            $pdo->commit();
+
+            return [
+                'success' => true,
+                'parent_order_id' => $parentOrderId,
+                'refunded_amount' => $refundAmount,
+                'status' => 'rejected',
+                'message' => "Sell order #{$parentOrderId} rejected. ₹" . number_format($refundAmount, 2) . " tokens were instantly refunded back to user #{$sellerId}'s available wallet balance."
+            ];
+        } catch (Exception $e) {
+            $pdo->rollBack();
+            return ['success' => false, 'error' => 'Failed to reject sell order: ' . $e->getMessage()];
+        }
+    }
+
+    /**
      * Fast-Track Admin Resolution (Instant Override) for Pending Payment Confirmations & Active Orders.
      * Allows the admin to immediately Resolve for Buyer (Force Settle) or Resolve for Seller (Cancel Order)
      * without waiting for the SLA timer to expire or for a formal dispute to be opened.
@@ -1323,14 +1567,15 @@ class AdminManager {
         if (!empty(trim($query))) {
             $cleanQ = trim($query);
             $likeQ = '%' . $cleanQ . '%';
+            $numericId = is_numeric(ltrim($cleanQ, '#')) ? (int)ltrim($cleanQ, '#') : -1;
             $where[] = "(
-                CAST(u.id AS CHAR) = ?
+                u.id = ?
                 OR u.phone LIKE ?
                 OR ua.phone_number LIKE ?
                 OR LOWER(ua.upi_id) LIKE ?
                 OR LOWER(COALESCE(u.account_holder_name, '')) LIKE ?
             )";
-            $params[] = ltrim($cleanQ, '#');
+            $params[] = $numericId;
             $params[] = $likeQ;
             $params[] = $likeQ;
             $params[] = strtolower($likeQ);

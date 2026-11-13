@@ -1670,6 +1670,7 @@ class SchemaInstaller {
             ['platform_mode', 'live', 'Platform operating mode (live / test)'],
             ['allow_user_registration', '1', 'Allow public user registrations (1=Active, 0=Disabled)'],
             ['allow_sell_listings', '1', 'Allow peer users to list new sell orders (1=Active, 0=Disabled)'],
+            ['sell_orders_require_approval', '1', 'Require manual admin approval for all new sell orders before listing on marketplace (1=Active, 0=Disabled)'],
             ['allow_buy_orders', '1', 'Allow peer buyers to pick and allocate orders (1=Active, 0=Disabled)'],
             ['platform_logo_url', '/public/images/logo.svg', 'Official brand vector logo URL'],
             ['platform_favicon_url', '/favicon.svg', 'Official brand vector favicon URL'],
