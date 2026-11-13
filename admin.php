@@ -162,6 +162,30 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
         <!-- VIEW 1: DASHBOARD OVERVIEW -->
         <!-- ========================================== -->
         <section id="adminView-dashboard" class="admin-view space-y-6">
+            <!-- Emergency Platform Kill Switch Banner (Super Admin Only) -->
+            <div class="bg-gradient-to-r from-red-950/70 via-slate-900 to-red-950/70 border-2 border-red-500/40 rounded-2xl p-5 shadow-xl shadow-red-950/40 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                <div class="flex items-start gap-4">
+                    <div class="w-12 h-12 rounded-xl bg-red-500/20 border border-red-500/30 flex items-center justify-center text-red-400 shrink-0">
+                        <svg class="w-6 h-6 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2.5 flex-wrap">
+                            <h3 class="text-base font-black text-white tracking-wide uppercase">Emergency Platform Kill Switch</h3>
+                            <span class="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-red-500/20 text-red-300 border border-red-500/30">SUPER ADMIN ONLY</span>
+                        </div>
+                        <p class="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
+                            Instantly cancels <strong class="text-white">EVERY active and pending Buy &amp; Sell order</strong> across all users on the platform. All locked tokens in reserved balances will be immediately unlocked and refunded back to each user's Available Balance.
+                        </p>
+                    </div>
+                </div>
+                <div class="shrink-0 w-full md:w-auto">
+                    <button type="button" onclick="openEmergencyKillSwitchModal()" class="w-full md:w-auto px-5 py-3 rounded-xl bg-gradient-to-r from-red-600 via-rose-600 to-red-700 hover:from-red-500 hover:to-rose-500 text-white font-extrabold text-xs uppercase tracking-wider shadow-lg shadow-red-600/30 border border-red-400/40 transition transform active:scale-95 flex items-center justify-center gap-2.5">
+                        <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
+                        <span>Cancel ALL Active Orders</span>
+                    </button>
+                </div>
+            </div>
+
             <!-- Macro Stats Row 1: Users & Balances -->
             <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 <div onclick="switchAdminTab('users', { role: 'all', status: 'all' })" class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm cursor-pointer hover:border-amber-500/50 hover:bg-slate-900/90 transition transform hover:-translate-y-0.5 group" title="Click to view all users">
@@ -2828,6 +2852,123 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                     </button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MODAL 16: EMERGENCY KILL SWITCH - GLOBAL MASS CANCEL ALL ORDERS -->
+    <!-- ========================================== -->
+    <div id="globalEmergencyKillSwitchModal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-slate-900 border-2 border-red-500/50 rounded-2xl max-w-xl w-full p-6 shadow-2xl relative space-y-5">
+            <button onclick="closeEmergencyKillSwitchModal()" class="absolute right-4 top-4 text-slate-400 hover:text-white transition">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+
+            <!-- Modal Header -->
+            <div class="flex items-center gap-3.5 border-b border-slate-800 pb-4">
+                <div class="h-12 w-12 rounded-xl bg-red-500/20 border border-red-500/40 flex items-center justify-center text-red-400 shrink-0">
+                    <svg class="w-6 h-6 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <h3 class="text-lg font-black text-white uppercase tracking-wider">Emergency Platform Kill Switch</h3>
+                        <span class="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-red-500/20 text-red-300 border border-red-500/30">SUPER ADMIN</span>
+                    </div>
+                    <p class="text-xs text-red-400 font-medium">Cancel All Orders &amp; Refund Locked Balances Across Platform</p>
+                </div>
+            </div>
+
+            <!-- Current Marketplace State Summary -->
+            <div class="bg-slate-950 border border-slate-800 rounded-xl p-3.5 space-y-2">
+                <div class="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+                    <span>Live Marketplace Orders at Risk</span>
+                    <span id="killSwitchStatsLoading" class="text-slate-500 font-normal">Loading current queue...</span>
+                </div>
+                <div class="grid grid-cols-3 gap-2 text-center pt-1 font-mono">
+                    <div class="bg-slate-900/80 p-2 rounded-lg border border-slate-800">
+                        <span class="text-[10px] text-slate-400 block font-sans">Active Orders</span>
+                        <strong class="text-amber-400 text-sm" id="killSwitchActiveOrdersCount">0</strong>
+                    </div>
+                    <div class="bg-slate-900/80 p-2 rounded-lg border border-slate-800">
+                        <span class="text-[10px] text-slate-400 block font-sans">Sell Listings</span>
+                        <strong class="text-indigo-400 text-sm" id="killSwitchActiveParentsCount">0</strong>
+                    </div>
+                    <div class="bg-slate-900/80 p-2 rounded-lg border border-slate-800">
+                        <span class="text-[10px] text-slate-400 block font-sans">Locked Tokens</span>
+                        <strong class="text-emerald-400 text-sm" id="killSwitchLockedTokensAmount">₹0.00</strong>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 1 View: Explanation & First Confirmation -->
+            <div id="killSwitchStep1" class="space-y-4">
+                <div class="bg-red-500/10 border border-red-500/30 rounded-xl p-3.5 text-xs text-red-200 space-y-2">
+                    <p class="font-bold flex items-center gap-1.5 text-red-300">
+                        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                        <span>STEP 1: Mandatory Safety Assessment</span>
+                    </p>
+                    <ul class="list-disc list-inside space-y-1 text-slate-300 ml-1">
+                        <li><strong>All Active Buy Orders:</strong> In-flight reservations and payment submissions will be cancelled.</li>
+                        <li><strong>All Active Sell Orders:</strong> All public market listings and unapproved sell orders will be cancelled.</li>
+                        <li><strong>Automatic Balance Refund:</strong> 100% of reserved/locked tokens will be returned to sellers' Available Balances.</li>
+                        <li><strong>Irreversible:</strong> This platform-wide reset cannot be undone.</li>
+                    </ul>
+                </div>
+
+                <div class="flex items-center justify-end gap-3 pt-2">
+                    <button type="button" onclick="closeEmergencyKillSwitchModal()" class="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition">
+                        Abort / Keep Orders
+                    </button>
+                    <button type="button" onclick="proceedToKillSwitchStep2()" class="px-5 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-red-600/30">
+                        <span>I Understand, Proceed to Final Step</span>
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Step 2 View: Final Double Confirmation & Phrase Authorization -->
+            <div id="killSwitchStep2" class="space-y-4 hidden">
+                <div class="bg-red-950/60 border border-red-500/40 rounded-xl p-3.5 text-xs text-red-200 space-y-1.5">
+                    <p class="font-bold text-red-300 uppercase tracking-wide">
+                        ⚠️ STEP 2: Strict Double Confirmation Required
+                    </p>
+                    <p class="text-slate-300">
+                        To confirm this emergency action, type <code class="bg-red-950 px-1.5 py-0.5 rounded text-red-300 font-bold border border-red-500/40 font-mono">CANCEL ALL ORDERS</code> exactly as shown below:
+                    </p>
+                </div>
+
+                <form onsubmit="submitEmergencyKillSwitch(event)" class="space-y-3.5">
+                    <div>
+                        <label class="text-xs font-semibold text-slate-300 block mb-1">
+                            Type Confirmation Phrase (<span class="font-mono text-red-400">CANCEL ALL ORDERS</span>)
+                        </label>
+                        <input type="text" id="killSwitchPhraseInput" required autocomplete="off" oninput="checkKillSwitchPhrase(this.value)" placeholder="CANCEL ALL ORDERS" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:border-red-500 focus:outline-none font-mono uppercase tracking-wider">
+                    </div>
+
+                    <div>
+                        <label class="text-xs font-semibold text-slate-300 block mb-1">Administrative Rationale / Reason</label>
+                        <input type="text" id="killSwitchReasonInput" placeholder="Emergency marketplace kill switch triggered by Super Admin" value="Emergency marketplace kill switch triggered by Super Admin" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:border-red-500 focus:outline-none">
+                    </div>
+
+                    <div id="killSwitchStatusBox" class="hidden text-xs p-3 rounded-xl"></div>
+
+                    <div class="flex items-center justify-between gap-3 pt-2">
+                        <button type="button" onclick="backToKillSwitchStep1()" class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition flex items-center gap-1.5">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+                            <span>Back</span>
+                        </button>
+                        <div class="flex items-center gap-2">
+                            <button type="button" onclick="closeEmergencyKillSwitchModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition">
+                                Cancel
+                            </button>
+                            <button type="submit" id="killSwitchExecuteBtn" disabled class="px-5 py-2.5 bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-red-500 text-white rounded-xl text-xs font-extrabold uppercase tracking-wider transition flex items-center gap-2 shadow-lg shadow-red-600/30">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
+                                <span>Execute Global Kill Switch</span>
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
 

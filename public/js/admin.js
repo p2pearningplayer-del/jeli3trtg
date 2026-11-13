@@ -590,6 +590,197 @@ async function submitQuickMassFreeze(event) {
     }
 }
 
+// ========================================================
+// GLOBAL EMERGENCY KILL SWITCH (CANCEL ALL ORDERS)
+// ========================================================
+let killSwitchActiveStats = null;
+
+async function openEmergencyKillSwitchModal() {
+    const modal = document.getElementById('globalEmergencyKillSwitchModal');
+    if (!modal) return;
+
+    // Reset steps
+    const step1 = document.getElementById('killSwitchStep1');
+    const step2 = document.getElementById('killSwitchStep2');
+    const phraseInput = document.getElementById('killSwitchPhraseInput');
+    const reasonInput = document.getElementById('killSwitchReasonInput');
+    const execBtn = document.getElementById('killSwitchExecuteBtn');
+    const statusBox = document.getElementById('killSwitchStatusBox');
+    const statsLoading = document.getElementById('killSwitchStatsLoading');
+
+    if (step1) step1.classList.remove('hidden');
+    if (step2) step2.classList.add('hidden');
+    if (phraseInput) phraseInput.value = '';
+    if (reasonInput) reasonInput.value = 'Emergency marketplace kill switch triggered by Super Admin';
+    if (execBtn) execBtn.disabled = true;
+    if (statusBox) {
+        statusBox.className = 'hidden';
+        statusBox.innerHTML = '';
+    }
+    if (statsLoading) statsLoading.innerText = 'Refreshing live orders count...';
+
+    modal.classList.remove('hidden');
+
+    // Fetch live orders & locked tokens stats
+    try {
+        const res = await fetch('/api/admin.php?action=kill_switch_stats');
+        const data = await res.json();
+        if (data.success && data.stats) {
+            killSwitchActiveStats = data.stats;
+            const ordersEl = document.getElementById('killSwitchActiveOrdersCount');
+            const parentsEl = document.getElementById('killSwitchActiveParentsCount');
+            const lockedEl = document.getElementById('killSwitchLockedTokensAmount');
+
+            if (ordersEl) ordersEl.innerText = data.stats.active_child_orders || 0;
+            if (parentsEl) parentsEl.innerText = data.stats.active_parent_orders || 0;
+            if (lockedEl) lockedEl.innerText = '₹' + (typeof formatCurrency === 'function' ? formatCurrency(data.stats.total_reserved_tokens) : Number(data.stats.total_reserved_tokens || 0).toFixed(2));
+            if (statsLoading) statsLoading.innerText = '● Live System Snapshot';
+        }
+    } catch (e) {
+        console.error('Failed to load kill switch stats:', e);
+        if (statsLoading) statsLoading.innerText = 'Snapshot unavailable';
+    }
+}
+
+function closeEmergencyKillSwitchModal() {
+    const modal = document.getElementById('globalEmergencyKillSwitchModal');
+    if (modal) modal.classList.add('hidden');
+}
+
+function proceedToKillSwitchStep2() {
+    const step1 = document.getElementById('killSwitchStep1');
+    const step2 = document.getElementById('killSwitchStep2');
+    const phraseInput = document.getElementById('killSwitchPhraseInput');
+
+    if (step1) step1.classList.add('hidden');
+    if (step2) step2.classList.remove('hidden');
+    if (phraseInput) {
+        phraseInput.value = '';
+        setTimeout(() => phraseInput.focus(), 100);
+    }
+    checkKillSwitchPhrase('');
+}
+
+function backToKillSwitchStep1() {
+    const step1 = document.getElementById('killSwitchStep1');
+    const step2 = document.getElementById('killSwitchStep2');
+
+    if (step1) step1.classList.remove('hidden');
+    if (step2) step2.classList.add('hidden');
+}
+
+function checkKillSwitchPhrase(val) {
+    const execBtn = document.getElementById('killSwitchExecuteBtn');
+    if (!execBtn) return;
+    const clean = (val || '').trim().toUpperCase();
+    if (clean === 'CANCEL ALL ORDERS') {
+        execBtn.disabled = false;
+        execBtn.classList.remove('opacity-40', 'cursor-not-allowed');
+    } else {
+        execBtn.disabled = true;
+        execBtn.classList.add('opacity-40', 'cursor-not-allowed');
+    }
+}
+
+async function submitEmergencyKillSwitch(event) {
+    if (event) event.preventDefault();
+
+    const phraseInput = document.getElementById('killSwitchPhraseInput');
+    const reasonInput = document.getElementById('killSwitchReasonInput');
+    const execBtn = document.getElementById('killSwitchExecuteBtn');
+    const statusBox = document.getElementById('killSwitchStatusBox');
+
+    const phrase = phraseInput ? phraseInput.value.trim().toUpperCase() : '';
+    const reason = reasonInput ? reasonInput.value.trim() : 'Emergency marketplace kill switch triggered by Super Admin';
+
+    if (phrase !== 'CANCEL ALL ORDERS') {
+        alert('Strict confirmation phrase "CANCEL ALL ORDERS" is required.');
+        return;
+    }
+
+    // Strict Double Confirmation Dialog
+    const confirmed = confirm("Are you sure you want to cancel ALL orders on the entire platform? This cannot be undone.");
+    if (!confirmed) return;
+
+    if (execBtn) {
+        execBtn.disabled = true;
+        execBtn.innerHTML = `
+            <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+            </svg>
+            <span>Cancelling All Orders...</span>
+        `;
+    }
+
+    if (statusBox) {
+        statusBox.className = 'text-xs p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 block font-mono';
+        statusBox.innerHTML = 'Broadcasting global cancellation to all nodes & refunding locked tokens...';
+    }
+
+    try {
+        const res = await fetch('/api/admin.php?action=emergency_cancel_all_orders', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                confirm_phrase: phrase,
+                reason: reason
+            })
+        });
+
+        const data = await res.json();
+        if (data.success) {
+            if (statusBox) {
+                statusBox.className = 'text-xs p-4 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-200 block space-y-2';
+                statusBox.innerHTML = `
+                    <div class="flex items-center gap-2 font-bold text-emerald-300 text-sm">
+                        <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                        <span>Global Kill Switch Executed Successfully</span>
+                    </div>
+                    <p class="text-xs text-emerald-200 leading-relaxed">${escapeHtml(data.message)}</p>
+                    <div class="grid grid-cols-2 gap-2 text-[11px] pt-1 font-mono text-emerald-300">
+                        <div>Orders Cancelled: <strong>${data.summary ? data.summary.cancelled_child_orders : 0}</strong></div>
+                        <div>Tokens Refunded: <strong>₹${typeof formatCurrency === 'function' && data.summary ? formatCurrency(data.summary.total_tokens_refunded) : (data.summary ? data.summary.total_tokens_refunded : 0)}</strong></div>
+                    </div>
+                `;
+            }
+
+            // Refresh platform stats & tables
+            if (typeof loadAdminDashboard === 'function') loadAdminDashboard();
+            if (typeof loadAdminOrders === 'function') loadAdminOrders();
+            if (typeof loadAdminPendingSellOrders === 'function') loadAdminPendingSellOrders();
+            if (typeof loadAdminUsers === 'function') loadAdminUsers();
+
+            setTimeout(() => {
+                closeEmergencyKillSwitchModal();
+                alert(data.message || 'All platform orders have been successfully cancelled and tokens refunded.');
+            }, 3000);
+        } else {
+            if (statusBox) {
+                statusBox.className = 'text-xs p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 block';
+                statusBox.innerText = `Error: ${data.error || 'Execution failed.'}`;
+            } else {
+                alert(data.error || 'Execution failed.');
+            }
+            if (execBtn) {
+                execBtn.disabled = false;
+                execBtn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg><span>Execute Global Kill Switch</span>`;
+            }
+        }
+    } catch (e) {
+        if (statusBox) {
+            statusBox.className = 'text-xs p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 block';
+            statusBox.innerText = 'Network error executing global kill switch: ' + (e.message || 'Connection lost');
+        } else {
+            alert('Network error executing global kill switch.');
+        }
+        if (execBtn) {
+            execBtn.disabled = false;
+            execBtn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg><span>Execute Global Kill Switch</span>`;
+        }
+    }
+}
+
 async function triggerEmergencyUnsuspendAll() {
     const excludeInput = prompt('EMERGENCY UN-SUSPEND ALL USERS:\n\nEnter a specific hacker User ID to keep suspended (optional, leave blank to un-suspend all users):', '');
     if (excludeInput === null) return; // User cancelled prompt

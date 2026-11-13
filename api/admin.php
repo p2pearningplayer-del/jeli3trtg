@@ -55,7 +55,8 @@ $stateModifyingActions = [
     'manual_adjustment', 'dispute_decision', 'set_user_status', 'toggle_flag',
     'mass_cancel_and_freeze', 'reverse_unauthorized_order', 'neutralize_exploiters',
     'reverse_fraudulent_crypto_deposit', 'update_setting', 'force_cancel_order',
-    'fast_track_resolve_order', 'remove_sell_restriction', 'approve_sell_order', 'reject_sell_order'
+    'fast_track_resolve_order', 'remove_sell_restriction', 'approve_sell_order', 'reject_sell_order',
+    'emergency_cancel_all_orders', 'cancel_all_active_orders'
 ];
 if (!empty($user['is_impersonating']) && in_array($action, $stateModifyingActions, true)) {
     jsonError('Financial and state-modifying actions are strictly locked while in Admin Support Mode. Please exit Support Mode before executing this action.', 403);
@@ -199,6 +200,49 @@ switch ($action) {
         $excludeHackerId = isset($input['exclude_hacker_id']) ? (int)$input['exclude_hacker_id'] : (isset($_GET['exclude_hacker_id']) ? (int)$_GET['exclude_hacker_id'] : null);
         $res = AdminManager::emergencyUnsuspendAll($adminId, $excludeHackerId);
         jsonResponse(true, $res);
+        break;
+
+    case 'kill_switch_stats':
+        // Global Kill Switch: Retrieve summary of orders & locked funds
+        $caller = Auth::getCurrentUser();
+        $callerRole = $caller['admin_role'] ?? ($caller['role'] === 'admin' ? 'super_admin' : '');
+        if ($caller['role'] !== 'admin' || $callerRole !== 'super_admin') {
+            jsonError('Access denied. Strict Super Admin role required to access Kill Switch metrics.', 403);
+        }
+        $stats = AdminManager::getEmergencyKillSwitchStats();
+        jsonResponse(true, ['stats' => $stats]);
+        break;
+
+    case 'emergency_cancel_all_orders':
+    case 'cancel_all_active_orders':
+        // Global Kill Switch: Terminate all active/pending buy & sell orders and refund reserved tokens
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            jsonError('POST method strictly required for emergency kill switch.', 405);
+        }
+
+        $caller = Auth::getCurrentUser();
+        $callerRole = $caller['admin_role'] ?? ($caller['role'] === 'admin' ? 'super_admin' : '');
+        if ($caller['role'] !== 'admin' || $callerRole !== 'super_admin') {
+            jsonError('Access denied. Strict Super Admin role is required to trigger the Global Emergency Kill Switch.', 403);
+        }
+
+        // Strict double-confirmation phrase validation
+        $confirmPhrase = strtoupper(trim((string)($input['confirm_phrase'] ?? $_POST['confirm_phrase'] ?? '')));
+        if ($confirmPhrase !== 'CANCEL ALL ORDERS') {
+            jsonError('Strict confirmation phrase "CANCEL ALL ORDERS" is required to authorize platform mass cancellation.', 400);
+        }
+
+        $reason = trim((string)($input['reason'] ?? $_POST['reason'] ?? 'Global emergency kill switch triggered by Super Admin'));
+        if (empty($reason)) {
+            $reason = 'Global emergency kill switch triggered by Super Admin';
+        }
+
+        $res = AdminManager::emergencyCancelAllOrders($adminId, $reason);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error'], 500);
+        }
         break;
 
     case 'neutralize_exploiters':

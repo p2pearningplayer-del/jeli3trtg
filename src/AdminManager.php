@@ -2135,6 +2135,281 @@ class AdminManager {
     }
 
     /**
+     * Emergency Kill Switch: Get platform-wide active orders and locked tokens summary
+     *
+     * @return array
+     */
+    public static function getEmergencyKillSwitchStats(): array {
+        $pdo = Database::getConnection();
+
+        $activeChildCount = (int)$pdo->query("
+            SELECT COUNT(*) FROM child_orders
+            WHERE LOWER(status) IN (
+                'available',
+                'pending approval',
+                'reserved',
+                'payment proof submitted',
+                'seller confirmation pending',
+                'seller response timeout',
+                'disputed',
+                'appealed',
+                'in dispute review'
+            )
+        ")->fetchColumn();
+
+        $activeParentCount = (int)$pdo->query("
+            SELECT COUNT(*) FROM parent_sell_orders
+            WHERE LOWER(status) IN ('active', 'pending_approval', 'partially_completed')
+        ")->fetchColumn();
+
+        $openDisputesCount = (int)$pdo->query("
+            SELECT COUNT(*) FROM disputes
+            WHERE status IN ('pending', 'in_review')
+        ")->fetchColumn();
+
+        $walletStats = $pdo->query("
+            SELECT COUNT(*) as users_count,
+                   COALESCE(SUM(reserved_balance), 0) as total_reserved
+            FROM wallets
+            WHERE reserved_balance > 0.0001
+        ")->fetch(PDO::FETCH_ASSOC);
+
+        return [
+            'active_child_orders' => $activeChildCount,
+            'active_parent_orders' => $activeParentCount,
+            'open_disputes' => $openDisputesCount,
+            'users_with_locked_tokens' => (int)($walletStats['users_count'] ?? 0),
+            'total_reserved_tokens' => round((float)($walletStats['total_reserved'] ?? 0), 2)
+        ];
+    }
+
+    /**
+     * Emergency Platform Kill Switch: Cancel ALL active/pending Buy & Sell orders across the entire platform
+     * and immediately unlock and refund all locked tokens back to users' Available Balances.
+     * Strictly restricted to Super Admin role.
+     *
+     * @param int $adminId Super Admin ID
+     * @param string $reason Operational rationale
+     * @return array
+     */
+    public static function emergencyCancelAllOrders(int $adminId, string $reason = 'Emergency platform kill switch triggered by Super Admin'): array {
+        if (empty(trim($reason))) {
+            $reason = 'Emergency platform kill switch triggered by Super Admin';
+        }
+
+        $pdo = Database::getConnection();
+        $nowUtc = gmdate('Y-m-d H:i:s');
+
+        $pdo->beginTransaction();
+        try {
+            // 1. Snapshot active parent sell orders
+            $parentStmt = $pdo->prepare("
+                SELECT id, seller_id, original_amount, remaining_amount, reserved_amount, completed_amount, status
+                FROM parent_sell_orders
+                WHERE LOWER(status) IN ('active', 'pending_approval', 'partially_completed')
+            ");
+            $parentStmt->execute();
+            $activeParents = $parentStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // 2. Snapshot active child orders (both buyer reservations and available portions)
+            $childStmt = $pdo->prepare("
+                SELECT id, parent_order_id, seller_id, buyer_id, amount, status
+                FROM child_orders
+                WHERE LOWER(status) IN (
+                    'available',
+                    'pending approval',
+                    'reserved',
+                    'payment proof submitted',
+                    'seller confirmation pending',
+                    'seller response timeout',
+                    'disputed',
+                    'appealed',
+                    'in dispute review'
+                )
+            ");
+            $childStmt->execute();
+            $activeChildren = $childStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // 3. Snapshot open disputes
+            $dispStmt = $pdo->prepare("
+                SELECT id, child_order_id, raised_by_user_id
+                FROM disputes
+                WHERE status IN ('pending', 'in_review')
+            ");
+            $dispStmt->execute();
+            $openDisputes = $dispStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // 4. Cancel all active child orders
+            $updChildren = $pdo->prepare("
+                UPDATE child_orders
+                SET status = 'Cancelled',
+                    cancelled_at = ?,
+                    cancellation_reason = ?,
+                    cancellation_reason_code = 'admin_emergency_kill_switch'
+                WHERE LOWER(status) IN (
+                    'available',
+                    'pending approval',
+                    'reserved',
+                    'payment proof submitted',
+                    'seller confirmation pending',
+                    'seller response timeout',
+                    'disputed',
+                    'appealed',
+                    'in dispute review'
+                )
+            ");
+            $updChildren->execute([$nowUtc, "Emergency platform kill switch: {$reason}"]);
+            $cancelledChildrenCount = $updChildren->rowCount();
+
+            // 5. Cancel all active parent sell orders
+            $updParents = $pdo->prepare("
+                UPDATE parent_sell_orders
+                SET status = 'cancelled',
+                    remaining_amount = 0.00,
+                    reserved_amount = 0.00
+                WHERE LOWER(status) IN ('active', 'pending_approval', 'partially_completed')
+            ");
+            $updParents->execute();
+            $cancelledParentsCount = $updParents->rowCount();
+
+            // 6. Close all open disputes
+            if (!empty($openDisputes)) {
+                $updDisp = $pdo->prepare("
+                    UPDATE disputes
+                    SET status = 'closed',
+                        resolved_by_admin_id = ?,
+                        resolved_at = ?,
+                        resolution_notes = ?
+                    WHERE status IN ('pending', 'in_review')
+                ");
+                $updDisp->execute([$adminId, $nowUtc, "Closed: Emergency platform-wide order cancellation by Super Admin. {$reason}"]);
+            }
+
+            // 7. Refund locked tokens back to Available Balance for ALL users with reserved_balance > 0
+            $sqlWallets = "SELECT user_id, available_balance, reserved_balance, version FROM wallets WHERE reserved_balance > 0.0001";
+            if (Database::getDriver() === 'mysql') {
+                $sqlWallets .= " FOR UPDATE";
+            }
+            $walletStmt = $pdo->prepare($sqlWallets);
+            $walletStmt->execute();
+            $lockedWallets = $walletStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $totalTokensRefunded = 0.0;
+            $refundedUsersCount = 0;
+
+            $updWallet = $pdo->prepare("
+                UPDATE wallets
+                SET available_balance = ?,
+                    reserved_balance = 0.00,
+                    version = ?
+                WHERE user_id = ? AND version = ?
+            ");
+
+            $batchRef = 'KILL_SWITCH_' . time();
+            foreach ($lockedWallets as $w) {
+                $uId = (int)$w['user_id'];
+                $avail = (float)$w['available_balance'];
+                $res = (float)$w['reserved_balance'];
+                $ver = (int)$w['version'];
+
+                $newAvail = round($avail + $res, 2);
+                $newVer = $ver + 1;
+
+                $updWallet->execute([$newAvail, $newVer, $uId, $ver]);
+
+                // Ledger trail
+                Ledger::record(
+                    $uId,
+                    'SELL_RELEASE',
+                    $res,
+                    $res,
+                    0.00,
+                    'reserved',
+                    $batchRef . '_' . $uId,
+                    $adminId,
+                    'admin',
+                    "Emergency Kill Switch: Platform order cancellation by Super Admin. Unlocked ₹" . number_format($res, 2) . " back to available balance. ({$reason})"
+                );
+
+                // Notify user
+                Auth::createNotification(
+                    $uId,
+                    'Orders Cancelled & Tokens Refunded',
+                    "All active sell listings have been cancelled due to an emergency marketplace reset by administration. ₹" . number_format($res, 2) . " has been returned to your Available Balance.",
+                    'wallet',
+                    $uId
+                );
+
+                $totalTokensRefunded += $res;
+                $refundedUsersCount++;
+            }
+
+            // 8. Notify affected buyers whose pending reservations were terminated
+            $notifiedBuyerIds = [];
+            foreach ($activeChildren as $child) {
+                $buyerId = !empty($child['buyer_id']) ? (int)$child['buyer_id'] : null;
+                if ($buyerId && !isset($notifiedBuyerIds[$buyerId])) {
+                    Auth::createNotification(
+                        $buyerId,
+                        'Active Order Cancelled',
+                        "Your pending buy order #{$child['id']} (₹" . number_format((float)$child['amount'], 2) . ") was cancelled due to an emergency marketplace reset by administration.",
+                        'order',
+                        (int)$child['id']
+                    );
+                    $notifiedBuyerIds[$buyerId] = true;
+                }
+            }
+
+            // 9. Admin Audit Log
+            self::logAudit(
+                $adminId,
+                'GLOBAL_EMERGENCY_KILL_SWITCH_CANCEL_ALL',
+                'marketplace',
+                'ALL',
+                [
+                    'active_child_orders_found' => count($activeChildren),
+                    'active_parent_orders_found' => count($activeParents),
+                    'open_disputes_closed' => count($openDisputes),
+                    'users_with_locked_tokens' => count($lockedWallets),
+                    'total_locked_tokens_before' => $totalTokensRefunded
+                ],
+                [
+                    'cancelled_child_orders' => $cancelledChildrenCount,
+                    'cancelled_parent_orders' => $cancelledParentsCount,
+                    'refunded_sellers_count' => $refundedUsersCount,
+                    'total_tokens_refunded' => round($totalTokensRefunded, 2),
+                    'notified_buyers_count' => count($notifiedBuyerIds)
+                ],
+                $reason
+            );
+
+            $pdo->commit();
+
+            return [
+                'success' => true,
+                'summary' => [
+                    'cancelled_child_orders' => $cancelledChildrenCount,
+                    'cancelled_parent_orders' => $cancelledParentsCount,
+                    'closed_disputes' => count($openDisputes),
+                    'sellers_refunded' => $refundedUsersCount,
+                    'total_tokens_refunded' => round($totalTokensRefunded, 2),
+                    'buyers_notified' => count($notifiedBuyerIds)
+                ],
+                'message' => "Emergency Kill Switch executed successfully. Cancelled {$cancelledChildrenCount} active order(s) across {$cancelledParentsCount} listing(s) and refunded ₹" . number_format($totalTokensRefunded, 2) . " locked tokens back to {$refundedUsersCount} user wallet(s)."
+            ];
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            error_log("AdminManager::emergencyCancelAllOrders error: " . $e->getMessage());
+            return [
+                'success' => false,
+                'error' => 'Failed to execute emergency kill switch: ' . $e->getMessage()
+            ];
+        }
+    }
+
+    /**
      * Reverse Unauthorized Token Transfer (Security Resolution)
      * Reverses a completed child order where tokens were transferred without seller authorization:
      * - Debits buyer's wallet (token amount + 9% reward).
