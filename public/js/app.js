@@ -1633,15 +1633,18 @@ async function loadSellerDashboard(silent = false) {
         const historyParents = [];
 
         data.parent_orders.forEach(parent => {
-            const isPending = (parent.status === 'pending_approval' || parent.status === 'Pending Approval');
-            const runningChildren = (parent.children || []).filter(c => 
-                ['Available', 'Pending Approval', 'Reserved', 'Payment Proof Submitted', 'Seller Confirmation Pending', 'Seller Response Timeout', 'Disputed'].includes(c.status)
-            );
-            const historyChildren = (parent.children || []).filter(c => 
-                ['Completed', 'Expired', 'Cancelled', 'Cancelled / Reversed', 'rejected', 'Rejected'].includes(c.status)
-            );
+            const pStatus = (parent.status || '').toLowerCase().trim();
+            const isPending = (pStatus === 'pending_approval' || pStatus === 'pending approval');
+            const runningChildren = (parent.children || []).filter(c => {
+                const s = (c.status || '').toLowerCase().trim();
+                return ['available', 'pending approval', 'pending_approval', 'reserved', 'payment proof submitted', 'seller confirmation pending', 'seller response timeout', 'disputed'].includes(s);
+            });
+            const historyChildren = (parent.children || []).filter(c => {
+                const s = (c.status || '').toLowerCase().trim();
+                return ['completed', 'expired', 'cancelled', 'cancelled / reversed', 'rejected'].includes(s);
+            });
 
-            const isParentRunning = (isPending || parent.status === 'active' || (parseFloat(parent.remaining_amount) > 0 && !parent.status.includes('cancelled') && !parent.status.includes('rejected') && parent.status !== 'completed') || runningChildren.length > 0);
+            const isParentRunning = (isPending || pStatus === 'active' || pStatus === 'partially_completed' || (parseFloat(parent.remaining_amount) > 0 && !pStatus.includes('cancelled') && !pStatus.includes('rejected') && pStatus !== 'completed') || runningChildren.length > 0);
 
             if (isParentRunning) {
                 runningParents.push({
@@ -1735,6 +1738,8 @@ async function loadSellerDashboard(silent = false) {
                                 <span class="text-xs font-mono font-bold text-indigo-400">Parent ${formatOrderId(parent.id)}</span>
                                 ${(parent.status === 'pending_approval' || parent.status === 'Pending Approval') ? `
                                     <span class="text-[10px] px-2 py-0.5 rounded uppercase font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>Pending Admin Approval</span>
+                                ` : (parseFloat(parent.completed_amount) > 0 && parseFloat(parent.remaining_amount) > 0) ? `
+                                    <span class="text-[10px] px-2 py-0.5 rounded uppercase font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Active Running (Partially Filled)</span>
                                 ` : `
                                     <span class="text-[10px] px-2 py-0.5 rounded uppercase font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Active Running</span>
                                 `}
@@ -1766,9 +1771,20 @@ async function loadSellerDashboard(silent = false) {
 
                     <!-- Child portions list -->
                     <div class="space-y-1.5">
-                        <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Active Micro-Portions (${parent.children.length})</span>
+                        <div class="flex items-center justify-between">
+                            <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Active Micro-Portions (${parent.children.length})</span>
+                            ${parseFloat(parent.remaining_amount) > 0 ? `<span class="text-[10px] text-emerald-400 font-mono font-medium flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>LIVE in Buy Pool: ₹${parseFloat(parent.remaining_amount).toLocaleString('en-IN')}</span>` : ''}
+                        </div>
                         <div class="grid grid-cols-1 gap-2">
-                            ${parent.children.length > 0 ? parent.children.map(child => renderSellerChildCard(child)).join('') : '<span class="text-xs text-slate-500 italic">All portions resolved or unlisted.</span>'}
+                            ${parent.children.length > 0 ? parent.children.map(child => renderSellerChildCard(child)).join('') : (parseFloat(parent.remaining_amount) > 0 ? `
+                                <div class="bg-indigo-950/40 border border-indigo-500/20 rounded-xl p-3 text-xs text-indigo-300 flex items-center justify-between">
+                                    <div class="flex items-center gap-2">
+                                        <span class="w-2 h-2 rounded-full bg-indigo-400 animate-pulse"></span>
+                                        <span>Synchronizing ₹${parseFloat(parent.remaining_amount).toLocaleString('en-IN')} unsold balance with Buy Pool...</span>
+                                    </div>
+                                    <button onclick="loadSellerDashboard()" class="text-xs text-indigo-400 hover:text-indigo-200 underline font-bold">Refresh</button>
+                                </div>
+                            ` : '<span class="text-xs text-slate-500 italic">All portions resolved or unlisted.</span>')}
                         </div>
                     </div>
                 </div>
@@ -1819,22 +1835,36 @@ async function loadSellerDashboard(silent = false) {
 }
 
 function renderSellerChildCard(child) {
+    const rawStatus = (child.status || '').trim();
+    const s = rawStatus.toLowerCase();
     const statusBadges = {
-        'Pending Approval': 'bg-amber-500/10 text-amber-300 border border-amber-500/30',
-        'Available': 'bg-slate-800 text-slate-400',
-        'Reserved': 'bg-amber-500/10 text-amber-400 border border-amber-500/20',
-        'Payment Proof Submitted': 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20',
-        'Seller Confirmation Pending': 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20',
-        'Seller Response Timeout': 'bg-amber-500/20 text-amber-300 border border-amber-500/30',
-        'Disputed': 'bg-red-500/20 text-red-400 border border-red-500/30',
-        'Completed': 'bg-emerald-500/10 text-emerald-400',
-        'Expired': 'bg-slate-800 text-slate-500',
-        'Cancelled': 'bg-red-500/10 text-red-400',
-        'Cancelled / Reversed': 'bg-red-500/10 text-red-400'
+        'pending approval': 'bg-amber-500/10 text-amber-300 border border-amber-500/30',
+        'pending_approval': 'bg-amber-500/10 text-amber-300 border border-amber-500/30',
+        'available': 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
+        'reserved': 'bg-amber-500/10 text-amber-400 border border-amber-500/20',
+        'payment proof submitted': 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20',
+        'seller confirmation pending': 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20',
+        'seller response timeout': 'bg-amber-500/20 text-amber-300 border border-amber-500/30',
+        'disputed': 'bg-red-500/20 text-red-400 border border-red-500/30',
+        'completed': 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
+        'expired': 'bg-slate-800 text-slate-500',
+        'cancelled': 'bg-red-500/10 text-red-400',
+        'cancelled / reversed': 'bg-red-500/10 text-red-400'
     };
 
+    let statusDisplay = rawStatus;
+    if (s === 'available') {
+        statusDisplay = 'LIVE in Pool';
+    } else if (s === 'pending approval' || s === 'pending_approval') {
+        statusDisplay = 'Pending Approval';
+    } else if (s === 'reserved') {
+        statusDisplay = 'Buyer Reserved';
+    } else if (s === 'completed') {
+        statusDisplay = 'Completed / Sold';
+    }
+
     let actions = '';
-    const pendingVerification = ['Payment Proof Submitted', 'Seller Confirmation Pending', 'Seller Response Timeout'].includes(child.status);
+    const pendingVerification = ['payment proof submitted', 'seller confirmation pending', 'seller response timeout'].includes(s);
 
     if (pendingVerification) {
         actions = `
@@ -1848,10 +1878,10 @@ function renderSellerChildCard(child) {
                 ${child.screenshot_path ? `<button type="button" onclick="openUserEvidenceLightbox('${escapeHtml(child.screenshot_path)}', 'Buyer Proof - Order ${formatOrderId(child.id)}')" class="text-xs text-indigo-400 hover:text-indigo-300 underline font-semibold ml-auto cursor-pointer">View Buyer Proof</button>` : ''}
             </div>
         `;
-    } else if (['Available', 'Expired', 'Pending Approval'].includes(child.status)) {
+    } else if (['available', 'expired', 'pending approval', 'pending_approval'].includes(s)) {
         actions = `
             <div class="flex items-center justify-between mt-2 pt-2 border-t border-slate-800/80">
-                <span class="text-[11px] text-slate-500">${child.status === 'Pending Approval' ? 'Awaiting Admin Approval' : (child.status === 'Expired' ? 'Buyer Timed Out' : 'Unsold in Buy Pool')}</span>
+                <span class="text-[11px] text-slate-500">${(s === 'pending approval' || s === 'pending_approval') ? 'Awaiting Admin Approval' : (s === 'expired' ? 'Buyer Timed Out' : 'Active & LIVE in Buy Pool')}</span>
                 <button onclick="cancelChildSellPortion(${child.id})" class="px-2.5 py-1 bg-red-600/15 hover:bg-red-600/25 text-red-400 border border-red-500/25 rounded-lg text-[11px] font-bold transition flex items-center gap-1">
                     <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                     <span>Cancel</span>
@@ -1864,7 +1894,7 @@ function renderSellerChildCard(child) {
     if (child.seconds_remaining > 0) {
         activeTimers[`child_${child.id}`] = {
             seconds: child.seconds_remaining,
-            label: child.status === 'Reserved' ? 'Buyer Pay Time' : 'Verification SLA'
+            label: s === 'reserved' ? 'Buyer Pay Time' : 'Verification SLA'
         };
     }
 
@@ -1882,7 +1912,7 @@ function renderSellerChildCard(child) {
                 <div class="flex items-center gap-2">
                     <span class="font-mono font-bold text-slate-400">${formatOrderId(child.id)}</span>
                     <span class="font-bold text-white font-mono">₹${parseFloat(child.amount).toLocaleString('en-IN')}</span>
-                    <span class="text-[10px] font-mono px-2 py-0.5 rounded ${statusBadges[child.status] || 'bg-slate-800 text-slate-400'}">${child.status === 'Pending Approval' ? 'Pending Admin Approval' : child.status}</span>
+                    <span class="text-[10px] font-mono px-2 py-0.5 rounded ${statusBadges[s] || statusBadges[child.status] || 'bg-slate-800 text-slate-400'}">${escapeHtml(statusDisplay)}</span>
                 </div>
                 <div class="text-right">
                     ${child.seconds_remaining > 0 ? `
@@ -1891,13 +1921,13 @@ function renderSellerChildCard(child) {
                         </span>
                     ` : `
                         <span class="text-[10px] text-slate-500 font-mono" id="elapsed_child_${child.id}">
-                            ${child.status === 'Pending Approval' ? 'Awaiting Review' : `On Sale: ${formatElapsed(elapsedSecs)}`}
+                            ${(s === 'pending approval' || s === 'pending_approval') ? 'Awaiting Review' : `On Sale: ${formatElapsed(elapsedSecs)}`}
                         </span>
                     `}
                 </div>
             </div>
 
-            ${(child.buyer_id || !['Available', 'Cancelled'].includes(child.status)) ? `
+            ${(child.buyer_id || !['available', 'cancelled'].includes(s)) ? `
                 <div class="text-[11px] text-slate-400 mt-1 flex items-center justify-between">
                     <span>Buyer: <strong class="text-indigo-400 font-mono">Order ${formatOrderId(child.id)}</strong></span>
                     ${child.utr_number ? `<span>UTR: <strong class="text-slate-200 font-mono">${escapeHtml(child.utr_number)}</strong></span>` : ''}

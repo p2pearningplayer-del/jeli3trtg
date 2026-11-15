@@ -77,7 +77,7 @@ class OrderEngine {
     /**
      * Create a new Parent Sell Order and automatically spawn child micro-orders (FR-011, FR-012, FR-013)
      */
-    public static function createSellOrder(int $sellerId, float $amount, string $tpin, ?string $accountHolderName = null, ?string $upiId = null, bool $requireApproval = true): array {
+    public static function createSellOrder(int $sellerId, float $amount, string $tpin, ?string $accountHolderName = null, ?string $upiId = null, ?bool $requireApproval = null): array {
         // Step 1: Validate Amount (FR-011)
         $val = Validator::validateSellAmount($amount);
         if (!$val['valid']) {
@@ -92,6 +92,14 @@ class OrderEngine {
         }
 
         $pdo = Database::getConnection();
+
+        // Check platform setting if requireApproval was not explicitly set
+        if ($requireApproval === null) {
+            $settingStmt = $pdo->prepare("SELECT setting_value FROM platform_settings WHERE setting_key = 'sell_orders_require_approval'");
+            $settingStmt->execute();
+            $val = $settingStmt->fetchColumn();
+            $requireApproval = ($val === false) ? true : ($val === '1' || $val === 1 || $val === 'true');
+        }
 
         // Step 2b: Enforce Account Status & Backend Risk Controls (Requirement 7)
         $sellerStmt = $pdo->prepare("
@@ -348,7 +356,12 @@ class OrderEngine {
         $exactStmt = $pdo->prepare("
             SELECT c.* FROM child_orders c
             LEFT JOIN parent_sell_orders pso ON c.parent_order_id = pso.id
-            WHERE c.status = 'Available' AND (pso.status = 'active' OR pso.id IS NULL)
+            WHERE LOWER(c.status) = 'available'
+              AND (
+                  pso.id IS NULL
+                  OR LOWER(pso.status) IN ('active', 'partially_completed')
+                  OR (pso.remaining_amount > 0 AND LOWER(pso.status) NOT IN ('cancelled', 'rejected', 'completed', 'partially_cancelled', 'pending_approval'))
+              )
               AND c.amount = ? AND c.seller_id != ?
             ORDER BY c.id ASC
         ");
@@ -365,7 +378,12 @@ class OrderEngine {
         $largerStmt = $pdo->prepare("
             SELECT c.* FROM child_orders c
             LEFT JOIN parent_sell_orders pso ON c.parent_order_id = pso.id
-            WHERE c.status = 'Available' AND (pso.status = 'active' OR pso.id IS NULL)
+            WHERE LOWER(c.status) = 'available'
+              AND (
+                  pso.id IS NULL
+                  OR LOWER(pso.status) IN ('active', 'partially_completed')
+                  OR (pso.remaining_amount > 0 AND LOWER(pso.status) NOT IN ('cancelled', 'rejected', 'completed', 'partially_cancelled', 'pending_approval'))
+              )
               AND c.amount > ? AND (c.amount - ?) >= 100 AND c.seller_id != ?
             ORDER BY c.amount ASC, c.id ASC
         ");
@@ -444,6 +462,9 @@ class OrderEngine {
      */
     public static function getSellerTrackingData(int $sellerId): array {
         $pdo = Database::getConnection();
+
+        // PRD: Fix Sell Order Portions - Auto-heal and sync all unsold portions so they remain LIVE in the Buy Pool
+        self::synchronizeSellerRunningOrders($sellerId);
 
         $stmt = $pdo->prepare("
             SELECT p.*,
@@ -669,7 +690,7 @@ class OrderEngine {
             ];
         }
 
-        if ($cStatus !== 'available') {
+        if (!in_array($cStatus, ['available', 'pending approval', 'pending_approval'])) {
             return ['success' => false, 'error' => "Sell portion status '{$child['status']}' cannot be cancelled."];
         }
 
@@ -683,7 +704,7 @@ class OrderEngine {
                 UPDATE child_orders
                 SET status = 'Cancelled',
                     cancelled_at = ?
-                WHERE id = ? AND LOWER(status) = 'available'
+                WHERE id = ? AND LOWER(status) IN ('available', 'pending approval', 'pending_approval')
             ");
             $updChild->execute([$nowUtc, $childOrderId]);
 
@@ -718,7 +739,7 @@ class OrderEngine {
             $activeChk = $pdo->prepare("
                 SELECT COUNT(*) FROM child_orders
                 WHERE parent_order_id = ?
-                  AND LOWER(status) IN ('available', 'reserved', 'payment proof submitted', 'seller confirmation pending', 'disputed')
+                  AND LOWER(status) IN ('available', 'pending approval', 'pending_approval', 'reserved', 'payment proof submitted', 'seller confirmation pending', 'disputed')
             ");
             $activeChk->execute([$parentOrderId]);
             if ((int)$activeChk->fetchColumn() === 0) {
@@ -743,5 +764,266 @@ class OrderEngine {
             $pdo->rollBack();
             return ['success' => false, 'error' => 'Failed to cancel portion: ' . $e->getMessage()];
         }
+    }
+
+    /**
+     * Synchronize parent order portions to keep all unsold portions LIVE in the Buy Pool (PRD: Fix Sell Order Portions)
+     * Auto-heals any parent order where remaining_amount > 0 but active micro-portions are missing or expired.
+     */
+    public static function synchronizeParentOrderPortions(int $parentOrderId): array {
+        $pdo = Database::getConnection();
+
+        $stmt = $pdo->prepare("SELECT * FROM parent_sell_orders WHERE id = ?");
+        $stmt->execute([$parentOrderId]);
+        $parent = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$parent) {
+            return ['success' => false, 'error' => 'Parent order not found'];
+        }
+
+        $pStatus = strtolower(trim((string)$parent['status']));
+        // If parent order was explicitly cancelled or rejected, do not revive portions
+        if (in_array($pStatus, ['cancelled', 'rejected'])) {
+            return ['success' => true, 'synchronized' => false, 'reason' => 'Order is cancelled or rejected'];
+        }
+
+        $sellerId = (int)$parent['seller_id'];
+        $originalAmount = (float)$parent['original_amount'];
+
+        // Get all children for this parent
+        $cStmt = $pdo->prepare("SELECT * FROM child_orders WHERE parent_order_id = ? ORDER BY id ASC");
+        $cStmt->execute([$parentOrderId]);
+        $children = $cStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $completedAmount = 0.0;
+        $inFlightAmount = 0.0;
+        $availableAmount = 0.0;
+        $pendingAmount = 0.0;
+        $expiredOrUnlisted = [];
+
+        foreach ($children as $c) {
+            $amt = (float)$c['amount'];
+            $st = strtolower(trim((string)$c['status']));
+            if ($st === 'completed') {
+                $completedAmount += $amt;
+            } elseif (in_array($st, ['reserved', 'payment proof submitted', 'seller confirmation pending', 'seller response timeout', 'disputed'])) {
+                $inFlightAmount += $amt;
+            } elseif ($st === 'available') {
+                $availableAmount += $amt;
+            } elseif (in_array($st, ['pending approval', 'pending_approval'])) {
+                $pendingAmount += $amt;
+            } else {
+                $expiredOrUnlisted[] = $c;
+            }
+        }
+
+        $completedAmount = round($completedAmount, 2);
+        $inFlightAmount = round($inFlightAmount, 2);
+        $availableAmount = round($availableAmount, 2);
+        $pendingAmount = round($pendingAmount, 2);
+
+        // Expected unsold and in-flight total = originalAmount - completedAmount
+        $targetTotalUnsold = max(0.0, round($originalAmount - $completedAmount, 2));
+
+        if ($targetTotalUnsold <= 0.0 && $inFlightAmount <= 0.0) {
+            // Order is fully completed
+            if ($pStatus !== 'completed') {
+                $pdo->prepare("UPDATE parent_sell_orders SET status = 'completed', remaining_amount = 0.00, reserved_amount = 0.00, completed_amount = ? WHERE id = ?")
+                    ->execute([$originalAmount, $parentOrderId]);
+            }
+            return ['success' => true, 'synchronized' => true, 'status' => 'completed'];
+        }
+
+        $currentActiveAmount = round($availableAmount + $pendingAmount + $inFlightAmount, 2);
+        $deficit = round($targetTotalUnsold - $currentActiveAmount, 2);
+
+        $nowUtc = gmdate('Y-m-d H:i:s');
+        $targetStatus = ($pStatus === 'pending_approval') ? 'Pending Approval' : 'Available';
+        $healedCount = 0;
+
+        if ($deficit > 0.001) {
+            $pdo->beginTransaction();
+            try {
+                // Step A: First revive any previously expired or unlisted portions belonging to this parent order
+                foreach ($expiredOrUnlisted as $unlisted) {
+                    if ($deficit <= 0.001) break;
+                    $uAmt = (float)$unlisted['amount'];
+                    if ($uAmt <= $deficit + 0.01) {
+                        $upd = $pdo->prepare("
+                            UPDATE child_orders
+                            SET status = ?,
+                                buyer_id = NULL,
+                                picked_at = NULL,
+                                payment_deadline = NULL,
+                                verification_deadline = NULL,
+                                cancellation_reason = NULL,
+                                cancellation_reason_code = NULL,
+                                cancelled_at = NULL
+                            WHERE id = ?
+                        ");
+                        $upd->execute([$targetStatus, $unlisted['id']]);
+                        $deficit = round($deficit - $uAmt, 2);
+                        if ($targetStatus === 'Available') {
+                            $availableAmount += $uAmt;
+                        } else {
+                            $pendingAmount += $uAmt;
+                        }
+                        $healedCount++;
+                    }
+                }
+
+                // Step B: If there is still a deficit (portions missing or were never created), create new portions
+                if ($deficit >= 100.0) {
+                    $splits = self::calculateSplits($deficit);
+                    $rateStmt = $pdo->prepare("SELECT setting_value FROM platform_settings WHERE setting_key = 'purchase_reward_percent'");
+                    $rateStmt->execute();
+                    $rewardRate = (float)($rateStmt->fetchColumn() ?: 9.0);
+
+                    $childInsert = $pdo->prepare("
+                        INSERT INTO child_orders (
+                            parent_order_id, seller_id, buyer_id, amount, snapshotted_reward_rate,
+                            snapshotted_reward_amount, snapshotted_upi_id, snapshotted_account_holder,
+                            status, created_at
+                        ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)
+                    ");
+
+                    foreach ($splits as $splitAmt) {
+                        $calc = Validator::calculatePurchaseReward($splitAmt, $rewardRate);
+                        $childInsert->execute([
+                            $parentOrderId,
+                            $sellerId,
+                            $splitAmt,
+                            $rewardRate,
+                            $calc['reward_amount'],
+                            $parent['snapshotted_upi_id'],
+                            $parent['snapshotted_account_holder'],
+                            $targetStatus,
+                            $nowUtc
+                        ]);
+                        if ($targetStatus === 'Available') {
+                            $availableAmount += $splitAmt;
+                        } else {
+                            $pendingAmount += $splitAmt;
+                        }
+                        $healedCount++;
+                    }
+                    $deficit = 0.0;
+                }
+
+                // Step C: Ensure seller wallet reserved balance covers active unsold + inflight tokens
+                $neededReservedForParent = round($availableAmount + $pendingAmount + $inFlightAmount, 2);
+                $wStmt = $pdo->prepare("SELECT available_balance, reserved_balance FROM wallets WHERE user_id = ?");
+                $wStmt->execute([$sellerId]);
+                $wallet = $wStmt->fetch(PDO::FETCH_ASSOC);
+
+                if ($wallet) {
+                    $availBal = (float)$wallet['available_balance'];
+                    $resBal = (float)$wallet['reserved_balance'];
+                    $reqTotalStmt = $pdo->prepare("
+                        SELECT COALESCE(SUM(remaining_amount + reserved_amount), 0)
+                        FROM parent_sell_orders
+                        WHERE seller_id = ? AND LOWER(status) NOT IN ('cancelled', 'rejected', 'completed', 'partially_cancelled') AND id != ?
+                    ");
+                    $reqTotalStmt->execute([$sellerId, $parentOrderId]);
+                    $otherOrdersTotal = (float)$reqTotalStmt->fetchColumn();
+                    $totalRequiredReserved = round($otherOrdersTotal + $neededReservedForParent, 2);
+
+                    if ($resBal < $totalRequiredReserved) {
+                        $shortfall = round($totalRequiredReserved - $resBal, 2);
+                        $transferFromAvail = min($availBal, $shortfall);
+                        if ($transferFromAvail > 0) {
+                            $pdo->prepare("
+                                UPDATE wallets
+                                SET available_balance = available_balance - ?,
+                                    reserved_balance = reserved_balance + ?
+                                WHERE user_id = ?
+                            ")->execute([$transferFromAvail, $transferFromAvail, $sellerId]);
+                        }
+                    }
+                }
+
+                // Step D: Update parent order remaining, reserved, completed and status
+                $newRemaining = round($availableAmount + $pendingAmount, 2);
+                $newReserved = round($inFlightAmount, 2);
+                $newCompleted = round($completedAmount, 2);
+
+                $newParentStatus = $parent['status'];
+                if ($pStatus !== 'pending_approval') {
+                    $newParentStatus = ($newCompleted > 0 && $newRemaining > 0) ? 'partially_completed' : ($newRemaining > 0 ? 'active' : 'completed');
+                }
+
+                $pdo->prepare("
+                    UPDATE parent_sell_orders
+                    SET remaining_amount = ?,
+                        reserved_amount = ?,
+                        completed_amount = ?,
+                        status = ?
+                    WHERE id = ?
+                ")->execute([$newRemaining, $newReserved, $newCompleted, $newParentStatus, $parentOrderId]);
+
+                $pdo->commit();
+            } catch (Exception $eSync) {
+                $pdo->rollBack();
+                return ['success' => false, 'error' => $eSync->getMessage()];
+            }
+        } else {
+            // Even if no deficit in amounts, ensure parent order status and remaining amounts are consistent
+            $newRemaining = round($availableAmount + $pendingAmount, 2);
+            $newReserved = round($inFlightAmount, 2);
+            $newCompleted = round($completedAmount, 2);
+
+            $newParentStatus = $parent['status'];
+            if ($pStatus !== 'pending_approval') {
+                $newParentStatus = ($newCompleted > 0 && $newRemaining > 0) ? 'partially_completed' : ($newRemaining > 0 ? 'active' : ($newRemaining == 0 && $newReserved == 0 ? 'completed' : 'active'));
+            }
+
+            if (
+                round((float)$parent['remaining_amount'], 2) !== $newRemaining ||
+                round((float)$parent['reserved_amount'], 2) !== $newReserved ||
+                round((float)$parent['completed_amount'], 2) !== $newCompleted ||
+                $parent['status'] !== $newParentStatus
+            ) {
+                $pdo->prepare("
+                    UPDATE parent_sell_orders
+                    SET remaining_amount = ?,
+                        reserved_amount = ?,
+                        completed_amount = ?,
+                        status = ?
+                    WHERE id = ?
+                ")->execute([$newRemaining, $newReserved, $newCompleted, $newParentStatus, $parentOrderId]);
+            }
+        }
+
+        return [
+            'success' => true,
+            'synchronized' => true,
+            'parent_order_id' => $parentOrderId,
+            'healed_count' => $healedCount,
+            'remaining_amount' => $newRemaining ?? round($availableAmount + $pendingAmount, 2),
+            'available_count' => count(array_filter($children, fn($x) => strtolower(trim((string)$x['status'])) === 'available')) + $healedCount
+        ];
+    }
+
+    /**
+     * Synchronize all active/running parent sell orders for a seller
+     */
+    public static function synchronizeSellerRunningOrders(int $sellerId): int {
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare("
+            SELECT id FROM parent_sell_orders
+            WHERE seller_id = ? AND LOWER(status) NOT IN ('cancelled', 'rejected', 'completed', 'partially_cancelled')
+            ORDER BY id ASC
+        ");
+        $stmt->execute([$sellerId]);
+        $orders = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+        $synced = 0;
+        foreach ($orders as $pId) {
+            $res = self::synchronizeParentOrderPortions((int)$pId);
+            if (!empty($res['healed_count'])) {
+                $synced++;
+            }
+        }
+        return $synced;
     }
 }

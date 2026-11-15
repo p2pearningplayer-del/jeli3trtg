@@ -1075,7 +1075,7 @@ class AdminManager {
             $updParent->execute([$nowUtc, $parentOrderId]);
 
             // 2. Update all child micro-portions to Available so they enter the public Buy pool
-            $updChildren = $pdo->prepare("UPDATE child_orders SET status = 'Available' WHERE parent_order_id = ? AND status = 'Pending Approval'");
+            $updChildren = $pdo->prepare("UPDATE child_orders SET status = 'Available' WHERE parent_order_id = ? AND LOWER(status) IN ('pending approval', 'pending_approval')");
             $updChildren->execute([$parentOrderId]);
             $publishedCount = $updChildren->rowCount();
 

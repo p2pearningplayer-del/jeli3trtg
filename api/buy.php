@@ -47,7 +47,13 @@ switch ($action) {
             FROM child_orders c
             LEFT JOIN users u ON c.seller_id = u.id
             LEFT JOIN parent_sell_orders pso ON c.parent_order_id = pso.id
-            WHERE c.status = 'Available' AND (pso.status = 'active' OR pso.id IS NULL) AND c.seller_id != ?
+            WHERE LOWER(c.status) = 'available'
+              AND (
+                  pso.id IS NULL
+                  OR LOWER(pso.status) IN ('active', 'partially_completed')
+                  OR (pso.remaining_amount > 0 AND LOWER(pso.status) NOT IN ('cancelled', 'rejected', 'completed', 'partially_cancelled', 'pending_approval'))
+              )
+              AND c.seller_id != ?
         ";
         $params = [(int)$user['id']];
 

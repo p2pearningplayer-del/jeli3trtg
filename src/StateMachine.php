@@ -639,19 +639,25 @@ class StateMachine {
             $amount = (float)$order['amount'];
 
             // Check parent order state (Part 8, Item 2)
-            $parentStmt = $pdo->prepare("SELECT id, status FROM parent_sell_orders WHERE id = ?");
+            $parentStmt = $pdo->prepare("SELECT id, status, remaining_amount, reserved_amount FROM parent_sell_orders WHERE id = ?");
             $parentStmt->execute([$order['parent_order_id']]);
             $parentOrder = $parentStmt->fetch();
 
-            if ($parentOrder && $parentOrder['status'] === 'active') {
+            $pStatus = $parentOrder ? strtolower(trim((string)$parentOrder['status'])) : '';
+            $isParentCancelled = in_array($pStatus, ['cancelled', 'partially_cancelled', 'rejected']);
+
+            if (!$isParentCancelled && $parentOrder) {
                 // Buyer timeout keeps seller's listing active and automatically relists for sale (re-sell)
+                // Relist portion as Available (or Pending Approval) in buy pool for other buyers to purchase
+                $relistStatus = ($pStatus === 'pending_approval') ? 'Pending Approval' : 'Available';
+
                 $parentUpd = $pdo->prepare("
                     UPDATE parent_sell_orders
-                    SET reserved_amount = reserved_amount - ?,
+                    SET reserved_amount = CASE WHEN (reserved_amount - ?) > 0 THEN (reserved_amount - ?) ELSE 0.00 END,
                         remaining_amount = remaining_amount + ?
                     WHERE id = ?
                 ");
-                $parentUpd->execute([$amount, $amount, $order['parent_order_id']]);
+                $parentUpd->execute([$amount, $amount, $amount, $order['parent_order_id']]);
 
                 // Re-list portion as Available in buy pool for other buyers to purchase
                 $relist = $pdo->prepare("
@@ -659,7 +665,7 @@ class StateMachine {
                         parent_order_id, seller_id, buyer_id, amount, snapshotted_reward_rate,
                         snapshotted_reward_amount, snapshotted_upi_id, snapshotted_account_holder,
                         status, created_at
-                    ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, 'Available', ?)
+                    ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)
                 ");
                 $relist->execute([
                     $order['parent_order_id'],
@@ -669,6 +675,7 @@ class StateMachine {
                     $order['snapshotted_reward_amount'],
                     $order['snapshotted_upi_id'],
                     $order['snapshotted_account_holder'],
+                    $relistStatus,
                     $nowUtc
                 ]);
 
