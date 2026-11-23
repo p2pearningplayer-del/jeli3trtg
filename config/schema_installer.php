@@ -64,6 +64,7 @@ class SchemaInstaller {
             upi_risk_flag INTEGER NOT NULL DEFAULT 0,
             upi_risk_reason TEXT DEFAULT NULL,
             upi_risk_flagged_at TEXT DEFAULT NULL,
+            can_place_orders INTEGER NOT NULL DEFAULT 0,
             totp_secret TEXT DEFAULT NULL,
             totp_enabled INTEGER NOT NULL DEFAULT 0,
             totp_temp_secret TEXT DEFAULT NULL,
@@ -582,7 +583,8 @@ class SchemaInstaller {
             'upi_risk_reason' => 'TEXT DEFAULT NULL',
             'upi_risk_flagged_at' => 'TEXT DEFAULT NULL',
             'upi_risk_cooldown_until' => 'TEXT DEFAULT NULL',
-            'upi_risk_flag_count' => 'INTEGER NOT NULL DEFAULT 0'
+            'upi_risk_flag_count' => 'INTEGER NOT NULL DEFAULT 0',
+            'can_place_orders' => 'INTEGER NOT NULL DEFAULT 0'
         ];
 
         $dispCols = [
@@ -626,7 +628,8 @@ class SchemaInstaller {
                 'upi_risk_reason' => 'VARCHAR(255) DEFAULT NULL',
                 'upi_risk_flagged_at' => 'DATETIME DEFAULT NULL',
                 'upi_risk_cooldown_until' => 'DATETIME DEFAULT NULL',
-                'upi_risk_flag_count' => 'INT NOT NULL DEFAULT 0'
+                'upi_risk_flag_count' => 'INT NOT NULL DEFAULT 0',
+                'can_place_orders' => 'TINYINT(1) NOT NULL DEFAULT 0'
             ];
             $dispCols = [
                 'additional_evidence_requested' => 'TINYINT(1) NOT NULL DEFAULT 0',

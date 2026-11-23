@@ -65,6 +65,9 @@ $insUser->execute([$buyerPhone, "buy_sr_{$suffix}@gmail.com", $hash, $tpin, 'use
 $buyerId = (int)$pdo->lastInsertId();
 $pdo->prepare("INSERT INTO wallets (user_id, available_balance, reserved_balance, pending_credit_balance, version) VALUES (?, 0, 0, 0, 1)")->execute([$buyerId]);
 
+// Grant order permissions to test users for this suite
+$pdo->prepare("UPDATE users SET can_place_orders = 1 WHERE id IN (?, ?)")->execute([$sellerId, $buyerId]);
+
 // Add UPI account for seller
 UpiManager::getUserUpiAccounts($sellerId);
 

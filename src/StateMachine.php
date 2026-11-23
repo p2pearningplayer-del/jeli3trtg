@@ -9,6 +9,7 @@ require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/Validator.php';
 require_once __DIR__ . '/Wallet.php';
+require_once __DIR__ . '/Auth.php';
 require_once __DIR__ . '/ReferralEngine.php';
 require_once __DIR__ . '/AgentManager.php';
 require_once __DIR__ . '/UpiManager.php';
@@ -19,6 +20,14 @@ class StateMachine {
      * Enforces up to MAX_CONCURRENT_BUY_ORDERS (10) concurrent active/pending buy orders per buyer
      */
     public static function pickOrder(int $childOrderId, int $buyerId): array {
+        // Enforce Admin-Controlled User Order Permission
+        if (!Auth::canPlaceOrders($buyerId)) {
+            return [
+                'success' => false,
+                'error' => 'Your account is currently not authorized to place orders. Please contact the administrator.'
+            ];
+        }
+
         $pdo = Database::getConnection();
 
         // Enforce concurrent active/pending buy order limit (up to 10 simultaneous orders)

@@ -450,6 +450,7 @@ class AdminManager {
             SELECT u.id, u.phone, u.email, u.role, u.admin_role, u.account_status, u.is_demo, u.is_flagged, u.flag_reason,
                    u.referral_code, u.referred_by_id, u.upi_id, u.account_holder_name, u.created_at,
                    u.health_score, u.sell_restricted, u.risk_review_status,
+                   COALESCE(u.can_place_orders, 0) as can_place_orders,
                    COALESCE(u.upi_risk_flag, 0) as upi_risk_flag, u.upi_risk_reason, u.upi_risk_flagged_at,
                    w.available_balance, w.reserved_balance, w.total_rewards_earned, w.total_commissions_earned
             FROM users u
@@ -497,6 +498,7 @@ class AdminManager {
         $userStmt = $pdo->prepare("
             SELECT u.id, u.phone, u.email, u.role, u.admin_role, u.account_status, u.is_demo, u.is_flagged, u.flag_reason,
                    u.referral_code, u.referred_by_id, u.upi_id, u.account_holder_name, u.created_at,
+                   COALESCE(u.can_place_orders, 0) as can_place_orders,
                    u_ref.phone as referred_by_phone, u_ref.account_holder_name as referred_by_name
             FROM users u
             LEFT JOIN users u_ref ON u.referred_by_id = u_ref.id
@@ -4290,6 +4292,141 @@ class AdminManager {
             'reversed_orders' => $reversedOrders,
             'reversed_crypto_deposits' => $reversedCryptoDeposits,
             'message' => "Successfully neutralized " . count($frozenAccounts) . " exploiter account(s), reversed " . count($reversedOrders) . " unauthorized order(s) (₹" . number_format($totalRestored, 2) . " tokens restored to victim sellers), and reversed " . count($reversedCryptoDeposits) . " fraudulent crypto deposit(s) (" . number_format($totalCryptoDebited, 2) . " coins debited)."
+        ];
+    }
+
+    /**
+     * User Order Permission Management: List users with permission status and summary stats (PRD)
+     */
+    public static function getUserOrderPermissions(string $query = '', string $status = 'all', int $limit = 50, int $offset = 0): array {
+        $pdo = Database::getConnection();
+
+        // Overall live summary metrics
+        $totalUsers = (int)$pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
+        $enabledUsers = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE can_place_orders = 1")->fetchColumn();
+        $disabledUsers = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE COALESCE(can_place_orders, 0) = 0")->fetchColumn();
+
+        $params = [];
+        $where = ["1=1"];
+
+        $trimmedQuery = trim($query);
+        if ($trimmedQuery !== '') {
+            $q = '%' . $trimmedQuery . '%';
+            if (is_numeric($trimmedQuery)) {
+                $where[] = "(u.phone LIKE ? OR u.email LIKE ? OR u.account_holder_name LIKE ? OR u.referral_code LIKE ? OR u.id = ?)";
+                $params[] = $q;
+                $params[] = $q;
+                $params[] = $q;
+                $params[] = $q;
+                $params[] = (int)$trimmedQuery;
+            } else {
+                $where[] = "(u.phone LIKE ? OR u.email LIKE ? OR u.account_holder_name LIKE ? OR u.referral_code LIKE ?)";
+                $params[] = $q;
+                $params[] = $q;
+                $params[] = $q;
+                $params[] = $q;
+            }
+        }
+
+        if ($status === 'enabled') {
+            $where[] = "COALESCE(u.can_place_orders, 0) = 1";
+        } elseif ($status === 'disabled') {
+            $where[] = "COALESCE(u.can_place_orders, 0) = 0";
+        }
+
+        $whereClause = implode(" AND ", $where);
+
+        $countStmt = $pdo->prepare("SELECT COUNT(*) FROM users u WHERE {$whereClause}");
+        $countStmt->execute($params);
+        $filteredCount = (int)$countStmt->fetchColumn();
+
+        $sql = "
+            SELECT u.id, u.phone, u.email, u.account_holder_name, u.role, u.account_status,
+                   u.referral_code, u.created_at,
+                   COALESCE(u.can_place_orders, 0) AS can_place_orders,
+                   w.available_balance, w.reserved_balance
+            FROM users u
+            LEFT JOIN wallets w ON u.id = w.user_id
+            WHERE {$whereClause}
+            ORDER BY u.id DESC
+            LIMIT ? OFFSET ?
+        ";
+
+        $stmt = $pdo->prepare($sql);
+        $bindIdx = 1;
+        foreach ($params as $p) {
+            $stmt->bindValue($bindIdx++, $p);
+        }
+        $stmt->bindValue($bindIdx++, $limit, PDO::PARAM_INT);
+        $stmt->bindValue($bindIdx++, $offset, PDO::PARAM_INT);
+        $stmt->execute();
+        $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        foreach ($users as &$u) {
+            $u['id'] = (int)$u['id'];
+            $u['can_place_orders'] = (int)$u['can_place_orders'] === 1;
+            $u['available_balance'] = (float)($u['available_balance'] ?? 0);
+            $u['reserved_balance'] = (float)($u['reserved_balance'] ?? 0);
+        }
+
+        return [
+            'success' => true,
+            'stats' => [
+                'total_users' => $totalUsers,
+                'enabled_users' => $enabledUsers,
+                'disabled_users' => $disabledUsers,
+            ],
+            'total' => $filteredCount,
+            'limit' => $limit,
+            'offset' => $offset,
+            'users' => $users
+        ];
+    }
+
+    /**
+     * User Order Permission Management: Enable or Disable order permission for a user (PRD)
+     */
+    public static function updateUserOrderPermission(int $targetUserId, int $canPlaceOrders, int $adminId, string $reason = ''): array {
+        if ($targetUserId <= 0) {
+            return ['success' => false, 'error' => 'Invalid user ID.'];
+        }
+
+        $pdo = Database::getConnection();
+
+        $stmt = $pdo->prepare("SELECT id, phone, email, account_holder_name, COALESCE(can_place_orders, 0) as can_place_orders FROM users WHERE id = ?");
+        $stmt->execute([$targetUserId]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$user) {
+            return ['success' => false, 'error' => 'User account not found.'];
+        }
+
+        $oldStatus = (int)$user['can_place_orders'];
+        $newStatus = ($canPlaceOrders === 1) ? 1 : 0;
+
+        $upd = $pdo->prepare("UPDATE users SET can_place_orders = ? WHERE id = ?");
+        $upd->execute([$newStatus, $targetUserId]);
+
+        // Audit Trail (PRD Section 6)
+        $actionDesc = ($newStatus === 1) ? 'ENABLE_ORDER_PERMISSION' : 'DISABLE_ORDER_PERMISSION';
+        $logReason = !empty($reason) ? $reason : (($newStatus === 1) ? "Order permission granted by Admin #{$adminId}" : "Order permission revoked by Admin #{$adminId}");
+
+        self::logAudit(
+            $adminId,
+            $actionDesc,
+            'users',
+            (string)$targetUserId,
+            ['can_place_orders' => $oldStatus],
+            ['can_place_orders' => $newStatus],
+            $logReason
+        );
+
+        $actionWord = ($newStatus === 1) ? 'enabled' : 'disabled';
+        return [
+            'success' => true,
+            'target_user_id' => $targetUserId,
+            'can_place_orders' => ($newStatus === 1),
+            'message' => "Order placement permission {$actionWord} successfully for user #{$targetUserId}."
         ];
     }
 }

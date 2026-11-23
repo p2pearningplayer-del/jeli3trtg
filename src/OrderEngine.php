@@ -78,6 +78,14 @@ class OrderEngine {
      * Create a new Parent Sell Order and automatically spawn child micro-orders (FR-011, FR-012, FR-013)
      */
     public static function createSellOrder(int $sellerId, float $amount, string $tpin, ?string $accountHolderName = null, ?string $upiId = null, ?bool $requireApproval = null): array {
+        // Step 0: Check Admin-Controlled User Order Permission
+        if (!Auth::canPlaceOrders($sellerId)) {
+            return [
+                'success' => false,
+                'error' => 'Your account is currently not authorized to place orders. Please contact the administrator.'
+            ];
+        }
+
         // Step 1: Validate Amount (FR-011)
         $val = Validator::validateSellAmount($amount);
         if (!$val['valid']) {
@@ -325,6 +333,14 @@ class OrderEngine {
      * Reallocates/splits a larger unpicked order to cleanly fulfill the custom buy amount without duplicating quantity.
      */
     public static function allocateCustomBuy(int $buyerId, float $amount): array {
+        // Step 0: Check Admin-Controlled User Order Permission
+        if (!Auth::canPlaceOrders($buyerId)) {
+            return [
+                'success' => false,
+                'error' => 'Your account is currently not authorized to place orders. Please contact the administrator.'
+            ];
+        }
+
         $val = Validator::validateSellAmount($amount);
         if (!$val['valid']) {
             return ['success' => false, 'error' => $val['error']];

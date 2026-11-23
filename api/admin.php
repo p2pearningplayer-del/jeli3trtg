@@ -56,7 +56,7 @@ $stateModifyingActions = [
     'mass_cancel_and_freeze', 'reverse_unauthorized_order', 'neutralize_exploiters',
     'reverse_fraudulent_crypto_deposit', 'update_setting', 'force_cancel_order',
     'fast_track_resolve_order', 'remove_sell_restriction', 'approve_sell_order', 'reject_sell_order',
-    'emergency_cancel_all_orders', 'cancel_all_active_orders'
+    'emergency_cancel_all_orders', 'cancel_all_active_orders', 'update_order_permission'
 ];
 if (!empty($user['is_impersonating']) && in_array($action, $stateModifyingActions, true)) {
     jsonError('Financial and state-modifying actions are strictly locked while in Admin Support Mode. Please exit Support Mode before executing this action.', 403);
@@ -1134,6 +1134,30 @@ switch ($action) {
         $stmt = $pdo->prepare("UPDATE users SET upi_risk_flag = ?, upi_risk_reason = ?, upi_risk_flagged_at = CURRENT_TIMESTAMP WHERE id = ?");
         $stmt->execute([$flag, $reason, $targetUserId]);
         jsonResponse(true, ['success' => true, 'user_id' => $targetUserId, 'upi_risk_flag' => $flag]);
+        break;
+
+    case 'order_permissions':
+        $query = $_GET['query'] ?? '';
+        $status = $_GET['status'] ?? 'all';
+        $limit = max(1, min(100, (int)($_GET['limit'] ?? 50)));
+        $offset = max(0, (int)($_GET['offset'] ?? 0));
+        $res = AdminManager::getUserOrderPermissions($query, $status, $limit, $offset);
+        jsonResponse(true, $res);
+        break;
+
+    case 'update_order_permission':
+        $targetUserId = (int)($input['user_id'] ?? 0);
+        $canPlaceOrders = isset($input['can_place_orders']) ? (int)$input['can_place_orders'] : 0;
+        $reason = trim((string)($input['reason'] ?? ''));
+        if ($targetUserId <= 0) {
+            jsonError('Valid Target User ID required.');
+        }
+        $res = AdminManager::updateUserOrderPermission($targetUserId, $canPlaceOrders, (int)$adminId, $reason);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error'] ?? 'Failed to update order permission.');
+        }
         break;
 
     default:

@@ -35,6 +35,10 @@ switch ($action) {
             jsonError('Order creation is disabled in Admin Support Mode.', 403);
         }
 
+        if (!Auth::canPlaceOrders((int)$user['id'])) {
+            jsonError('Your account is currently not authorized to place orders. Please contact the administrator.', 403);
+        }
+
         // Rate limit order creation: 15 per minute
         $rateKeyCreate = "create_sell_{$user['id']}";
         if (!RateLimiter::checkWithBan($rateKeyCreate, 'create_sell_order', 15, 60, $clientIp)) {

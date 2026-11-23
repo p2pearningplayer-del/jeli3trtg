@@ -28,7 +28,7 @@ function jsonError(string $message, int $statusCode = 400, ?array $extra = null)
 }
 
 function getJsonInput(): array {
-    $raw = file_get_contents('php://input');
+    $raw = (PHP_SAPI === 'cli') ? '' : file_get_contents('php://input');
     if (empty($raw)) return $_POST;
     $decoded = json_decode($raw, true);
     return is_array($decoded) ? array_merge($_POST, $decoded) : $_POST;

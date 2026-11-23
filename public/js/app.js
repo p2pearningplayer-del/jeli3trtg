@@ -275,6 +275,16 @@ function updateProfilePreviews(user) {
 
     // Two-Factor Authentication UI Sync
     updateTotpUi(user);
+
+    // Order Placement Permission Banner Sync (PRD)
+    const permNoticeEls = document.querySelectorAll('.user-order-permission-alert');
+    permNoticeEls.forEach(el => {
+        if (user && user.can_place_orders === false) {
+            el.classList.remove('hidden');
+        } else {
+            el.classList.add('hidden');
+        }
+    });
 }
 
 function switchTab(tabId) {
@@ -462,6 +472,11 @@ function renderGuestBuyPool() {
 async function pickOrder(orderIdOrToken) {
     if (!currentUser) {
         openAuthModal('login');
+        return;
+    }
+
+    if (currentUser.can_place_orders === false) {
+        alert("Your account is currently not authorized to place orders. Please contact the administrator.");
         return;
     }
 
@@ -1083,6 +1098,11 @@ async function requestCustomAllocation() {
         return;
     }
 
+    if (currentUser.can_place_orders === false) {
+        alert("Your account is currently not authorized to place orders. Please contact the administrator.");
+        return;
+    }
+
     const input = document.getElementById('customBuyAmount');
     const amount = parseFloat(input.value);
 
@@ -1411,6 +1431,11 @@ async function deleteUpiAccount(accountId) {
 async function submitSellOrder() {
     if (!currentUser) {
         openAuthModal('login');
+        return;
+    }
+
+    if (currentUser.can_place_orders === false) {
+        alert("Your account is currently not authorized to place orders. Please contact the administrator.");
         return;
     }
 

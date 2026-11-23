@@ -900,7 +900,7 @@ class Auth {
         $stmt = $pdo->prepare("
             SELECT id, phone, email, role, admin_role, is_demo, is_flagged, flag_reason,
                    account_status, referral_code, referred_by_id, upi_id, account_holder_name,
-                   health_score,
+                   health_score, COALESCE(can_place_orders, 0) AS can_place_orders,
                    (tpin_hash IS NOT NULL AND tpin_hash != '') AS has_tpin,
                    (totp_enabled = 1) AS totp_enabled
             FROM users
@@ -915,10 +915,25 @@ class Auth {
         }
 
         $user['health_score'] = (int)($user['health_score'] ?? 100);
+        $user['can_place_orders'] = (int)($user['can_place_orders'] ?? 0) === 1;
         $user['is_impersonating'] = !empty($_SESSION['is_impersonating']);
         $user['real_admin_id'] = $_SESSION['real_admin_id'] ?? null;
         $user['totp_enabled'] = (bool)($user['totp_enabled'] ?? false);
         return $user;
+    }
+
+    /**
+     * Check if user is authorized by admin to place orders (Buy or Sell)
+     */
+    public static function canPlaceOrders(int $userId): bool {
+        if ($userId <= 0) {
+            return false;
+        }
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare("SELECT can_place_orders FROM users WHERE id = ?");
+        $stmt->execute([$userId]);
+        $val = $stmt->fetchColumn();
+        return (int)$val === 1;
     }
 
     /**

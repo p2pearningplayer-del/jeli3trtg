@@ -67,6 +67,10 @@ $buyerId = (int)$buyerReg['user_id'];
 Wallet::adminAdjust($sellerId, 'credit', 10000.00, 'Seed seller balance', $adminId);
 Wallet::adminAdjust($buyerId, 'credit', 10000.00, 'Seed buyer balance', $adminId);
 
+// Grant order permissions to test users for this suite
+$pdo = Database::getConnection();
+$pdo->prepare("UPDATE users SET can_place_orders = 1 WHERE id IN (?, ?)")->execute([$sellerId, $buyerId]);
+
 // -------------------------------------------------------------
 // SECTION 1: Standard Active Sell Order Portions Are LIVE in Buy Pool
 // -------------------------------------------------------------
@@ -217,8 +221,17 @@ if (!is_dir($proofDir)) {
     @mkdir($proofDir, 0777, true);
 }
 $dummyProofPath = $proofDir . '/proof_test_' . uniqid() . '.png';
-$basePng = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==');
-file_put_contents($dummyProofPath, $basePng . str_repeat('A', 256));
+if (function_exists('imagecreatetruecolor')) {
+    $im = imagecreatetruecolor(50, 50);
+    $color = imagecolorallocate($im, mt_rand(50, 200), mt_rand(50, 200), mt_rand(50, 200));
+    imagefill($im, 0, 0, $color);
+    imagestring($im, 2, 5, 5, (string)mt_rand(1000, 9999), imagecolorallocate($im, 255, 255, 255));
+    imagepng($im, $dummyProofPath);
+    imagedestroy($im);
+} else {
+    $basePng = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==');
+    file_put_contents($dummyProofPath, $basePng . random_bytes(256));
+}
 
 // Submit proof with unique UTR
 $testUtr = '98' . mt_rand(1000000000, 9999999999);

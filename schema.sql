@@ -41,6 +41,7 @@ CREATE TABLE `users` (
   `upi_risk_flagged_at` DATETIME DEFAULT NULL,
   `upi_risk_cooldown_until` DATETIME DEFAULT NULL,
   `upi_risk_flag_count` INT NOT NULL DEFAULT 0,
+  `can_place_orders` TINYINT(1) NOT NULL DEFAULT 0,
   `totp_secret` TEXT DEFAULT NULL,
   `totp_enabled` TINYINT(1) NOT NULL DEFAULT 0,
   `totp_temp_secret` TEXT DEFAULT NULL,

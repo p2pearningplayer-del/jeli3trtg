@@ -604,6 +604,14 @@ endif;
         <!-- TAB 2: BUY (Buy Pool, Custom Match & Purchases) -->
         <!-- ========================================== -->
         <section id="view-buy" class="tab-view space-y-6 hidden">
+            <!-- Order Permission Warning Banner (PRD) -->
+            <div class="user-order-permission-alert hidden bg-rose-500/10 border border-rose-500/30 rounded-2xl p-4 flex items-start gap-3 text-rose-300 text-xs shadow-md">
+                <svg class="w-5 h-5 text-rose-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                <div>
+                    <strong class="font-bold block text-rose-200">Order Permission Required</strong>
+                    <span>Your account is currently not authorized to place orders. Please contact the administrator.</span>
+                </div>
+            </div>
             <!-- Dedicated My Buy History - Compact Top Placement (Part 8, Item 1) -->
             <div id="buyPageHistorySection" class="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-3 shadow-md">
                 <div class="flex items-center justify-between">
@@ -678,6 +686,14 @@ endif;
         <!-- TAB 3: SELL (List Sell Order & Seller Tracking) -->
         <!-- ========================================== -->
         <section id="view-sell" class="tab-view space-y-6 hidden">
+            <!-- Order Permission Warning Banner (PRD) -->
+            <div class="user-order-permission-alert hidden bg-rose-500/10 border border-rose-500/30 rounded-2xl p-4 flex items-start gap-3 text-rose-300 text-xs shadow-md">
+                <svg class="w-5 h-5 text-rose-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                <div>
+                    <strong class="font-bold block text-rose-200">Order Permission Required</strong>
+                    <span>Your account is currently not authorized to place orders. Please contact the administrator.</span>
+                </div>
+            </div>
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <!-- Sell Creation Card -->
                 <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">

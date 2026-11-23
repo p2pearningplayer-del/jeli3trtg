@@ -53,7 +53,7 @@ window.setBadge = setBadge;
 window.setTxt = setTxt;
 
 function switchAdminTab(tabId, filterOptions = null) {
-    const validTabs = ['dashboard', 'users', 'orders', 'pending_sell_orders', 'pending_confirmations', 'sell_restrictions', 'disputes', 'fraud', 'rewards', 'content', 'reports', 'audit', 'admins', 'agents', 'risk'];
+    const validTabs = ['dashboard', 'users', 'order_permissions', 'orders', 'pending_sell_orders', 'pending_confirmations', 'sell_restrictions', 'disputes', 'fraud', 'rewards', 'content', 'reports', 'audit', 'admins', 'agents', 'risk'];
     if (!validTabs.includes(tabId)) {
         tabId = 'dashboard';
     }
@@ -120,6 +120,7 @@ function switchAdminTab(tabId, filterOptions = null) {
     // Trigger data loader
     if (tabId === 'dashboard') loadAdminDashboard();
     if (tabId === 'users') loadAdminUsers();
+    if (tabId === 'order_permissions') loadAdminOrderPermissions();
     if (tabId === 'orders') loadAdminOrders();
     if (tabId === 'pending_sell_orders') loadAdminPendingSellOrders();
     if (tabId === 'pending_confirmations') loadAdminPendingConfirmations();
@@ -137,6 +138,7 @@ function switchAdminTab(tabId, filterOptions = null) {
 
 function periodicAdminSync() {
     if (currentAdminTab === 'dashboard') loadAdminDashboard(true);
+    if (currentAdminTab === 'order_permissions') loadAdminOrderPermissions(true);
     if (currentAdminTab === 'pending_sell_orders') loadAdminPendingSellOrders(true);
     if (currentAdminTab === 'pending_confirmations') loadAdminPendingConfirmations(true);
     if (currentAdminTab === 'sell_restrictions') loadAdminSellRestrictions(true);
@@ -371,7 +373,7 @@ async function loadAdminUsers() {
         if (indEl) indEl.innerText = `Page ${Math.floor(userPageOffset / userPageLimit) + 1} of ${Math.max(1, Math.ceil(total / userPageLimit))}`;
 
         if (!data.success || !data.users || data.users.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-slate-500 font-sans">No matching user accounts found in this category.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="8" class="p-8 text-center text-slate-500 font-sans">No matching user accounts found in this category.</td></tr>`;
             return;
         }
 
@@ -379,6 +381,10 @@ async function loadAdminUsers() {
             const hScore = (u.health_score !== undefined && u.health_score !== null) ? parseInt(u.health_score, 10) : 100;
             const hColor = (hScore <= 50) ? 'text-rose-400 bg-rose-500/10 border-rose-500/20' : (hScore >= 80 ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' : 'text-amber-400 bg-amber-500/10 border-amber-500/20');
             const stColor = (u.account_status === 'active') ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : ((u.account_status === 'temporarily_blocked') ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20');
+            const isOrderPermEnabled = !!u.can_place_orders;
+            const permBadge = isOrderPermEnabled
+                ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">Enabled</span>'
+                : '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-rose-500/15 text-rose-400 border border-rose-500/30">Disabled</span>';
             return `
             <tr class="hover:bg-slate-900/80 transition text-xs font-mono">
                 <td class="p-3 text-slate-500 font-bold">
@@ -396,6 +402,9 @@ async function loadAdminUsers() {
                 <td class="p-3">
                     <span class="text-emerald-400 font-bold">₹${parseFloat(u.available_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                     <span class="text-[10px] text-slate-500 block">Res: ₹${parseFloat(u.reserved_balance || 0).toFixed(2)}</span>
+                </td>
+                <td class="p-3 font-sans">
+                    ${permBadge}
                 </td>
                 <td class="p-3">
                     <div class="flex items-center gap-1.5">
@@ -418,6 +427,10 @@ async function loadAdminUsers() {
                         </button>
                         <button onclick="openAdjustmentModal(${u.id}, '${escapeHtml(u.phone)}')" class="px-2 py-1 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-400 border border-indigo-500/30 rounded text-[11px] font-semibold transition cursor-pointer" title="Adjust Token Balance">
                             Adjust
+                        </button>
+                        <!-- Order Placement Permission Quick Toggle -->
+                        <button onclick="openOrderPermissionModal(${u.id}, '${escapeHtml(u.phone)}', ${isOrderPermEnabled ? 1 : 0})" class="px-2 py-1 ${isOrderPermEnabled ? 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'} rounded text-[11px] font-semibold transition cursor-pointer" title="${isOrderPermEnabled ? 'Revoke Order Placement Permission' : 'Grant Order Placement Permission'}">
+                            ${isOrderPermEnabled ? 'Revoke Orders' : 'Allow Orders'}
                         </button>
                         <!-- Requirement 1.3: Authorized Status Controls (Active, Suspended, Temporarily Blocked) -->
                         <button onclick="openSetUserStatusModal(${u.id}, '${escapeHtml(u.phone)}', '${u.account_status}')" class="px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded text-[11px] font-semibold transition cursor-pointer" title="Change Account Status">
@@ -4588,5 +4601,188 @@ async function loadAdminRiskUsers() {
         }).join('');
     } catch (e) {
         console.error('loadAdminRiskUsers error:', e);
+    }
+}
+
+// -------------------------------------------------------------
+// USER ORDER PERMISSION MANAGEMENT (PRD)
+// -------------------------------------------------------------
+
+let orderPermPageLimit = 50;
+let orderPermPageOffset = 0;
+
+function changeOrderPermPageSize(val) {
+    orderPermPageLimit = parseInt(val, 10) || 50;
+    orderPermPageOffset = 0;
+    loadAdminOrderPermissions();
+}
+
+function changeOrderPermPage(direction) {
+    if (direction === 'prev' && orderPermPageOffset > 0) {
+        orderPermPageOffset = Math.max(0, orderPermPageOffset - orderPermPageLimit);
+    } else if (direction === 'next') {
+        orderPermPageOffset += orderPermPageLimit;
+    }
+    loadAdminOrderPermissions();
+}
+
+async function loadAdminOrderPermissions(silent = false) {
+    const query = document.getElementById('orderPermSearchInput')?.value || '';
+    const status = document.getElementById('orderPermStatusFilter')?.value || 'all';
+
+    try {
+        const res = await fetch(`/api/admin.php?action=order_permissions&query=${encodeURIComponent(query)}&status=${encodeURIComponent(status)}&limit=${orderPermPageLimit}&offset=${orderPermPageOffset}`);
+        const data = await res.json();
+
+        if (data.stats) {
+            const setTxt = (id, val) => {
+                const el = document.getElementById(id);
+                if (el) el.innerText = val;
+            };
+            setTxt('permMetricTotalUsers', data.stats.total_users || 0);
+            setTxt('permMetricEnabledUsers', data.stats.enabled_users || 0);
+            setTxt('permMetricDisabledUsers', data.stats.disabled_users || 0);
+
+            const badge = document.getElementById('navOrderPermissionsBadge');
+            if (badge) badge.innerText = data.stats.enabled_users || 0;
+        }
+
+        const tbody = document.getElementById('adminOrderPermissionsTableBody');
+        if (!tbody) return;
+
+        const total = data.total || 0;
+        const from = total > 0 ? (orderPermPageOffset + 1) : 0;
+        const to = Math.min(total, orderPermPageOffset + orderPermPageLimit);
+        const infoEl = document.getElementById('orderPermPaginationInfo');
+        if (infoEl) infoEl.innerText = `Showing ${from} to ${to} of ${total} matching users`;
+
+        const prevBtn = document.getElementById('orderPermPrevBtn');
+        const nextBtn = document.getElementById('orderPermNextBtn');
+        const indEl = document.getElementById('orderPermPageIndicator');
+        if (prevBtn) prevBtn.disabled = (orderPermPageOffset === 0);
+        if (nextBtn) nextBtn.disabled = (orderPermPageOffset + orderPermPageLimit >= total);
+        if (indEl) indEl.innerText = `Page ${Math.floor(orderPermPageOffset / orderPermPageLimit) + 1} of ${Math.max(1, Math.ceil(total / orderPermPageLimit))}`;
+
+        if (!data.success || !data.users || data.users.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-slate-500 font-sans">No users matching search criteria.</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = data.users.map(u => {
+            const isEnabled = !!u.can_place_orders;
+            const statusBadge = isEnabled
+                ? '<span class="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 inline-flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>Enabled</span>'
+                : '<span class="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase bg-rose-500/15 text-rose-400 border border-rose-500/30 inline-flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span>Disabled</span>';
+
+            const actionBtn = isEnabled
+                ? `<button onclick="openOrderPermissionModal(${u.id}, '${escapeHtml(u.phone)} (${escapeHtml(u.account_holder_name || 'User')})', 1)" class="px-3 py-1.5 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ml-auto cursor-pointer">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
+                    <span>Disable Permission</span>
+                   </button>`
+                : `<button onclick="openOrderPermissionModal(${u.id}, '${escapeHtml(u.phone)} (${escapeHtml(u.account_holder_name || 'User')})', 0)" class="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ml-auto cursor-pointer">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <span>Enable Permission</span>
+                   </button>`;
+
+            return `
+            <tr class="hover:bg-slate-900/80 transition text-xs font-mono">
+                <td class="p-3 text-slate-400 font-bold">#${u.id}</td>
+                <td class="p-3 text-white font-sans font-semibold">${escapeHtml(u.account_holder_name || 'Not provided')}</td>
+                <td class="p-3">
+                    <span class="text-white font-bold block">${escapeHtml(u.phone)}</span>
+                    <span class="text-[10px] text-slate-500 block">Ref: ${escapeHtml(u.referral_code || '-')}</span>
+                </td>
+                <td class="p-3 text-slate-400 font-sans">${escapeHtml(u.email || 'No email')}</td>
+                <td class="p-3">
+                    <span class="text-emerald-400 font-bold">₹${parseFloat(u.available_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                </td>
+                <td class="p-3 font-sans">${statusBadge}</td>
+                <td class="p-3 font-sans text-right">${actionBtn}</td>
+            </tr>
+            `;
+        }).join('');
+    } catch (e) {
+        if (!silent) console.error('Failed to load order permissions:', e);
+    }
+}
+
+function openOrderPermissionModal(userId, userLabel, currentState) {
+    const targetState = (currentState === 1) ? 0 : 1;
+    const modal = document.getElementById('orderPermissionConfirmModal');
+    if (!modal) return;
+
+    document.getElementById('permModalUserId').value = userId;
+    document.getElementById('permModalTargetState').value = targetState;
+    document.getElementById('permModalUserSubtitle').innerText = `User #${userId} \u2022 ${userLabel}`;
+    document.getElementById('permModalReason').value = '';
+
+    const titleEl = document.getElementById('permModalTitle');
+    const iconContainer = document.getElementById('permModalIconContainer');
+    const iconEl = document.getElementById('permModalIcon');
+    const descBox = document.getElementById('permModalDescBox');
+    const confirmBtn = document.getElementById('permModalConfirmBtn');
+
+    if (targetState === 1) {
+        // Enabling permission
+        titleEl.innerText = 'Enable Order Placement Permission';
+        iconContainer.className = 'w-11 h-11 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0';
+        iconEl.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>';
+        descBox.className = 'p-3.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-200 text-xs leading-relaxed';
+        descBox.innerHTML = `<strong>Authorize Order Placement:</strong> This will permit <strong>${escapeHtml(userLabel)}</strong> to immediately place new Buy and Sell orders on the platform.`;
+        confirmBtn.className = 'px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition shadow-lg shadow-emerald-600/30 cursor-pointer';
+        confirmBtn.innerText = 'Grant Permission';
+    } else {
+        // Disabling permission
+        titleEl.innerText = 'Disable Order Placement Permission';
+        iconContainer.className = 'w-11 h-11 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center shrink-0';
+        iconEl.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/>';
+        descBox.className = 'p-3.5 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-200 text-xs leading-relaxed';
+        descBox.innerHTML = `<strong>Restrict Order Placement:</strong> This will immediately block <strong>${escapeHtml(userLabel)}</strong> from placing new Buy and Sell orders. They will see the notice: <em>"Your account is currently not authorized to place orders. Please contact the administrator."</em> Existing orders, wallet balances, and logins remain safe.`;
+        confirmBtn.className = 'px-5 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl transition shadow-lg shadow-rose-600/30 cursor-pointer';
+        confirmBtn.innerText = 'Revoke Permission';
+    }
+
+    modal.classList.remove('hidden');
+}
+
+function closeOrderPermissionModal() {
+    const modal = document.getElementById('orderPermissionConfirmModal');
+    if (modal) modal.classList.add('hidden');
+}
+
+async function submitOrderPermissionToggle(e) {
+    if (e) e.preventDefault();
+
+    const userId = parseInt(document.getElementById('permModalUserId').value, 10);
+    const targetState = parseInt(document.getElementById('permModalTargetState').value, 10);
+    const reason = document.getElementById('permModalReason').value.trim();
+
+    if (!userId) {
+        alert('Invalid User ID.');
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/admin.php?action=update_order_permission', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_id: userId,
+                can_place_orders: targetState,
+                reason: reason
+            })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            closeOrderPermissionModal();
+            // Refresh both tables instantly without full page refresh
+            loadAdminOrderPermissions();
+            if (typeof loadAdminUsers === 'function') loadAdminUsers();
+        } else {
+            alert(data.error || 'Failed to update order permission.');
+        }
+    } catch (err) {
+        alert('Network error while updating order permission.');
     }
 }

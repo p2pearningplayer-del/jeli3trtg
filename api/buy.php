@@ -105,6 +105,10 @@ switch ($action) {
             jsonError('Order reservation is disabled in Admin Support Mode.', 403);
         }
 
+        if (!Auth::canPlaceOrders((int)$user['id'])) {
+            jsonError('Your account is currently not authorized to place orders. Please contact the administrator.', 403);
+        }
+
         // Rate limit order picking
         $rateKeyPick = "pick_order_{$user['id']}";
         if (!RateLimiter::checkWithBan($rateKeyPick, 'pick_order', 20, 60, $clientIp)) {
@@ -186,6 +190,10 @@ switch ($action) {
     case 'custom_allocation':
         if ($user['is_impersonating']) {
             jsonError('Order allocation is disabled in Admin Support Mode.', 403);
+        }
+
+        if (!Auth::canPlaceOrders((int)$user['id'])) {
+            jsonError('Your account is currently not authorized to place orders. Please contact the administrator.', 403);
         }
 
         // Rate limit custom allocation requests
