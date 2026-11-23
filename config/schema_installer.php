@@ -1683,7 +1683,8 @@ class SchemaInstaller {
             ['crypto_gateway_provider', 'manual', 'Crypto gateway provider (manual, nowpayments, trongrid)'],
             ['nowpayments_api_key', '', 'NOWPayments merchant API key'],
             ['nowpayments_ipn_secret', '', 'NOWPayments IPN HMAC secret key'],
-            ['trongrid_api_key', '', 'Optional TronGrid API key for direct blockchain querying']
+            ['trongrid_api_key', '', 'Optional TronGrid API key for direct blockchain querying'],
+            ['global_order_enabled', '0', 'Global order placement control (1=Enabled for all users, 0=Disabled globally except authorized users)']
         ];
 
         $stmt = $pdo->prepare("SELECT setting_key FROM platform_settings WHERE setting_key = ?");
@@ -1729,6 +1730,14 @@ class SchemaInstaller {
             if (!$chkOcr->fetch()) {
                 $insOcr = $pdo->prepare("INSERT INTO platform_settings (setting_key, setting_value, description) VALUES ('fraud_ocr_enabled', '0', 'OCR screenshot text and amount verification (1=Active, 0=Disabled per manual seller verification policy)')");
                 $insOcr->execute();
+            }
+
+            // Ensure global_order_enabled setting exists (default 0 / disabled per PRD)
+            $chkGlobal = $pdo->prepare("SELECT setting_value FROM platform_settings WHERE setting_key = 'global_order_enabled'");
+            $chkGlobal->execute();
+            if (!$chkGlobal->fetch()) {
+                $insGlobal = $pdo->prepare("INSERT INTO platform_settings (setting_key, setting_value, description) VALUES ('global_order_enabled', '0', 'Global order placement control (1=Enabled for all users, 0=Disabled globally except authorized users)')");
+                $insGlobal->execute();
             }
 
             // Purge all existing IP bans (IP banning removed across platform)

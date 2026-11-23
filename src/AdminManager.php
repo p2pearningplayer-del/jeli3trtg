@@ -4296,15 +4296,109 @@ class AdminManager {
     }
 
     /**
+     * Get central Global Order Placement Status (PRD Section 2 & 4)
+     */
+    public static function getGlobalOrderStatus(): bool {
+        return Auth::isGlobalOrderEnabled();
+    }
+
+    /**
+     * Update Global Order Control (PRD Section 2)
+     * - $enabled: 1 to ENABLE orders for all users; 0 to DISABLE orders globally
+     * - $revokeIndividualPermissions: if true when disabling, also resets all users' can_place_orders = 0
+     * - $adminId: Admin user initiating the action
+     * - $reason: Optional audit note
+     */
+    public static function updateGlobalOrderControl(int $enabled, int $adminId, bool $revokeIndividualPermissions = false, string $reason = ''): array {
+        $pdo = Database::getConnection();
+        $newVal = ($enabled === 1) ? '1' : '0';
+        $oldVal = Auth::isGlobalOrderEnabled() ? '1' : '0';
+
+        // Check if setting exists in platform_settings
+        $chk = $pdo->prepare("SELECT setting_value FROM platform_settings WHERE setting_key = 'global_order_enabled'");
+        $chk->execute();
+        $row = $chk->fetch(PDO::FETCH_ASSOC);
+
+        if ($row) {
+            $stmt = $pdo->prepare("
+                UPDATE platform_settings
+                SET setting_value = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE setting_key = 'global_order_enabled'
+            ");
+            $stmt->execute([$newVal, $adminId]);
+        } else {
+            $stmt = $pdo->prepare("
+                INSERT INTO platform_settings (setting_key, setting_value, description, updated_by, updated_at)
+                VALUES ('global_order_enabled', ?, 'Global order placement control (1=Enabled for all users, 0=Disabled globally except authorized users)', ?, CURRENT_TIMESTAMP)
+            ");
+            $stmt->execute([$newVal, $adminId]);
+        }
+
+        // If disabling globally and revoking individual permissions (One-click Disable All)
+        $revokedCount = 0;
+        if ($enabled === 0 && $revokeIndividualPermissions) {
+            $revokedCount = $pdo->exec("UPDATE users SET can_place_orders = 0 WHERE can_place_orders = 1");
+        }
+
+        // Audit Logging (PRD Section 6)
+        $actionDesc = ($enabled === 1)
+            ? 'ENABLE_GLOBAL_ORDERS'
+            : ($revokeIndividualPermissions ? 'DISABLE_GLOBAL_ORDERS_AND_REVOKE_ALL' : 'DISABLE_GLOBAL_ORDERS');
+
+        $logReason = !empty($reason)
+            ? $reason
+            : (($enabled === 1)
+                ? "Global order placement enabled for all users by Admin #{$adminId}"
+                : ($revokeIndividualPermissions
+                    ? "Global orders disabled and {$revokedCount} individual permission(s) revoked by Admin #{$adminId}"
+                    : "Global order placement disabled by Admin #{$adminId}"));
+
+        self::logAudit(
+            $adminId,
+            $actionDesc,
+            'platform_settings',
+            'global_order_enabled',
+            ['global_order_enabled' => $oldVal],
+            ['global_order_enabled' => $newVal, 'revoked_individual_permissions' => $revokeIndividualPermissions, 'revoked_count' => $revokedCount],
+            $logReason
+        );
+
+        $msg = ($enabled === 1)
+            ? "Global order placement enabled successfully. All registered users can now place orders."
+            : ($revokeIndividualPermissions
+                ? "Global order placement disabled for all users. All individual permissions have been revoked ({$revokedCount} updated). Only newly approved users can place orders."
+                : "Global order placement disabled. Only individually authorized users can place orders.");
+
+        return [
+            'success' => true,
+            'global_order_enabled' => ($enabled === 1),
+            'revoked_individual_permissions' => ($enabled === 0 && $revokeIndividualPermissions),
+            'revoked_count' => $revokedCount,
+            'message' => $msg
+        ];
+    }
+
+    /**
      * User Order Permission Management: List users with permission status and summary stats (PRD)
      */
     public static function getUserOrderPermissions(string $query = '', string $status = 'all', int $limit = 50, int $offset = 0): array {
         $pdo = Database::getConnection();
+        $globalOrderEnabled = Auth::isGlobalOrderEnabled();
 
         // Overall live summary metrics
         $totalUsers = (int)$pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
-        $enabledUsers = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE can_place_orders = 1")->fetchColumn();
-        $disabledUsers = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE COALESCE(can_place_orders, 0) = 0")->fetchColumn();
+        $individualEnabledUsers = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE can_place_orders = 1")->fetchColumn();
+        $individualDisabledUsers = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE COALESCE(can_place_orders, 0) = 0")->fetchColumn();
+
+        // Effective authorization metrics based on:
+        // CAN_PLACE_ORDER = GLOBAL_ORDER_ENABLED OR INDIVIDUAL_USER_PERMISSION_ENABLED
+        if ($globalOrderEnabled) {
+            $authorizedUsers = $totalUsers;
+            $blockedUsers = 0;
+        } else {
+            $authorizedUsers = $individualEnabledUsers;
+            $blockedUsers = $individualDisabledUsers;
+        }
 
         $params = [];
         $where = ["1=1"];
@@ -4328,9 +4422,20 @@ class AdminManager {
             }
         }
 
-        if ($status === 'enabled') {
+        if ($status === 'enabled' || $status === 'authorized') {
+            if (!$globalOrderEnabled) {
+                $where[] = "COALESCE(u.can_place_orders, 0) = 1";
+            }
+            // If global is enabled, all users match
+        } elseif ($status === 'disabled' || $status === 'blocked') {
+            if ($globalOrderEnabled) {
+                $where[] = "1=0"; // When global is enabled, 0 users are blocked
+            } else {
+                $where[] = "COALESCE(u.can_place_orders, 0) = 0";
+            }
+        } elseif ($status === 'individual_enabled') {
             $where[] = "COALESCE(u.can_place_orders, 0) = 1";
-        } elseif ($status === 'disabled') {
+        } elseif ($status === 'individual_disabled') {
             $where[] = "COALESCE(u.can_place_orders, 0) = 0";
         }
 
@@ -4364,17 +4469,26 @@ class AdminManager {
 
         foreach ($users as &$u) {
             $u['id'] = (int)$u['id'];
-            $u['can_place_orders'] = (int)$u['can_place_orders'] === 1;
+            $individualCan = ((int)$u['can_place_orders'] === 1);
+            $u['can_place_orders'] = $individualCan;
+            $u['individual_permission'] = $individualCan;
+            $u['effective_authorized'] = ($globalOrderEnabled || $individualCan);
             $u['available_balance'] = (float)($u['available_balance'] ?? 0);
             $u['reserved_balance'] = (float)($u['reserved_balance'] ?? 0);
         }
 
         return [
             'success' => true,
+            'global_order_enabled' => $globalOrderEnabled,
             'stats' => [
+                'global_order_enabled' => $globalOrderEnabled,
                 'total_users' => $totalUsers,
-                'enabled_users' => $enabledUsers,
-                'disabled_users' => $disabledUsers,
+                'authorized_users' => $authorizedUsers,
+                'blocked_users' => $blockedUsers,
+                'individual_enabled_users' => $individualEnabledUsers,
+                'individual_disabled_users' => $individualDisabledUsers,
+                'enabled_users' => $authorizedUsers,
+                'disabled_users' => $blockedUsers,
             ],
             'total' => $filteredCount,
             'limit' => $limit,

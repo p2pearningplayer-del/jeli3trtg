@@ -915,7 +915,12 @@ class Auth {
         }
 
         $user['health_score'] = (int)($user['health_score'] ?? 100);
-        $user['can_place_orders'] = (int)($user['can_place_orders'] ?? 0) === 1;
+        $individualPerm = (int)($user['can_place_orders'] ?? 0) === 1;
+        $globalOrderEnabled = self::isGlobalOrderEnabled();
+        $user['individual_order_permission'] = $individualPerm;
+        $user['global_order_enabled'] = $globalOrderEnabled;
+        // PRD Section 4: CAN_PLACE_ORDER = GLOBAL_ORDER_ENABLED OR INDIVIDUAL_USER_PERMISSION_ENABLED
+        $user['can_place_orders'] = $globalOrderEnabled || $individualPerm;
         $user['is_impersonating'] = !empty($_SESSION['is_impersonating']);
         $user['real_admin_id'] = $_SESSION['real_admin_id'] ?? null;
         $user['totp_enabled'] = (bool)($user['totp_enabled'] ?? false);
@@ -923,9 +928,27 @@ class Auth {
     }
 
     /**
-     * Check if user is authorized by admin to place orders (Buy or Sell)
+     * Check if Global Order Control is ENABLED platform-wide (PRD Section 2 & 4)
      */
-    public static function canPlaceOrders(int $userId): bool {
+    public static function isGlobalOrderEnabled(): bool {
+        try {
+            $pdo = Database::getConnection();
+            $stmt = $pdo->prepare("SELECT setting_value FROM platform_settings WHERE setting_key = 'global_order_enabled'");
+            $stmt->execute();
+            $val = $stmt->fetchColumn();
+            if ($val === false || $val === null) {
+                return false; // Default: 0 (DISABLED)
+            }
+            return (int)$val === 1 || $val === '1' || strtolower((string)$val) === 'true';
+        } catch (Exception $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Check if user has explicit individual order placement permission (can_place_orders = 1)
+     */
+    public static function hasIndividualOrderPermission(int $userId): bool {
         if ($userId <= 0) {
             return false;
         }
@@ -934,6 +957,22 @@ class Auth {
         $stmt->execute([$userId]);
         $val = $stmt->fetchColumn();
         return (int)$val === 1;
+    }
+
+    /**
+     * Check if user is authorized by admin to place orders (Buy or Sell)
+     * Formula: CAN_PLACE_ORDER = GLOBAL_ORDER_ENABLED OR INDIVIDUAL_USER_PERMISSION_ENABLED
+     */
+    public static function canPlaceOrders(int $userId): bool {
+        if ($userId <= 0) {
+            return false;
+        }
+        // Step 1: Check Global Order Control
+        if (self::isGlobalOrderEnabled()) {
+            return true;
+        }
+        // Step 2: Check Individual User Permission
+        return self::hasIndividualOrderPermission($userId);
     }
 
     /**

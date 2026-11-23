@@ -4635,16 +4635,60 @@ async function loadAdminOrderPermissions(silent = false) {
         const data = await res.json();
 
         if (data.stats) {
+            const isGlobalEnabled = !!data.stats.global_order_enabled;
+
+            // 1. Sync Global Order Control Hero Banner & Status Badges
+            const pill = document.getElementById('globalOrderStatusPill');
+            const dot = document.getElementById('globalOrderPulseDot');
+            const desc = document.getElementById('globalOrderStatusDesc');
+            const cardStatus = document.getElementById('permMetricGlobalStatus');
+            const cardIcon = document.getElementById('permMetricGlobalStatusIcon');
+
+            if (isGlobalEnabled) {
+                if (pill) {
+                    pill.className = 'px-3 py-1 rounded-full text-xs font-black tracking-wider uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+                    pill.innerText = 'ENABLED';
+                }
+                if (dot) dot.className = 'w-3 h-3 rounded-full bg-emerald-400 animate-pulse';
+                if (desc) desc.innerText = 'Global order placement is currently ENABLED. All registered platform users can place Buy and Sell orders normally.';
+                if (cardStatus) {
+                    cardStatus.className = 'text-xl sm:text-2xl font-black font-mono text-emerald-400';
+                    cardStatus.innerText = 'ENABLED';
+                }
+                if (cardIcon) {
+                    cardIcon.className = 'w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0';
+                }
+            } else {
+                if (pill) {
+                    pill.className = 'px-3 py-1 rounded-full text-xs font-black tracking-wider uppercase bg-rose-500/20 text-rose-300 border border-rose-500/30';
+                    pill.innerText = 'DISABLED';
+                }
+                if (dot) dot.className = 'w-3 h-3 rounded-full bg-rose-500 animate-pulse';
+                if (desc) desc.innerText = 'Global order placement is currently DISABLED. Only individually approved users can place orders. All other users remain blocked.';
+                if (cardStatus) {
+                    cardStatus.className = 'text-xl sm:text-2xl font-black font-mono text-rose-400';
+                    cardStatus.innerText = 'DISABLED';
+                }
+                if (cardIcon) {
+                    cardIcon.className = 'w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400 shrink-0';
+                }
+            }
+
+            // 2. Sync Numerical Metric Cards (PRD Section 5)
             const setTxt = (id, val) => {
                 const el = document.getElementById(id);
                 if (el) el.innerText = val;
             };
             setTxt('permMetricTotalUsers', data.stats.total_users || 0);
-            setTxt('permMetricEnabledUsers', data.stats.enabled_users || 0);
-            setTxt('permMetricDisabledUsers', data.stats.disabled_users || 0);
+            setTxt('permMetricAuthorizedUsers', data.stats.authorized_users || 0);
+            setTxt('permMetricBlockedUsers', data.stats.blocked_users || 0);
+            setTxt('permMetricEnabledUsers', data.stats.authorized_users || 0);
+            setTxt('permMetricDisabledUsers', data.stats.blocked_users || 0);
 
             const badge = document.getElementById('navOrderPermissionsBadge');
-            if (badge) badge.innerText = data.stats.enabled_users || 0;
+            if (badge) {
+                badge.innerText = isGlobalEnabled ? 'ALL' : (data.stats.authorized_users || 0);
+            }
         }
 
         const tbody = document.getElementById('adminOrderPermissionsTableBody');
@@ -4664,24 +4708,30 @@ async function loadAdminOrderPermissions(silent = false) {
         if (indEl) indEl.innerText = `Page ${Math.floor(orderPermPageOffset / orderPermPageLimit) + 1} of ${Math.max(1, Math.ceil(total / orderPermPageLimit))}`;
 
         if (!data.success || !data.users || data.users.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-slate-500 font-sans">No users matching search criteria.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="8" class="p-8 text-center text-slate-500 font-sans">No users matching search criteria.</td></tr>`;
             return;
         }
 
         tbody.innerHTML = data.users.map(u => {
-            const isEnabled = !!u.can_place_orders;
-            const statusBadge = isEnabled
+            const hasIndividualPerm = !!u.can_place_orders;
+            const isAuthorized = !!u.effective_authorized;
+
+            const individualBadge = hasIndividualPerm
                 ? '<span class="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 inline-flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>Enabled</span>'
                 : '<span class="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase bg-rose-500/15 text-rose-400 border border-rose-500/30 inline-flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span>Disabled</span>';
 
-            const actionBtn = isEnabled
+            const effectiveBadge = isAuthorized
+                ? '<span class="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-emerald-600/20 text-emerald-300 border border-emerald-500/40 inline-flex items-center gap-1.5"><svg class="w-3 h-3 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>Authorized</span>'
+                : '<span class="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-rose-600/20 text-rose-300 border border-rose-500/40 inline-flex items-center gap-1.5"><svg class="w-3 h-3 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/></svg>Blocked</span>';
+
+            const actionBtn = hasIndividualPerm
                 ? `<button onclick="openOrderPermissionModal(${u.id}, '${escapeHtml(u.phone)} (${escapeHtml(u.account_holder_name || 'User')})', 1)" class="px-3 py-1.5 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ml-auto cursor-pointer">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
-                    <span>Disable Permission</span>
+                    <span>Revoke Permission</span>
                    </button>`
                 : `<button onclick="openOrderPermissionModal(${u.id}, '${escapeHtml(u.phone)} (${escapeHtml(u.account_holder_name || 'User')})', 0)" class="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ml-auto cursor-pointer">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                    <span>Enable Permission</span>
+                    <span>Grant Permission</span>
                    </button>`;
 
             return `
@@ -4696,7 +4746,8 @@ async function loadAdminOrderPermissions(silent = false) {
                 <td class="p-3">
                     <span class="text-emerald-400 font-bold">₹${parseFloat(u.available_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                 </td>
-                <td class="p-3 font-sans">${statusBadge}</td>
+                <td class="p-3 font-sans">${individualBadge}</td>
+                <td class="p-3 font-sans">${effectiveBadge}</td>
                 <td class="p-3 font-sans text-right">${actionBtn}</td>
             </tr>
             `;
@@ -4705,6 +4756,97 @@ async function loadAdminOrderPermissions(silent = false) {
         if (!silent) console.error('Failed to load order permissions:', e);
     }
 }
+
+// -------------------------------------------------------------
+// GLOBAL ORDER CONTROL MODAL CONTROLLER (PRD Section 2)
+// -------------------------------------------------------------
+
+function openGlobalOrderModal(targetState) {
+    const modal = document.getElementById('globalOrderControlModal');
+    if (!modal) return;
+
+    document.getElementById('globalModalTargetState').value = targetState;
+    document.getElementById('globalModalReason').value = '';
+
+    const titleEl = document.getElementById('globalModalTitle');
+    const subtitleEl = document.getElementById('globalModalSubtitle');
+    const iconContainer = document.getElementById('globalModalIconContainer');
+    const iconEl = document.getElementById('globalModalIcon');
+    const descBox = document.getElementById('globalModalDescBox');
+    const revokeContainer = document.getElementById('globalModalRevokeCheckboxContainer');
+    const revokeCheckbox = document.getElementById('globalModalRevokeAllCheckbox');
+    const confirmBtn = document.getElementById('globalModalConfirmBtn');
+
+    if (targetState === 1) {
+        // ENABLING orders for all users
+        titleEl.innerText = 'Enable Orders for All Users';
+        subtitleEl.innerText = 'Platform-wide normal trading access restore';
+        iconContainer.className = 'w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0';
+        iconEl.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>';
+        descBox.className = 'p-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-200 text-xs leading-relaxed';
+        descBox.innerHTML = `<strong>Global Order Restore:</strong> This will restore normal order placement for <strong>ALL registered users</strong> across the platform immediately. Every user will be authorized to place new Buy and Sell orders.`;
+        if (revokeContainer) revokeContainer.classList.add('hidden');
+        confirmBtn.className = 'px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs rounded-xl transition shadow-lg shadow-emerald-600/30 cursor-pointer';
+        confirmBtn.innerText = 'ENABLE ORDERS FOR ALL USERS';
+    } else {
+        // DISABLING orders for all users
+        titleEl.innerText = 'Disable Orders for Everyone';
+        subtitleEl.innerText = 'Emergency global order placement shutdown';
+        iconContainer.className = 'w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center shrink-0';
+        iconEl.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/>';
+        descBox.className = 'p-4 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-200 text-xs leading-relaxed';
+        descBox.innerHTML = `<strong>Global Order Restriction:</strong> This will immediately block new Buy and Sell order creation across the entire platform. Non-authorized users attempting to trade will receive the notice: <em>"Your account is currently not authorized to place orders. Please contact the administrator."</em> Existing orders, wallet balances, and logins remain completely safe.`;
+        if (revokeContainer) {
+            revokeContainer.classList.remove('hidden');
+            if (revokeCheckbox) revokeCheckbox.checked = true;
+        }
+        confirmBtn.className = 'px-5 py-2.5 bg-rose-600 hover:bg-rose-500 active:scale-95 text-white font-bold text-xs rounded-xl transition shadow-lg shadow-rose-600/30 cursor-pointer';
+        confirmBtn.innerText = 'DISABLE ORDERS FOR ALL USERS';
+    }
+
+    modal.classList.remove('hidden');
+}
+
+function closeGlobalOrderModal() {
+    const modal = document.getElementById('globalOrderControlModal');
+    if (modal) modal.classList.add('hidden');
+}
+
+async function submitGlobalOrderControl(e) {
+    if (e) e.preventDefault();
+
+    const targetState = parseInt(document.getElementById('globalModalTargetState').value, 10);
+    const revokeAllCheckbox = document.getElementById('globalModalRevokeAllCheckbox');
+    const revokeIndividual = (targetState === 0) && !!(revokeAllCheckbox && revokeAllCheckbox.checked);
+    const reason = document.getElementById('globalModalReason').value.trim();
+
+    try {
+        const res = await fetch('/api/admin.php?action=update_global_order_control', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                enabled: targetState,
+                revoke_individual_permissions: revokeIndividual,
+                reason: reason
+            })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            closeGlobalOrderModal();
+            loadAdminOrderPermissions();
+            if (typeof loadAdminUsers === 'function') loadAdminUsers();
+        } else {
+            alert(data.error || 'Failed to update global order control.');
+        }
+    } catch (err) {
+        alert('Network error while updating global order control.');
+    }
+}
+
+// -------------------------------------------------------------
+// INDIVIDUAL USER ORDER PERMISSION MODAL CONTROLLER (PRD Section 3)
+// -------------------------------------------------------------
 
 function openOrderPermissionModal(userId, userLabel, currentState) {
     const targetState = (currentState === 1) ? 0 : 1;
@@ -4786,3 +4928,13 @@ async function submitOrderPermissionToggle(e) {
         alert('Network error while updating order permission.');
     }
 }
+
+window.loadAdminOrderPermissions = loadAdminOrderPermissions;
+window.changeOrderPermPageSize = changeOrderPermPageSize;
+window.changeOrderPermPage = changeOrderPermPage;
+window.openGlobalOrderModal = openGlobalOrderModal;
+window.closeGlobalOrderModal = closeGlobalOrderModal;
+window.submitGlobalOrderControl = submitGlobalOrderControl;
+window.openOrderPermissionModal = openOrderPermissionModal;
+window.closeOrderPermissionModal = closeOrderPermissionModal;
+window.submitOrderPermissionToggle = submitOrderPermissionToggle;

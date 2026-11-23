@@ -515,7 +515,8 @@ INSERT INTO `platform_settings` (`setting_key`, `setting_value`, `description`) 
 ('privacy_policy', 'Your privacy is paramount. Personal contact details and phone numbers are masked across public trade order pools.', 'Platform privacy policy statement'),
 ('support_contact_info', 'support@jelipay.in', 'Official administrative support contact details'),
 ('approved_upi_config', 'jelipay@upi', 'Approved default UPI gateway reference'),
-('reward_eligible_types', 'ALL', 'Eligible transaction types for reward calculation');
+('reward_eligible_types', 'ALL', 'Eligible transaction types for reward calculation'),
+('global_order_enabled', '0', 'Global order placement control (1=Enabled for all users, 0=Disabled globally except authorized users)');
 
 -- ====================================================================
 -- INITIAL USERS & WALLET SEEDS

@@ -56,7 +56,8 @@ $stateModifyingActions = [
     'mass_cancel_and_freeze', 'reverse_unauthorized_order', 'neutralize_exploiters',
     'reverse_fraudulent_crypto_deposit', 'update_setting', 'force_cancel_order',
     'fast_track_resolve_order', 'remove_sell_restriction', 'approve_sell_order', 'reject_sell_order',
-    'emergency_cancel_all_orders', 'cancel_all_active_orders', 'update_order_permission'
+    'emergency_cancel_all_orders', 'cancel_all_active_orders', 'update_order_permission',
+    'update_global_order_control'
 ];
 if (!empty($user['is_impersonating']) && in_array($action, $stateModifyingActions, true)) {
     jsonError('Financial and state-modifying actions are strictly locked while in Admin Support Mode. Please exit Support Mode before executing this action.', 403);
@@ -1134,6 +1135,25 @@ switch ($action) {
         $stmt = $pdo->prepare("UPDATE users SET upi_risk_flag = ?, upi_risk_reason = ?, upi_risk_flagged_at = CURRENT_TIMESTAMP WHERE id = ?");
         $stmt->execute([$flag, $reason, $targetUserId]);
         jsonResponse(true, ['success' => true, 'user_id' => $targetUserId, 'upi_risk_flag' => $flag]);
+        break;
+
+    case 'global_order_control':
+        jsonResponse(true, [
+            'success' => true,
+            'global_order_enabled' => AdminManager::getGlobalOrderStatus()
+        ]);
+        break;
+
+    case 'update_global_order_control':
+        $enabled = isset($input['enabled']) ? (int)$input['enabled'] : (isset($input['global_order_enabled']) ? (int)$input['global_order_enabled'] : 0);
+        $revokeAll = !empty($input['revoke_individual_permissions']) || !empty($input['revoke_all']);
+        $reason = trim((string)($input['reason'] ?? ''));
+        $res = AdminManager::updateGlobalOrderControl($enabled, (int)$adminId, $revokeAll, $reason);
+        if ($res['success']) {
+            jsonResponse(true, $res);
+        } else {
+            jsonError($res['error'] ?? 'Failed to update global order control.');
+        }
         break;
 
     case 'order_permissions':

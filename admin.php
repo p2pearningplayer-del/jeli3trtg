@@ -606,67 +606,102 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
         </section>
 
         <!-- ========================================== -->
-        <!-- VIEW: USER ORDER PERMISSION MANAGEMENT (PRD) -->
+        <!-- VIEW: GLOBAL ORDER CONTROL & PERMISSIONS (PRD) -->
         <!-- ========================================== -->
         <section id="adminView-order_permissions" class="admin-view space-y-6 hidden">
-            <!-- Summary Statistics Cards -->
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <!-- Total Registered Users -->
-                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex items-center justify-between gap-4 shadow-lg">
+            <!-- 1. GLOBAL ORDER CONTROL (Section 2 PRD) -->
+            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-5">
+                <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-800">
                     <div class="space-y-1">
-                        <div class="flex items-center gap-2">
-                            <span class="w-2.5 h-2.5 rounded-full bg-indigo-400"></span>
-                            <span class="text-xs font-bold uppercase tracking-wider text-indigo-400">Total Registered Users</span>
+                        <div class="flex items-center gap-2.5">
+                            <div class="w-3 h-3 rounded-full bg-emerald-500 animate-pulse" id="globalOrderPulseDot"></div>
+                            <h2 class="text-xl font-extrabold text-white tracking-tight">GLOBAL ORDER CONTROL</h2>
+                            <span id="globalOrderStatusPill" class="px-3 py-1 rounded-full text-xs font-black tracking-wider uppercase bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                                DISABLED
+                            </span>
                         </div>
-                        <div id="permMetricTotalUsers" class="text-2xl sm:text-3xl font-extrabold font-mono text-white">0</div>
-                        <p class="text-[11px] text-slate-400">Total registered trader accounts on platform</p>
+                        <p id="globalOrderStatusDesc" class="text-xs text-slate-400 max-w-2xl">
+                            Global order placement is currently DISABLED. Only individually approved users can place orders. All other users remain blocked.
+                        </p>
                     </div>
-                    <div class="w-11 h-11 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 shrink-0">
-                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+
+                    <!-- One-Click Global Control Buttons -->
+                    <div class="flex flex-wrap items-center gap-3 shrink-0">
+                        <button type="button" onclick="openGlobalOrderModal(0)"
+                                class="px-5 py-2.5 bg-rose-600 hover:bg-rose-500 active:scale-95 text-white font-bold text-xs rounded-xl shadow-lg shadow-rose-600/30 transition flex items-center gap-2 cursor-pointer">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
+                            <span>DISABLE ORDERS FOR ALL USERS</span>
+                        </button>
+                        <button type="button" onclick="openGlobalOrderModal(1)"
+                                class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-600/30 transition flex items-center gap-2 cursor-pointer">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+                            <span>ENABLE ORDERS FOR ALL USERS</span>
+                        </button>
                     </div>
                 </div>
 
-                <!-- Order Permission Enabled Users -->
-                <div class="bg-slate-900 border border-emerald-500/30 rounded-2xl p-5 flex items-center justify-between gap-4 shadow-lg">
-                    <div class="space-y-1">
-                        <div class="flex items-center gap-2">
-                            <span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
-                            <span class="text-xs font-bold uppercase tracking-wider text-emerald-400">Permission Enabled</span>
+                <!-- 4 Summary Status & Metric Cards (PRD Section 5) -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <!-- Global Order Status -->
+                    <div class="bg-slate-950/70 border border-slate-800 rounded-2xl p-4 flex items-center justify-between gap-3 shadow-inner">
+                        <div class="space-y-1">
+                            <span class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Global Order Status</span>
+                            <div id="permMetricGlobalStatus" class="text-xl sm:text-2xl font-black font-mono text-rose-400">DISABLED</div>
+                            <p class="text-[10px] text-slate-500">Platform-wide master switch</p>
                         </div>
-                        <div id="permMetricEnabledUsers" class="text-2xl sm:text-3xl font-extrabold font-mono text-emerald-400">0</div>
-                        <p class="text-[11px] text-slate-400">Users authorized to place Buy & Sell orders</p>
+                        <div id="permMetricGlobalStatusIcon" class="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400 shrink-0">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                        </div>
                     </div>
-                    <div class="w-11 h-11 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
-                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                    </div>
-                </div>
 
-                <!-- Order Permission Disabled Users -->
-                <div class="bg-slate-900 border border-rose-500/30 rounded-2xl p-5 flex items-center justify-between gap-4 shadow-lg">
-                    <div class="space-y-1">
-                        <div class="flex items-center gap-2">
-                            <span class="w-2.5 h-2.5 rounded-full bg-rose-400"></span>
-                            <span class="text-xs font-bold uppercase tracking-wider text-rose-400">Permission Disabled</span>
+                    <!-- Total Registered Users -->
+                    <div class="bg-slate-950/70 border border-slate-800 rounded-2xl p-4 flex items-center justify-between gap-3 shadow-inner">
+                        <div class="space-y-1">
+                            <span class="text-[11px] font-bold uppercase tracking-wider text-indigo-400">Total Registered Users</span>
+                            <div id="permMetricTotalUsers" class="text-xl sm:text-2xl font-black font-mono text-white">0</div>
+                            <p class="text-[10px] text-slate-500">Total accounts on platform</p>
                         </div>
-                        <div id="permMetricDisabledUsers" class="text-2xl sm:text-3xl font-extrabold font-mono text-rose-400">0</div>
-                        <p class="text-[11px] text-slate-400">Users restricted from placing new orders (Default)</p>
+                        <div class="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 shrink-0">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                        </div>
                     </div>
-                    <div class="w-11 h-11 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400 shrink-0">
-                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
+
+                    <!-- Total Authorized Users -->
+                    <div class="bg-slate-950/70 border border-emerald-500/30 rounded-2xl p-4 flex items-center justify-between gap-3 shadow-inner">
+                        <div class="space-y-1">
+                            <span class="text-[11px] font-bold uppercase tracking-wider text-emerald-400">Total Authorized Users</span>
+                            <div id="permMetricAuthorizedUsers" class="text-xl sm:text-2xl font-black font-mono text-emerald-400">0</div>
+                            <p class="text-[10px] text-slate-500">Can place Buy & Sell orders now</p>
+                        </div>
+                        <div class="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                        </div>
+                    </div>
+
+                    <!-- Total Blocked Users -->
+                    <div class="bg-slate-950/70 border border-rose-500/30 rounded-2xl p-4 flex items-center justify-between gap-3 shadow-inner">
+                        <div class="space-y-1">
+                            <span class="text-[11px] font-bold uppercase tracking-wider text-rose-400">Total Blocked Users</span>
+                            <div id="permMetricBlockedUsers" class="text-xl sm:text-2xl font-black font-mono text-rose-400">0</div>
+                            <p class="text-[10px] text-slate-500">Restricted from placing orders</p>
+                        </div>
+                        <div class="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400 shrink-0">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Search, Filter & Controls Bar -->
-            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
-                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <!-- 2. INDIVIDUAL ORDER PERMISSIONS (Section 3 PRD) -->
+            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2">
                     <div>
                         <div class="flex items-center gap-2">
-                            <h3 class="text-lg font-bold text-white">User Order Permission Management</h3>
-                            <span class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold uppercase">Admin Authorization Gated</span>
+                            <h3 class="text-lg font-bold text-white tracking-tight">INDIVIDUAL ORDER PERMISSIONS</h3>
+                            <span class="px-2 py-0.5 rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 text-[10px] font-bold uppercase">Granular User Controls</span>
                         </div>
                         <p class="text-xs text-slate-400 mt-0.5">
-                            By default, all registered users are restricted from placing Buy and Sell orders. Admin approval is required to grant order placement authorization.
+                            Grant or revoke order placement permissions individually. When Global Control is disabled, only approved users can place orders.
                         </p>
                     </div>
                     <div class="flex items-center gap-2 shrink-0">
@@ -676,7 +711,7 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                             <option value="50" selected>50 users</option>
                             <option value="100">100 users</option>
                         </select>
-                        <button onclick="loadAdminOrderPermissions()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold border border-slate-700 transition flex items-center gap-1.5">
+                        <button onclick="loadAdminOrderPermissions()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold border border-slate-700 transition flex items-center gap-1.5 cursor-pointer">
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                             <span>Refresh</span>
                         </button>
@@ -686,47 +721,50 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                 <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
                     <div class="sm:col-span-3">
                         <input type="text" id="orderPermSearchInput" onkeyup="if(event.key === 'Enter') { orderPermPageOffset=0; loadAdminOrderPermissions(); }"
-                               placeholder="Search by User ID, Name, Phone / Username, or Email..."
-                               class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500">
+                               placeholder="Search users by username, email, phone, or User ID..."
+                               class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500">
                     </div>
                     <div>
-                        <select id="orderPermStatusFilter" onchange="orderPermPageOffset=0; loadAdminOrderPermissions()" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500">
-                            <option value="all">All Permissions</option>
-                            <option value="enabled">Permission Enabled Only</option>
-                            <option value="disabled">Permission Disabled Only</option>
+                        <select id="orderPermStatusFilter" onchange="orderPermPageOffset=0; loadAdminOrderPermissions()" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500">
+                            <option value="all">All Users</option>
+                            <option value="authorized">Authorized Users (Can Place Orders)</option>
+                            <option value="blocked">Blocked Users (Cannot Place Orders)</option>
+                            <option value="individual_enabled">Individually Approved Only</option>
+                            <option value="individual_disabled">Individually Blocked Only</option>
                         </select>
                     </div>
                 </div>
-            </div>
 
-            <!-- Permission Table -->
-            <div class="overflow-x-auto bg-slate-900 border border-slate-800 rounded-2xl">
-                <table class="w-full text-left">
-                    <thead class="bg-slate-950 text-slate-400 text-xs uppercase border-b border-slate-800">
-                        <tr>
-                            <th class="p-3">User ID</th>
-                            <th class="p-3">User Name / Full Name</th>
-                            <th class="p-3">Phone / Username</th>
-                            <th class="p-3">Email Address</th>
-                            <th class="p-3">Wallet Available</th>
-                            <th class="p-3">Order Permission Status</th>
-                            <th class="p-3 text-right">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody id="adminOrderPermissionsTableBody" class="divide-y divide-slate-800/60"></tbody>
-                </table>
+                <!-- Individual Permission Table -->
+                <div class="overflow-x-auto border border-slate-800 rounded-2xl">
+                    <table class="w-full text-left">
+                        <thead class="bg-slate-950 text-slate-400 text-xs uppercase border-b border-slate-800">
+                            <tr>
+                                <th class="p-3">User ID</th>
+                                <th class="p-3">User Name / Holder</th>
+                                <th class="p-3">Phone / Username</th>
+                                <th class="p-3">Email Address</th>
+                                <th class="p-3">Available Balance</th>
+                                <th class="p-3">Individual Permission</th>
+                                <th class="p-3">Effective Authorization</th>
+                                <th class="p-3 text-right">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="adminOrderPermissionsTableBody" class="divide-y divide-slate-800/60"></tbody>
+                    </table>
 
-                <!-- Pagination Footer Bar -->
-                <div class="p-4 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
-                    <span id="orderPermPaginationInfo" class="text-slate-400 font-mono">Showing 0 users</span>
-                    <div class="flex items-center gap-2">
-                        <button id="orderPermPrevBtn" onclick="changeOrderPermPage('prev')" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-slate-800 text-slate-300 rounded-xl font-semibold border border-slate-700 transition">
-                            &larr; Previous
-                        </button>
-                        <span id="orderPermPageIndicator" class="px-3 py-1.5 text-slate-400 font-mono">Page 1</span>
-                        <button id="orderPermNextBtn" onclick="changeOrderPermPage('next')" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-slate-800 text-slate-300 rounded-xl font-semibold border border-slate-700 transition">
-                            Next &rarr;
-                        </button>
+                    <!-- Pagination Footer Bar -->
+                    <div class="p-4 bg-slate-950/40 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                        <span id="orderPermPaginationInfo" class="text-slate-400 font-mono">Showing 0 users</span>
+                        <div class="flex items-center gap-2">
+                            <button id="orderPermPrevBtn" onclick="changeOrderPermPage('prev')" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-slate-800 text-slate-300 rounded-xl font-semibold border border-slate-700 transition cursor-pointer">
+                                &larr; Previous
+                            </button>
+                            <span id="orderPermPageIndicator" class="px-3 py-1.5 text-slate-400 font-mono">Page 1</span>
+                            <button id="orderPermNextBtn" onclick="changeOrderPermPage('next')" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-slate-800 text-slate-300 rounded-xl font-semibold border border-slate-700 transition cursor-pointer">
+                                Next &rarr;
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -3139,6 +3177,60 @@ $adminRole = $currentUser['admin_role'] ?? 'super_admin';
                     </button>
                     <button type="submit" id="permModalConfirmBtn" class="px-5 py-2 font-bold text-xs rounded-xl transition shadow-lg">
                         Confirm
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MODAL 17: GLOBAL ORDER CONTROL CONFIRMATION (PRD) -->
+    <!-- ========================================== -->
+    <div id="globalOrderControlModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full p-6 shadow-2xl relative space-y-4">
+            <button onclick="closeGlobalOrderModal()" class="absolute right-5 top-5 text-slate-500 hover:text-white transition">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+            <div class="flex items-center gap-3">
+                <div id="globalModalIconContainer" class="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0">
+                    <svg id="globalModalIcon" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"></svg>
+                </div>
+                <div>
+                    <h3 id="globalModalTitle" class="text-lg font-bold text-white">Global Order Placement Control</h3>
+                    <p id="globalModalSubtitle" class="text-xs text-slate-400 mt-0.5">Platform-wide trading access control</p>
+                </div>
+            </div>
+
+            <div id="globalModalDescBox" class="p-4 rounded-xl border text-xs leading-relaxed"></div>
+
+            <form onsubmit="submitGlobalOrderControl(event)" class="space-y-4">
+                <input type="hidden" id="globalModalTargetState">
+                
+                <!-- Revoke All Permissions Checkbox (for Disable action) -->
+                <div id="globalModalRevokeCheckboxContainer" class="p-3.5 bg-slate-950/80 border border-slate-800 rounded-xl space-y-1.5 hidden">
+                    <label class="flex items-start gap-2.5 cursor-pointer text-xs text-slate-200">
+                        <input type="checkbox" id="globalModalRevokeAllCheckbox" checked
+                               class="mt-0.5 w-4 h-4 rounded border-slate-700 text-rose-600 focus:ring-rose-500 bg-slate-900">
+                        <div>
+                            <span class="font-bold text-white">Revoke all individual user permissions (Full Lockout)</span>
+                            <p class="text-[11px] text-slate-400 mt-0.5">
+                                When checked, also resets all user individual permissions so that <strong>100% of traders are blocked immediately</strong>. You can then individually approve selected users.
+                            </p>
+                        </div>
+                    </label>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Administrative Reason (Audit Log)</label>
+                    <input type="text" id="globalModalReason" placeholder="Optional audit trail reason..."
+                           class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500">
+                </div>
+                <div class="flex items-center justify-end gap-2 pt-1">
+                    <button type="button" onclick="closeGlobalOrderModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition cursor-pointer">
+                        Cancel
+                    </button>
+                    <button type="submit" id="globalModalConfirmBtn" class="px-5 py-2 font-bold text-xs rounded-xl transition shadow-lg cursor-pointer">
+                        Confirm Action
                     </button>
                 </div>
             </form>
